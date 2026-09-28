@@ -17,6 +17,8 @@
 --     factionOnly,               -- 0 (Horde) or 1 (Alliance) for a "Horde Only" /
 --                                --  "Alliance Only" line (ITEM_REQ_HORDE / _ALLIANCE), as PvPFaction
 --     bagSlots, bagKind,         -- a bag's "36 Slot Bag" line (CONTAINER_SLOTS)
+--     pvpItemLevel,              -- n from PvP gear's "Increases item level to n in
+--                                --  Arenas and Battlegrounds." (PVP_ITEM_LEVEL_TOOLTIP)
 --     decorReadable,             -- whether the two decor formats below exist
 --     decorOwned,                -- { total, placed, stored } from "Total Owned: 3 (Placed: 1,
 --                                --  Storage: 2)" (HOUSING_DECOR_OWNED_COUNT_FORMAT)
@@ -68,6 +70,7 @@ local function Strings()     -- but suites may swap them
   if STRINGS then return STRINGS end
   local pet, slots = Global("ITEM_PET_KNOWN"), Global("CONTAINER_SLOTS")
   local owned, bonus = Global("HOUSING_DECOR_OWNED_COUNT_FORMAT"), Global("HOUSING_DECOR_FIRST_ACQUISITION_FORMAT")
+  local pvp = Global("PVP_ITEM_LEVEL_TOOLTIP")
   STRINGS = {
     known = Global("ITEM_SPELL_KNOWN"),
     locked = Global("LOCKED"),
@@ -82,6 +85,7 @@ local function Strings()     -- but suites may swap them
     -- Matched against color-stripped text: the numbers carry color codes
     decorOwned = owned and Tooltip.FormatToPattern(Tooltip.StripColors(owned)) or nil,
     decorBonus = bonus and Tooltip.FormatToPattern(Tooltip.StripColors(bonus)) or nil,
+    pvpItemLevel = pvp and Tooltip.FormatToPattern(Tooltip.StripColors(pvp)) or nil,
   }
   return STRINGS
 end
@@ -130,6 +134,10 @@ local function ReadLine(facts, s, line)
   if s.useTrigger and not facts.useText and text:sub(1, #s.useTrigger) == s.useTrigger then facts.useText = text end
   -- Lines read without their color codes: season tags and the decor counts carry them
   local plain = Tooltip.StripColors(text)
+  if s.pvpItemLevel and not facts.pvpItemLevel then
+    local level = plain:match(s.pvpItemLevel)
+    if level then facts.pvpItemLevel = tonumber(level) end
+  end
   if s.decorOwned and not facts.decorOwned then
     local total, placed, stored = plain:match(s.decorOwned)
     if total then facts.decorOwned = { total = tonumber(total), placed = tonumber(placed), stored = tonumber(stored) } end

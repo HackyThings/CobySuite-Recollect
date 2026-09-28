@@ -68,3 +68,27 @@ function Chat.ComposeWhisper(target, text)
   ChatFrameUtil.OpenChat(text or "")
   return editBox
 end
+
+---------------------------------------------------------------------------
+-- Chat.PutInChat(text): a link or text into chat, as a Shift-click does
+--
+-- Into the chat box already open (or wherever the game's InsertLink puts
+-- it), else a newly opened one. Never into the macro editor: InsertLink
+-- types into MacroFrameText while it has focus, and text an addon types
+-- there taints the macro window's saves (measured with Coby's Linkepedia's
+-- macro tools, 2026-09-16), so chat opens instead. InsertLink alone does
+-- nothing when no box takes the text; OpenChat covers that.
+---------------------------------------------------------------------------
+-- The client calls PutInChat makes, swapped by tests (never a Blizzard global)
+Chat.seams = {
+  MacroFocused = function() return MacroFrameText ~= nil and MacroFrameText:HasFocus() == true end,
+  InsertLink = function(text) return ChatFrameUtil.InsertLink(text) end,
+  OpenChat = function(text) ChatFrameUtil.OpenChat(text) end,
+}
+
+function Chat.PutInChat(text)
+  local seams = Chat.seams
+  if seams.MacroFocused() or not seams.InsertLink(text) then
+    seams.OpenChat(text)
+  end
+end

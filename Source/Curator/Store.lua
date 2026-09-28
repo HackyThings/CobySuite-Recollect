@@ -40,8 +40,10 @@
 -- stamps, delivered marks, awaiting requests, context blocks and quest
 -- entries (Context adds and removes its own through AddBytes). Past
 -- CAP_BYTES the oldest records and stamps go first (D17), then the context
--- blocks and quest deltas nothing names any more (Context.Prune). Store.Swap
--- puts a scratch table in place for tests.
+-- blocks and quest deltas nothing names any more (Context.Prune). Frozen
+-- blocks (findings made under an earlier data version or layout, Main.lua's
+-- header) count toward the same cap and go first, oldest block whole, before
+-- any live finding. Store.Swap puts a scratch table in place for tests.
 -------------------------------------------------------------------------------
 local Curator = Recollect.Curator
 local Host = Curator.Host
@@ -77,6 +79,7 @@ local function Normalize(db)
   if type(db.bytes) ~= "number" then db.bytes = 0 end
   if type(db.nextID) ~= "number" then db.nextID = 1 end
   if type(db.nextRev) ~= "number" then db.nextRev = 1 end
+  if type(db.frozen) ~= "table" then db.frozen = {} end
   return db
 end
 
@@ -216,11 +219,24 @@ end
 -- first (whatever their kind, D17) with their delivered marks, then what
 -- only they named (Context.Prune). A write calls this after inserting, so
 -- the context and quest entry it names are already referenced.
+-- The frozen blocks' size together
+function Store.FrozenBytes()
+  local total = 0
+  for _, block in ipairs(Store.DB().frozen) do total = total + (tonumber(block.bytes) or 0) end
+  return total
+end
+
 function Store.Trim()
   local db = Store.DB()
   local cap = Curator.Const.CAP_BYTES
-  if db.bytes <= cap then return 0 end
+  if db.bytes + Store.FrozenBytes() <= cap then return 0 end
   local target, dropped = math.floor(cap * 0.9), 0
+  -- the oldest frozen block goes whole first, before any live finding
+  while #db.frozen > 0 and db.bytes + Store.FrozenBytes() > target do
+    local block = table.remove(db.frozen, 1)
+    Host.Log("Curator store over the cap: a frozen block made under data %s dropped", tostring(block.dataVersion))
+  end
+  target = math.max(0, target - Store.FrozenBytes())
   for _, entry in ipairs(Oldest(db)) do
     if db.bytes <= target then break end
     if entry.kind == "record" then RemoveRecord(db, entry.key) else RemoveStamp(db, entry.key) end
@@ -398,6 +414,42 @@ function Store.Lost(requestID)
   return true
 end
 
+-- A frozen block's delivery: K marks it awaiting its request, V deletes it
+-- whole, a lost V (or none within AWAITING_DAYS) makes it pending again
+function Store.FrozenAcknowledged(block, requestID)
+  block.awaiting, block.awaitingAt = requestID, GetServerTime()
+end
+
+-- FrozenSaved(requestID) / FrozenLost(requestID): true when a block had it
+function Store.FrozenSaved(requestID)
+  local db = Store.DB()
+  for i, block in ipairs(db.frozen) do
+    if block.awaiting == requestID then
+      table.remove(db.frozen, i)
+      return true
+    end
+  end
+  return false
+end
+
+function Store.FrozenLost(requestID)
+  for _, block in ipairs(Store.DB().frozen) do
+    if block.awaiting == requestID then
+      block.awaiting, block.awaitingAt = nil, nil
+      return true
+    end
+  end
+  return false
+end
+
+-- NextFrozen(): the oldest block not waiting for V, or nil
+function Store.NextFrozen()
+  for _, block in ipairs(Store.DB().frozen) do
+    if not block.awaiting then return block end
+  end
+  return nil
+end
+
 -- AwaitingIDs(): the request IDs still waiting for V (they go in R); ones
 -- older than AWAITING_DAYS are dropped first
 function Store.AwaitingIDs()
@@ -406,6 +458,10 @@ function Store.AwaitingIDs()
   local out = {}
   for requestID, entry in pairs(db.awaiting) do
     if (entry.at or 0) < cutoff then DropAwaiting(db, requestID) else out[#out + 1] = requestID end
+  end
+  for _, block in ipairs(db.frozen) do
+    if block.awaiting and (block.awaitingAt or 0) < cutoff then block.awaiting, block.awaitingAt = nil, nil end
+    if block.awaiting then out[#out + 1] = block.awaiting end
   end
   table.sort(out, function(a, b) return tostring(a) < tostring(b) end)
   return out
@@ -432,6 +488,16 @@ function Store.Counts()
   for key in pairs(pending.confirms) do
     out.pending = out.pending + 1
     out.pendingBytes = out.pendingBytes + StampBytes(db.confirms[key])
+  end
+  -- frozen blocks not yet acknowledged count as pending, whole
+  out.frozen, out.frozenPending = #db.frozen, 0
+  for _, block in ipairs(db.frozen) do
+    if not block.awaiting then
+      local n = Count(block.records or {}) + Count(block.confirms or {})
+      out.frozenPending = out.frozenPending + n
+      out.pending = out.pending + n
+      out.pendingBytes = out.pendingBytes + (tonumber(block.bytes) or 0)
+    end
   end
   return out
 end

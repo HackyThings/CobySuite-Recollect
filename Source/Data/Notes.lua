@@ -5,7 +5,9 @@
 -- Some items no client call, no dump record and no AllTheThings relation
 -- explains: Latent Arcana charges the Runestones of Eversong Woods, and only
 -- a guide says so. A note holds what the guide says, in Recollect's own
--- words, with the page it was read on and how to confirm it in game.
+-- words, and how to confirm it in game. The pages it was researched on are
+-- kept in the repo's research notes, never here: a shipped file names no
+-- website as a source (Cobanyte, 2026-09-28).
 --
 --   {
 --     items = { itemID, ... },          -- the items the note is about
@@ -19,24 +21,19 @@
 --                                       -- names, whose progress is read live
 --     quest = questID,                  -- optional: a quest the note names,
 --                                       -- whose state is read live
---     sources = { "https://..." },      -- the pages the facts were read on
---                                       -- (at least one; the first names the
---                                       -- note on the panel: "Per method.gg")
 --     confirmInGame = "...",            -- how to confirm it in game
 --     confirmed = false,                -- the in-game check behind it: false
 --                                       -- until then, else "2026-..., build ...: ..."
---     researched = "2026-09-25",        -- when the pages were read
+--     researched = "2026-09-25",        -- when it was researched
 --   },
 --
 -- A note is informational only: the panel and the details window show it
--- labeled with its source and, until confirmed, "not confirmed in game yet".
+-- labeled as a guide note and, until confirmed, "not confirmed in game yet".
 -- It never changes a verdict, confirmed or not (Data/Uses.lua is where a
 -- confirmed use that decides a verdict ships). Facts.Notes reads this table;
--- an entry without items, text or an http(s) source is ignored.
--- Sources follow the site rules of contract rule 11: only pages whose terms
--- and robots.txt allow reading, never Wowhead, wago.tools, warcraft.wiki.gg
--- or wowpedia; a search result's snippet is a lead, never a source. Nothing
--- is copied from another addon. A note says what the item is used for, never
+-- an entry without items or text is ignored.
+-- Every note is our own wording, and nothing is copied from another addon
+-- or a website. A note says what the item is used for, never
 -- what it doesn't do, and never restates its own tooltip (Cobanyte,
 -- 2026-09-25: the Key to the City's "no longer does anything", the Resilient
 -- Seed's "warbound" and the Spare Toolbox's "unique" were taken out, and the
@@ -55,7 +52,6 @@ Recollect.Data.Notes = {
       .. "Sanctum of the Moon (41.1, 73.8), Sunstrider Isle (40.5, 13.6)",
     from = "Saltheril's Soiree dailies and small treasures in Eversong Woods, once the Soiree is unlocked",
     achievement = 61961,
-    sources = { "https://www.method.gg/guides/forever-song-eversong-woods-zone-achievement-guide" },
     confirmInGame = "Open the achievement Runestone Rush (61961): 5 Runestone criteria. At a Runestone, one charge takes 3 "
       .. "Latent Arcana.",
     confirmed = false,
@@ -68,7 +64,6 @@ Recollect.Data.Notes = {
       .. "earn Community Coupons, which buy decor from Timicky.",
     where = "Your housing neighborhood (Founder's Point or Razorwind Shores), when its endeavor is Candle Culture",
     from = "Wax deposits in the neighborhood",
-    sources = { "https://housing.wowdb.com/endeavors/12/you-take-candle/" },
     confirmInGame = "In the neighborhood, open the Endeavors tab while Candle Culture runs: its wax tasks name Home-Grown Wax "
       .. "with how many each takes.",
     confirmed = false,
@@ -79,7 +74,6 @@ Recollect.Data.Notes = {
     text = "Players drop it at world bosses, outdoor events and outside Delves so everyone nearby gets the buff. It shares "
       .. "its 1-hour cooldown with the other deployables (the Recovery Keg and the Wind-Wrangling Spire).",
     from = "The War Within Delves",
-    sources = { "https://us.forums.blizzard.com/en/wow/t/what-use-are-the-deployable-kegspirebattle-supplies/2154010" },
     confirmInGame = "Use one outdoors: nearby players get the stat buff, and a Deployable Recovery Keg shows the shared cooldown.",
     confirmed = false,
     researched = "2026-09-25",
@@ -89,7 +83,6 @@ Recollect.Data.Notes = {
     text = "Players drop it at world bosses and outdoor events to heal everyone nearby. It shares its 1-hour cooldown with "
       .. "the other deployables (Battle Supplies and the Wind-Wrangling Spire).",
     from = "The War Within Delves",
-    sources = { "https://us.forums.blizzard.com/en/wow/t/what-use-are-the-deployable-kegspirebattle-supplies/2154010" },
     confirmInGame = "Use one outdoors: nearby players are healed to full, and Deployable Battle Supplies shows the shared "
       .. "cooldown.",
     confirmed = false,
@@ -99,7 +92,6 @@ Recollect.Data.Notes = {
     items = { 34076 },   -- Fish Bladder
     text = "Given for the Howling Fjord quest \"Forgotten Treasure\", where you dive to Black Conrad's sunken fleet.",
     where = "Howling Fjord: Handsome Terry gives the quest at Scalawag Point (35, 81)",
-    sources = { "https://gamertribute.com/world-of-warcraft-cinematic-quest-guide/howling-fjord/forgotten-treasure/" },
     confirmInGame = "Use it: 3 minutes of water breathing, and its charges drop from 3 to 2.",
     confirmed = false,
     researched = "2026-09-25",
@@ -110,7 +102,6 @@ Recollect.Data.Notes = {
       .. "Within Season 3 Valorstones and Coffer Keys; 5 saved open a mode that spends them together.",
     howMany = "1 per run; 5 for the Many Radiant Echoes mode, forum posters say",
     where = "A Worldsoul Memory in Khaz Algar",
-    sources = { "https://www.mmo-champion.com/threads/2654427-How-does-loot-form-Worldsoul-Memories-work" },
     confirmInGame = "At a Worldsoul Memory in Khaz Algar, talk to the event: a Radiant Echo option shows, or doesn't once "
       .. "Season 3's mode is gone.",
     confirmed = false,
@@ -121,7 +112,6 @@ Recollect.Data.Notes = {
     text = "Anyone can use it, not only engineers, so raid and Mythic+ groups want it for a battle resurrection.",
     howMany = "1 per resurrection",
     from = "Crafted by Midnight Engineering; also sold on the Auction House",
-    sources = { "https://norumu.com/wow-endgame-glossary/", "https://gamingcy.com/blog/wow-retail-engineering-guide" },
     confirmInGame = "Hover it: its Use line describes bringing a dead party member back in combat.",
     confirmed = false,
     researched = "2026-09-25",
@@ -134,8 +124,6 @@ Recollect.Data.Notes = {
     howMany = "100 per Field Accolade Pouch; 150 per Bulging Field Pouch",
     where = "Silvermoon City, the Ritual Site hub (48.2, 49.6)",
     from = "Void Assault events and Ritual Sites",
-    sources = { "https://conquestcapped.com/guides/wow/void-assaults-event/",
-      "https://www.method.gg/guides/field-accolades-vendor-location-and-rewards" },
     confirmInGame = "Visit Maren Silverwing in Silvermoon City: the Field Accolade Pouch costs 100 Dark Particle.",
     confirmed = false,
     researched = "2026-09-25",
@@ -146,7 +134,6 @@ Recollect.Data.Notes = {
       .. "pay for Altar of Corrosion upgrades (Corrode Spirit).",
     howMany = "1 per Satchel of Corrosive Coins",
     where = "Er'inye, in front of the Altar of Corrosion, Vaults of Atal'Utek (51.1, 62.7)",
-    sources = { "https://www.method.gg/guides/how-to-unlock-and-upgrade-the-altar-of-corrosion-in-wow-midnight" },
     confirmInGame = "Talk to Er'inye at the Altar of Corrosion: the Satchel of Corrosive Coins costs 1 Corrosive Soul.",
     confirmed = false,
     researched = "2026-09-25",
@@ -159,7 +146,6 @@ Recollect.Data.Notes = {
     where = "Profaned Mausoleum, Vaults of Atal'Utek (36.6, 25.3)",
     from = "High Priest Jin'tal, in the Vault of Restless Brothers",
     quest = 97661,
-    sources = { "https://www.masterofwarcraft.net/2026/08/wow-patch-12-1-hidden-altar-powers.html" },
     confirmInGame = "/dump C_QuestLog.IsQuestFlaggedCompleted(97661): false means the charm is still needed; the note's "
       .. "quest state should match.",
     confirmed = false,
@@ -170,7 +156,6 @@ Recollect.Data.Notes = {
     text = "In Classic it opened Stratholme's inner gates: the Eastwall Gate and the gate between Festival Lane and King's "
       .. "Square.",
     where = "Stratholme, Eastern Plaguelands",
-    sources = { "https://blizzardwatch.com/2019/06/17/wow-classic-dungeon-keys/" },
     confirmInGame = "In Stratholme, walk to the Eastwall Gate with the key in your bags and see whether the gate asks for it.",
     confirmed = false,
     researched = "2026-09-25",
@@ -182,7 +167,6 @@ Recollect.Data.Notes = {
     howMany = "1 per item",
     where = "Oribos, near the Great Vault",
     from = "A 3-part questline you got by entering a Fated raid",
-    sources = { "https://us.forums.blizzard.com/en/wow/t/how-do-fated-dinars-work-for-lfr/1296053" },
     confirmInGame = "In Oribos, look near the Great Vault: no Dinar broker should be there.",
     confirmed = false,
     researched = "2026-09-25",
@@ -193,8 +177,6 @@ Recollect.Data.Notes = {
       .. "machines pay out only when you have five different lucky items or buffs, out of 13.",
     howMany = "1; it counts as one of the five",
     from = "Farrier Roscha in the Ohn'ahran Plains",
-    sources = { "https://news.blizzard.com/en-us/article/24179881/the-making-of-ratts-revenge-deciphering-incognitro-the-indecipherable-felcycle",
-      "https://warcraft-secrets.com/guides/incognitro-the-indecipherable-felcycle" },
     confirmInGame = "Open the Mount Journal: whether Incognitro, the Indecipherable Felcycle is collected says whether you "
       .. "still need luck for it.",
     confirmed = false,
@@ -208,8 +190,6 @@ Recollect.Data.Notes = {
     where = "Lestia Goldenstrike in Founder's Point and Xiz'ro in Razorwind Shores, near the town-center contractors "
       .. "(as of early 2026)",
     from = "Rarely from harvesting lumber, and one from each housing weekly quest",
-    sources = { "https://blizzardwatch.com/2026/01/22/farming-player-housing-decor-components-become-streamlined-midnight-essence-lumber/",
-      "https://us.forums.blizzard.com/en/wow/t/essence-of-lumber/2272535" },
     confirmInGame = "Open Lestia Goldenstrike's or Xiz'ro's vendor window: a stack of lumber costs 1 Essence of Lumber.",
     confirmed = false,
     researched = "2026-09-25",
@@ -221,8 +201,6 @@ Recollect.Data.Notes = {
     where = "Inside a Ritual Site; it works only close to the quest's spots",
     from = "Lady Darkglen, top level of the Bazaar in Silvermoon City (47.7, 49.7), after a Tier 4 Ritual Site",
     quest = 95549,
-    sources = { "https://www.method.gg/guides/how-to-unlock-all-ritual-site-challenges",
-      "https://us.forums.blizzard.com/en/wow/t/quest-raising-magical-alarms-does-not-provide-me-with-lady-darkglens-device-quest-item/2301832" },
     confirmInGame = "/dump C_QuestLog.IsQuestFlaggedCompleted(95549): true means the quest is done; the note's quest state "
       .. "should match.",
     confirmed = false,
@@ -234,8 +212,6 @@ Recollect.Data.Notes = {
       .. "station is one of Mechagon's rotating projects and isn't up every day; forum players say access costs 250 Spare "
       .. "Parts and one charged Energy Cell for two hours.",
     where = "The Charging Station in Mechagon, when it is the day's project",
-    sources = { "https://us.forums.blizzard.com/en/wow/t/mechagon-charging-station/212258",
-      "https://us.forums.blizzard.com/en/wow/t/mechagon-how-do-you-use-charging-station/214216" },
     confirmInGame = "On a day the Charging Station is up in Mechagon, talk to it with Empty Energy Cells in your bags: they "
       .. "become Energy Cells.",
     confirmed = false,

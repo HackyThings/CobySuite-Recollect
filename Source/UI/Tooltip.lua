@@ -11,10 +11,12 @@
 -- on GameTooltip and ItemRefTooltip (a clicked chat link).
 --   * An item in your bags, bank or warband bank (found from the tooltip
 --     data's GUID: C_Item.GetItemLocation, then its bag and slot) is read
---     live and every check runs: the verdict, USED FOR, ABOUT, CHECKS.
+--     live and every check runs: the model holds the verdict, USED FOR,
+--     COMES FROM, ABOUT and every check, which the details window shows
+--     whole; the panel shows a short summary of it (UI.AuditPanel.Compact).
 --   * Any other item (a link, a vendor's or the auction house's, loot, a
 --     quest reward, an equipped item) gets reference mode: no verdict, how
---     many you have, and USED FOR and ABOUT (contract rule 28). Where it was
+--     many you have, and USED FOR and COMES FROM (contract rule 28). Where it was
 --     shown comes from the tooltip's own processing info (its getter name),
 --     never from its owner, which can be a bag frame's button.
 --   * A mount (a mount link in chat, the Mount Journal) is shown as the item
@@ -329,9 +331,11 @@ end
 
 -- Model(result, extra): what the panel shows.
 -- extra: { guid (the identity), icon, where, about, usedFor, comesFrom,
--- notes, seasonLine, waypoint, source } where source = { itemID, stack,
--- owner } names the copy for the pinned view (UI.DetailWindow); the model
--- adds tip (TooltipUI.Tip) and links (TooltipUI.Links)
+-- notes, seasonLine, waypoint, buySummary, source } where source = { itemID,
+-- stack, owner } names the copy for the pinned view (UI.DetailWindow) and
+-- buySummary is UI.UsedFor's one line for every purchase (extra.buys), which
+-- the audit panel shows in place of the "Buys at" groups; the model adds
+-- tip (TooltipUI.Tip) and links (TooltipUI.Links)
 -- The reason shows once: alone when one check ran, else each check with its own.
 -- An Unknown with a known use leads with it (headline) and names the verdict
 -- under the reason (verdictNote); with none, the verdict leads as any other.
@@ -355,6 +359,7 @@ function TooltipUI.Model(result, extra)
     notes = extra.notes or {},
     seasonLine = extra.seasonLine,
     waypoint = extra.waypoint,
+    buySummary = extra.buySummary,
     tip = TooltipUI.Tip(result),
   }
   model.links = TooltipUI.Links(model.usedFor, model.comesFrom)
@@ -423,32 +428,45 @@ function TooltipUI.Evaluate(data)
   return Recollect.Verdicts.Evaluate(ctx), ctx.facts, stack, bagID, tipFacts, slot
 end
 
--- How many you have, for reference mode: the label and the reason. The
--- bags-only count includes what is worn (the Lab, 2026-09-24), so worn
--- copies are named apart when every worn slot could be read, and the bags
--- are "on this character" when they couldn't (BA-17, CR-05: never a count
--- made up from part of the slots). A count that can't be read says so.
-function TooltipUI.HeldText(itemID)
+-- How many you have, place by place: { total, places = { { label, count,
+-- words } } } (Bags, Worn, Bank, Warband bank), or nil
+-- when a count can't be read. The bags-only count includes what is worn
+-- (the Lab, 2026-09-24), so worn copies are named apart when every worn
+-- slot could be read, and the bags are "on this character" when they
+-- couldn't (BA-17, CR-05: never a count made up from part of the slots).
+function TooltipUI.HeldCounts(itemID)
   local okBags, bags = Try(seams.ItemCount, itemID, false, false)
   local okBank, withBank = Try(seams.ItemCount, itemID, true, false)
   local okAll, all = Try(seams.ItemCount, itemID, true, true)
   local IsFiniteNumber = CobySuite_Recollect.Utilities.IsFiniteNumber
   if not (okBags and okBank and okAll and IsFiniteNumber(bags) and IsFiniteNumber(withBank) and IsFiniteNumber(all)) then
-    return "How many you have can't be read", ""
+    return nil
   end
-  if all <= 0 then return "You have none", "None in your bags, bank or warband bank" end
   local okWorn, worn = pcall(seams.WornCounts)
   local wornHere = okWorn and type(worn) == "table" and (worn[itemID] or 0) or nil
-  local parts = {}
+  local places = {}
   if wornHere and wornHere <= bags then
-    parts[#parts + 1] = ("%d in your bags"):format(bags - wornHere)
-    if wornHere > 0 then parts[#parts + 1] = ("%d worn"):format(wornHere) end
+    places[#places + 1] = { label = "Bags", count = bags - wornHere, words = "%d in your bags" }
+    places[#places + 1] = { label = "Worn", count = wornHere, words = "%d worn", worn = true }
   else
-    parts[#parts + 1] = ("%d on this character"):format(bags)
+    places[#places + 1] = { label = "On this character", count = bags, words = "%d on this character" }
   end
-  parts[#parts + 1] = ("%d in your bank"):format(withBank - bags)
-  parts[#parts + 1] = ("%d in the warband bank"):format(all - withBank)
-  return ("You have %d"):format(all), table.concat(parts, "; ")
+  places[#places + 1] = { label = "Bank", count = withBank - bags, words = "%d in your bank" }
+  places[#places + 1] = { label = "Warband bank", count = all - withBank, words = "%d in the warband bank" }
+  return { total = all, places = places }
+end
+
+-- How many you have, for reference mode: the label and the reason. A count
+-- that can't be read says so.
+function TooltipUI.HeldText(itemID)
+  local held = TooltipUI.HeldCounts(itemID)
+  if not held then return "How many you have can't be read", "" end
+  if held.total <= 0 then return "You have none", "None in your bags, bank or warband bank" end
+  local parts = {}
+  for _, place in ipairs(held.places) do
+    if not (place.worn and place.count == 0) then parts[#parts + 1] = place.words:format(place.count) end
+  end
+  return ("You have %d"):format(held.total), table.concat(parts, "; ")
 end
 
 -- The journal's own words for where a mount or pet comes from, as COMES
@@ -492,7 +510,7 @@ function TooltipUI.ReferenceModel(data, source)
   local label, reason = TooltipUI.HeldText(itemID)
   local owner = Recollect.Verdicts.Rows.Owner()
   local tip = ParsedTip(data)
-  local usedFor, waypoint, comesFrom = Recollect.UI.UsedFor.Lines(itemID, nil, owner, { tip = tip, facts = facts })
+  local usedFor, waypoint, comesFrom, lineExtra = Recollect.UI.UsedFor.Lines(itemID, nil, owner, { tip = tip, facts = facts })
   Append(comesFrom, ItemJournalLines(itemID))
   local seasonLine = AddSeasonLine(comesFrom, tip)
   return {
@@ -501,6 +519,7 @@ function TooltipUI.ReferenceModel(data, source)
     label = label, color = U.Colors.HIGHLIGHT_WHITE, reason = reason, purposes = {},
     about = TooltipUI.About(facts), usedFor = usedFor, comesFrom = comesFrom, waypoint = waypoint,
     notes = Recollect.UI.UsedFor.NoteLines(itemID, owner), seasonLine = seasonLine,
+    buySummary = lineExtra and lineExtra.buys or nil,
     source = { itemID = itemID, owner = owner, reference = true },
   }
 end
@@ -511,13 +530,15 @@ function TooltipUI.RowModel(entry, data)
   local facts = Recollect.Facts.Item.Get(entry.itemID)
   local owner = entry.owner or Recollect.Verdicts.Rows.Owner()
   local tip = ParsedTip(data)
-  local usedFor, waypoint, comesFrom = Recollect.UI.UsedFor.Lines(entry.itemID, entry.stack, owner, { tip = tip, facts = facts })
+  local usedFor, waypoint, comesFrom, lineExtra = Recollect.UI.UsedFor.Lines(entry.itemID, entry.stack, owner,
+    { tip = tip, facts = facts })
   local seasonLine = AddSeasonLine(comesFrom, tip)
   return TooltipUI.Model({ verdict = entry.verdict, reason = entry.reason, purposes = entry.purposes or {}, note = entry.note,
     category = entry.category, recovery = entry.recovery }, {
     guid = Recollect.UI.AuditPanel.Identity(data), icon = facts and facts.texture, where = entry.where,
     about = TooltipUI.About(facts), usedFor = usedFor, comesFrom = comesFrom, waypoint = waypoint,
     notes = Recollect.UI.UsedFor.NoteLines(entry.itemID, owner), seasonLine = seasonLine,
+    buySummary = lineExtra and lineExtra.buys or nil,
     source = { itemID = entry.itemID, stack = entry.stack, owner = owner, where = entry.where, asOf = entry.asOf,
       live = entry.live, kind = entry.kind, bagID = entry.bagID, slot = entry.slot, other = entry.other,
       changed = entry.changed, stale = entry.stale },
@@ -571,7 +592,7 @@ local function BuildModel(data, source)
   local result, facts, stack, bagID, tipFacts, slot = TooltipUI.Evaluate(data)
   if not result then return TooltipUI.ReferenceModel(data, source) end
   local owner = Recollect.Verdicts.Rows.Owner()
-  local usedFor, waypoint, comesFrom = Recollect.UI.UsedFor.Lines(stack.itemID, stack, owner,
+  local usedFor, waypoint, comesFrom, lineExtra = Recollect.UI.UsedFor.Lines(stack.itemID, stack, owner,
     { tip = tipFacts, facts = facts })
   Append(comesFrom, ItemJournalLines(stack.itemID))
   local seasonLine = TooltipUI.SeasonLine(tipFacts)
@@ -580,6 +601,7 @@ local function BuildModel(data, source)
     guid = Recollect.UI.AuditPanel.Identity(data), icon = facts and facts.texture, where = Locations.Label(bagID),
     about = TooltipUI.About(facts), usedFor = usedFor, comesFrom = comesFrom, waypoint = waypoint,
     notes = Recollect.UI.UsedFor.NoteLines(stack.itemID, owner), seasonLine = seasonLine,
+    buySummary = lineExtra and lineExtra.buys or nil,
     source = { itemID = stack.itemID, stack = stack, owner = owner, where = Locations.Label(bagID), live = true,
       kind = Locations.KindOf(bagID), bagID = bagID, slot = slot },
   })
@@ -647,20 +669,23 @@ function TooltipUI.Rebuild(model, opts)
     if now.live then source.live = true end
   end
   local result = Recollect.Verdicts.Rows.Verdict(stack, source, source.bagID, source.slot, source.stale)
-  local usedFor, waypoint, comesFrom, notes
+  local usedFor, waypoint, comesFrom, notes, buySummary
   if opts and opts.keepLines then
-    usedFor, waypoint, comesFrom, notes = model.usedFor, model.waypoint, model.comesFrom, model.notes
+    usedFor, waypoint, comesFrom, notes, buySummary = model.usedFor, model.waypoint, model.comesFrom, model.notes,
+      model.buySummary
   else
     -- no tooltip here: an older system's line reads the item's spell text
-    usedFor, waypoint, comesFrom = Recollect.UI.UsedFor.Lines(source.itemID, stack, source.owner,
+    local lineExtra
+    usedFor, waypoint, comesFrom, lineExtra = Recollect.UI.UsedFor.Lines(source.itemID, stack, source.owner,
       { facts = Recollect.Facts.Item.Get(source.itemID) })
+    buySummary = lineExtra and lineExtra.buys or nil
     -- the season tag came from the tooltip it was pinned from
     if model.seasonLine then table.insert(comesFrom, 1, model.seasonLine) end
     notes = Recollect.UI.UsedFor.NoteLines(source.itemID, source.owner)
   end
   return TooltipUI.Model(result, { guid = model.guid, icon = model.icon, where = model.where, about = model.about,
     usedFor = usedFor, comesFrom = comesFrom, notes = notes, seasonLine = model.seasonLine, waypoint = waypoint,
-    source = source })
+    buySummary = buySummary, source = source })
 end
 
 -- Show or hide the panel for what the tooltip shows now, building its model

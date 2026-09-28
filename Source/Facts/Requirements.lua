@@ -10,7 +10,7 @@
 --     "partOf"): every part, with how many of each
 -- For(itemID, owner) returns { { title, kind, reward, done, parts, steps } }:
 --   parts  { { itemID, need, bags, bank, warband, have, missing, uncertain,
---          others = { { name, count, asOf } } } }
+--          others = { { name, count, bags, bank, asOf } } } }
 --          bags     with this character (the bags-only count, worn copies
 --                   included, as C_Item.GetItemCount counts them)
 --          bank     in this character's bank
@@ -50,22 +50,30 @@ local function Count(itemID, ...)
   return ok and IsFiniteNumber(n) and n >= 0 and n or nil
 end
 
--- What other characters' snapshots hold of an item: { { name, count, asOf } }
+-- What other characters' snapshots hold of an item: { { name, count, bags,
+-- bank, asOf } } (count is bags plus bank)
 local function OthersHolding(itemID)
   local Locations = Recollect.Inventory.Locations
   local out = {}
   for _, entry in ipairs(Recollect.Inventory.Snapshots.OtherCharacters()) do
-    local n, asOf = 0, nil
+    local n, asOf, where = 0, nil, { bags = 0, bank = 0 }
     for bagID, stored in pairs(entry.char.locations or {}) do
       local kind = Locations.KindOf(bagID)
       if kind and kind ~= Locations.KIND_WARBAND and type(stored) == "table" and type(stored.read) == "table" then
+        local key = kind == Locations.KIND_BANK and "bank" or "bags"
         for _, stack in pairs(stored.read.slots or {}) do
-          if type(stack) == "table" and stack.itemID == itemID then n = n + (tonumber(stack.count) or 1) end
+          if type(stack) == "table" and stack.itemID == itemID then
+            local c = tonumber(stack.count) or 1
+            n, where[key] = n + c, where[key] + c
+          end
         end
         if type(stored.captured) == "number" and (not asOf or stored.captured > asOf) then asOf = stored.captured end
       end
     end
-    if n > 0 then out[#out + 1] = { name = tostring(entry.char.name or "another character"), count = n, asOf = asOf } end
+    if n > 0 then
+      out[#out + 1] = { name = tostring(entry.char.name or "another character"), count = n, bags = where.bags,
+        bank = where.bank, asOf = asOf }
+    end
   end
   return out
 end
@@ -101,10 +109,10 @@ function Requirements.Part(items, need)
     for _, other in ipairs(OthersHolding(itemID)) do
       local kept = byName[other.name]
       if kept then
-        kept.count = kept.count + other.count
+        kept.count, kept.bags, kept.bank = kept.count + other.count, kept.bags + other.bags, kept.bank + other.bank
         if other.asOf and (not kept.asOf or other.asOf > kept.asOf) then kept.asOf = other.asOf end
       else
-        kept = { name = other.name, count = other.count, asOf = other.asOf }
+        kept = { name = other.name, count = other.count, bags = other.bags, bank = other.bank, asOf = other.asOf }
         byName[other.name] = kept
         part.others[#part.others + 1] = kept
       end

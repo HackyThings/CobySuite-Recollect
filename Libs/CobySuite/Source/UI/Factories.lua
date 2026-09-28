@@ -1575,3 +1575,73 @@ function UI.CreateMultiLineInput(parent, opts)
   frame._optionKey = opts.optionKey
   return frame
 end
+
+---------------------------------------------------------------------------
+-- CreateMetricList(parent, metrics, opts): live label and value rows
+--
+-- One row per metric { label, getValue, tooltip }, each anchored across
+-- parent, shaded every other row: the label in gray, the value (getValue()'s
+-- text) beside it. Returns { rows, Refresh }: Refresh() reads every getter
+-- again under pcall, and one that errors shows opts.errorText. When and how
+-- often to refresh (a throttle, memory sampling) is the caller's.
+--
+--   opts.rowHeight   default 18
+--   opts.labelWidth  default 140
+--   opts.valueWidth  a fixed width; without it the value runs to the row's
+--                    right edge
+--   opts.padding     left and right inset, default 10
+--   opts.top         the first row's offset from parent's top, default 0
+--   opts.errorText   default "error" in U.Colors.TEXT_RED
+---------------------------------------------------------------------------
+function UI.CreateMetricList(parent, metrics, opts)
+  opts = opts or {}
+  local rowHeight, labelWidth = opts.rowHeight or 18, opts.labelWidth or 140
+  local padding, top = opts.padding or 10, opts.top or 0
+  local errorText = opts.errorText or U.WrapColor(U.Colors.TEXT_RED, "error")
+  local list = { rows = {} }
+
+  for i, metric in ipairs(metrics) do
+    local row = CreateFrame("Frame", nil, parent)
+    row:SetHeight(rowHeight)
+    row:SetPoint("TOPLEFT", padding, -((i - 1) * rowHeight) - top)
+    row:SetPoint("TOPRIGHT", -padding, -((i - 1) * rowHeight) - top)
+    U.AddAlternatingRowBg(row, i)
+
+    local label = row:CreateFontString(nil, "OVERLAY", U.Fonts.SMALL)
+    label:SetPoint("LEFT", 0, 0)
+    label:SetWidth(labelWidth)
+    label:SetJustifyH("LEFT")
+    label:SetText(metric.label)
+    local lg = U.Colors.LABEL_GRAY
+    label:SetTextColor(lg[1], lg[2], lg[3])
+
+    local value = row:CreateFontString(nil, "OVERLAY", U.Fonts.DATA)
+    value:SetPoint("LEFT", label, "RIGHT", 4, 0)
+    if opts.valueWidth then
+      value:SetWidth(opts.valueWidth)
+    else
+      value:SetPoint("RIGHT", -4, 0)
+    end
+    value:SetJustifyH("LEFT")
+    value:SetText("--")
+
+    row.Label = label
+    row.Value = value
+    if metric.tooltip then
+      row:EnableMouse(true)
+      UI.AddTooltip(row, metric.tooltip)
+    end
+    list.rows[i] = row
+  end
+
+  function list.Refresh()
+    for i, metric in ipairs(metrics) do
+      local row = list.rows[i]
+      if row then
+        local ok, val = pcall(metric.getValue)
+        row.Value:SetText(ok and val or errorText)
+      end
+    end
+  end
+  return list
+end

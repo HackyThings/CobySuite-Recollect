@@ -4,6 +4,48 @@ All notable changes to Recollect are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [0.0.1b] - 2026-09-28
+
+### Added
+
+- **Curators on an alt:** the first time you log in on a character that isn't in the Recollect Curators community, a small window asks whether to add it. Join puts the invite link in chat; No thanks is fine too, since what you record there is still collected through your characters in the community, and that character isn't asked again.
+- **Still needed?:** the item details window opens with an answer band across its full width, on every tab: an icon (a check mark when you're likely done with the item, a coin for junk, a lock to keep it), Recollect's suggestion (Keep it, Sell it, Likely safe to delete, Probably done, Replaced, Lower level or Can't tell yet) and a short reason why, tinted in the answer's color. Hover it for the whole reason and the Tip. It only ever suggests; it's always your call. Items known to stay in your bags after their use is done are marked in the database, so once every use is done they read as likely safe to delete. For an item you aren't holding, the band says how many you have and where.
+- **Shift-click anything into chat:** in the item details window, Shift-click links any item, achievement, quest, currency or recipe in chat, and an NPC or a treasure spot goes in as its name, zone and coordinates with a map pin anyone can click. Quests open their tooltip on a click even before the game has loaded them; a quest the game can't link yet goes in as its name, so the message always sends.
+- **NPCs and treasure spots are links:** in the item details window, an NPC's or a spot's name can be hovered (what Recollect knows of it: a boss and its dungeon, how many items a vendor sells, what a treasure holds, where it is) and clicked or right-clicked for a waypoint and its Wowhead link.
+- **Recollect Audit tabs:** tabs along the bottom: My Items (you and the warband bank), All Characters, and one per character Recollect has stored. "Include your other characters" is now on by default (turned on once for everyone who had it off).
+- **TomTom waypoints:** with TomTom installed, waypoints (the waypoint key, the map buttons and the right-click menu) go to TomTom's arrow; the new Waypoints setting can send them to the game's map pin instead. In the item details menu you can pick either each time.
+- **What buying something requires:** items sold by vendors say what you need first: achievements with your progress ("Requires the achievements Void Response Team (3 of 5 done) and Ritual Site Disruptor (earned)"), a renown level, a reputation standing, or a quest to finish. The item details window's rows show the same, dimmed until you meet them.
+- **Copy Wowhead link:** right-click an item, quest, NPC, achievement, currency, recipe, treasure or faction in the item details window (a table row or a name in the Overview) and pick Copy Wowhead link. The link appears selected in a small box; press Ctrl+C and it closes.
+
+### Changed
+
+- **Curators:** findings you haven't sent yet are kept when Recollect or its database updates, labelled with the version they were recorded under, and go out with your next collections. Before, an update deleted them.
+- **Items that buy class gear:** when everything an item buys is for other classes, the reason names those classes and says nothing for yours is recorded yet ("Buys 5 things, all Hunter, Shaman and Evoker only; none recorded yet for Paladin"), instead of only "for another class". A raid curio, for example, trades for your own armor type's token at its vendor, and Recollect's data so far holds only what that vendor showed a mail wearer.
+- **The audit panel is a short summary:** holding Alt over an item shows the verdict and its reason, the few uses that matter most, where the item comes from, and the keys. Everything an item buys is one line, such as "Buys 4 decor and 2 pets you don't have". When something was left out, the details key's line says "for everything": the item details window still shows every use, every check and what kind of item it is.
+- **Right-click menus:** the item details window's right-click menu is the game's own menu, at the mouse, titled with what you clicked, in sections: open, link or preview it (an achievement also has Show Achievement, which opens the achievement window right at it), set a waypoint, and copy its Wowhead link or name.
+- **Guide notes:** the short notes for items no game data explains are labeled "Guide note" (and whether they're confirmed in game) instead of naming a website.
+- **PvP gear:** the item details window says when an item is PvP gear and the item level it counts as in Arenas and Battlegrounds, and gear, recipes, gems and other items whose use is plain from what they are no longer read "Recollect knows no use for it yet".
+- **Treasures say what they hold:** a key's line names what the treasure holds ("Opens a treasure in Zul'Aman, which holds Amani War Axe", or "which can hold any of 12 items"), and What it's for spells out the treasure, where it is, whether you've looted it and the other parts opening it takes.
+- **Recollect Audit, clearer:** it says what it's for at the top and counts your stacks by verdict in their colors; each column title explains itself when you hover it ("Purpose" is now "Checks", "As of" is now "Last read"); the filter menu is grouped under Verdict, Where it is, Uses, and Why Recollect can't tell, each verdict in its color with what it means on hover; and an empty list says why (nothing read yet, nothing on that character, or nothing matching your search and filters).
+- **Settings:** the window can be made bigger by dragging its bottom-right corner and remembers its size, and its sections sit closer together. The Tooltips category is now two groups: when the audit panel shows, and the keys it offers, each key under its checkbox. The categories are called Tooltips and Recollect Audit, and a Guide button opens the feature guide.
+- **Item details, easier to scan:** in the Overview, each group inside a section ("Buys", "Quests and places", "Crafting with it", a reagent's recipes) now has a white title with space above it, and every section's lines sit at the same indent.
+- **What it's for explains the item:** the section opens by saying what the item is, where it's from, how it's made and what it's used for ("Worn in one of your two ring slots, from Midnight. Crafted with Jewelcrafting. It counts toward 1 achievement and is used at 1 place."), with the game's own filing of it under that. Gems, keys, holiday items, caged battle pets and other kinds that said nothing before now get their own words. The item's own Use line is quoted under that explanation, so you don't have to hover it, and for items whose Use line leaves you guessing, a sentence or two says what it's really for.
+- **Achievements, a section of their own:** the achievements an item counts toward are listed apart from quests and places, with the meta achievements they are part of and your progress on each.
+- **What crafting takes moved to How to get more:** the reagents a recipe needs to make the item are listed under How to get more ("What crafting it takes"), not under What it's for.
+- **Item details header:** redesigned: the window is titled "Item Details", the item's icon sits in a frame of its quality's color, and under the name one quiet line says what the item is ("Worn in one of your two ring slots · Midnight · PvP gear"). The item's name no longer has "Bags" or "Linked item" beside it.
+- **At a glance:** What it's for and How to get more open with a row of tiles, one per kind (Buys, Quests, Achievements, Crafting; Sold by, Drops from, Reward), each with its count and how many are still open, and every achievement and meta achievement has a progress bar under it.
+- **What you have:** shown as tiles, one per place (Bags, Worn, Bank, Warband bank), each with its icon and its count, places with none dimmed, and, with "Include your other characters" on, an Other characters tile with their total. Hover a tile to see exactly where: which bag, each bank or warband tab by its own name ("Bank tab 1 (Mats): 3") with when it was last read, or each of your other characters with their bags and bank. The section's summary names only the places that hold the item, and your other characters that hold it are listed too, as last seen.
+- **Item details tables:** the last column fills the rest of the table and has no divider to drag, and the Map button sits beside the place it points to. The filter menu names each kind in full ("Recipes that use it", "Vendors that sell it", "Not for this character").
+
+### Fixed
+
+- The minimap button sits just outside the minimap's edge again, and follows it when Edit Mode resizes the minimap; on the larger minimap it had been stuck inside the map.
+- **Crafted items of several qualities:** every quality now shows the recipe that crafts it, not just one.
+- **Milling, prospecting and other salvage:** the herbs, ore and other items a salvage recipe takes now show that recipe as a use.
+- **Item details tables:** dragging a divider on a table whose columns already fill the window widens that column again (the others give way), instead of doing nothing or making it narrower. A column you widened keeps its width when you open another item.
+- **What it takes tab:** the Others and Status columns show their values (they were empty), and Others sorts when clicked. The No longer available tab opens sorted by name.
+- **Resizing Recollect's windows:** dragging the corner no longer makes a window jump bigger than where the cursor is, and a column drag always ends when you let go.
+
 ## [0.0.1a] - 2026-09-28
 
 ### Added

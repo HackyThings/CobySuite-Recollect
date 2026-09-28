@@ -39,6 +39,20 @@
 -- one counted criterion gives its quantity and required amount instead.
 -- Kept for MEMO_SECONDS or until data changes (a meta achievement has 30
 -- criteria, and a panel redraws often).
+--
+-- Meta achievements: MetasOf(achievementID) gives the metas an achievement
+-- counts toward, from the shipped data only (Relations.MetasOf; no live
+-- read can find them short of walking every achievement), ascending, empty
+-- when none. ChildrenOf(metaID) gives the achievements a meta asks for,
+-- and where the answer came from: the shipped data (Relations.ChildrenOf,
+-- "data") when it names any, else the meta's own criteria read live
+-- ("live": each criterion of type CRITERIA_TYPE_ACHIEVEMENT, 8, whose asset
+-- is the achievement to earn, as Blizzard's achievement frame counts a
+-- meta's rows, Blizzard_AchievementUI.lua:1501), an empty list when it asks
+-- for none; nil when the data names none and the meta can't be read.
+-- Whether hidden criteria (countHiddenCriteria, which Blizzard's
+-- AchievementUtil passes and this read doesn't) ever name a child is
+-- unmeasured.
 -------------------------------------------------------------------------------
 local Achievements = {}
 Recollect.Facts.Achievements = Achievements
@@ -52,6 +66,9 @@ local seams = {
   Criteria = function(achievementID, index) return GetAchievementCriteriaInfo(achievementID, index) end,
   -- ACHIEVEMENT_FLAGS_ACCOUNT, a constant the client defines (0x20000)
   AccountFlag = function() return ACHIEVEMENT_FLAGS_ACCOUNT or 0x20000 end,
+  -- CRITERIA_TYPE_ACHIEVEMENT, a constant the client defines (8,
+  -- Blizzard_FrameXMLBase/Constants.lua): the criterion is another achievement
+  MetaCriteriaType = function() return CRITERIA_TYPE_ACHIEVEMENT or 8 end,
   Now = function() return GetTime() end,
 }
 
@@ -207,6 +224,43 @@ function Achievements.ProgressWords(progress)
   if progress.required then return ("%d of %d"):format(progress.quantity, progress.required), true end
   if progress.total and progress.total > 1 then return ("%d of %d done"):format(progress.done, progress.total), true end
   return "not earned", true
+end
+
+-- MetasOf(achievementID): the metas it counts toward, see the header
+function Achievements.MetasOf(achievementID)
+  return Recollect.Facts.Relations.MetasOf(achievementID)
+end
+
+-- The achievements a meta's own criteria ask for, read live, or nil when
+-- they can't be read (a criterion that fails to read leaves the list
+-- unknown, never shorter)
+local function LiveChildren(metaID)
+  local okN, count = Try(seams.NumCriteria, metaID)
+  if not okN or type(count) ~= "number" then return nil end
+  local okType, metaType = Try(seams.MetaCriteriaType)
+  if not okType or type(metaType) ~= "number" then return nil end
+  local list, seen = {}, {}
+  for index = 1, count do
+    local okC, _, criteriaType, _, _, _, _, _, assetID = Try(seams.Criteria, metaID, index)
+    if not okC then return nil end
+    if criteriaType == metaType and IsPositiveID(assetID) and assetID ~= metaID and not seen[assetID] then
+      seen[assetID] = true
+      list[#list + 1] = assetID
+    end
+  end
+  table.sort(list)
+  return list
+end
+
+-- ChildrenOf(metaID): { achievementID, ... }, "data" | "live"; or nil (see
+-- the header)
+function Achievements.ChildrenOf(metaID)
+  if not IsPositiveID(metaID) then return nil end
+  local shipped = Recollect.Facts.Relations.ChildrenOf(metaID)
+  if #shipped > 0 then return shipped, "data" end
+  local live = LiveChildren(metaID)
+  if not live then return nil end
+  return live, "live"
 end
 
 -- Data changed: every progress is read again

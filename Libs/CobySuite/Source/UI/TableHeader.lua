@@ -83,6 +83,11 @@ local Mixin = CobySuite_Recollect.UI.TableHeaderMixin
 -- a saved width that is not a usable number falls back to the default.
 -------------------------------------------------------------------------------
 function Mixin:Init(opts)
+  -- Init again on the same header (a table that switches its column set):
+  -- the old buttons and handles go, or they stay on screen and clickable
+  -- beside the new ones
+  for _, btn in ipairs(self._headerButtons or {}) do btn:Hide() end
+  for _, handle in pairs(self._resizeHandles or {}) do handle:Hide() end
   self._columns = {}
   self._headerButtons = {}
   self._resizeHandles = {}
@@ -125,12 +130,17 @@ function Mixin:Init(opts)
   self:_BuildHeaders()
   self:_SetupDragTracking()
 
-  if self._fitToWidth then
-    self:HookScript("OnSizeChanged", function(header) header:FitColumns() end)
+  -- hooked once, however often Init runs; each hook reads the current setup
+  if self._fitToWidth and not self._fitHooked then
+    self._fitHooked = true
+    self:HookScript("OnSizeChanged", function(header) if header._fitToWidth then header:FitColumns() end end)
   end
   if self:_MidStretch() then
     -- the columns after the stretch column follow the header's width
-    self:HookScript("OnSizeChanged", function(header) header:RepositionHeaders() end)
+    if not self._midHooked then
+      self._midHooked = true
+      self:HookScript("OnSizeChanged", function(header) if header:_MidStretch() then header:RepositionHeaders() end end)
+    end
     self:RepositionHeaders()
   end
 end
@@ -151,9 +161,27 @@ function Mixin:_HandleSide(index)
   return (mid and index > mid) and -1 or 1
 end
 
--- The room a drag or auto-fit must leave the stretch column
+-- The room a drag, an auto-fit or fitToWidth must leave the stretch
+-- column; none when no column stretches (a table whose columns all keep
+-- their widths, like a spreadsheet's)
 function Mixin:_StretchRoom()
-  return math.max(MIN_COL_WIDTH, self._minStretch or 0)
+  for _, col in ipairs(self._columns) do
+    if col.stretch then return math.max(MIN_COL_WIDTH, self._minStretch or 0) end
+  end
+  return 0
+end
+
+-- The width the columns other than index take, for how wide index may
+-- grow: their widths, or with fitToWidth their minimums, since fitting
+-- gives the grown column's room from theirs (FitColumns)
+function Mixin:_OthersWidth(index)
+  local total = 0
+  for j, c in ipairs(self._columns) do
+    if j ~= index and not c.stretch then
+      total = total + (self._fitToWidth and MIN_COL_WIDTH or (c.width or 150))
+    end
+  end
+  return total
 end
 
 -------------------------------------------------------------------------------
@@ -294,6 +322,13 @@ function Mixin:_BuildHeaders()
         header._dragStartWidth = header._columns[capturedIndex].width or 150
       end)
 
+      -- the drag ends on the release too, not only when OnUpdate next sees
+      -- the button up: a release it missed let the next left press anywhere
+      -- (the window's resize grip) carry on the old drag
+      handle:SetScript("OnMouseUp", function()
+        if header._dragIndex then header:_StopDrag() end
+      end)
+
       handle:RegisterForClicks("LeftButtonUp")
       handle:SetScript("OnDoubleClick", function()
         header:AutoFitColumn(capturedIndex)
@@ -316,6 +351,11 @@ end
 -------------------------------------------------------------------------------
 function Mixin:_SetupDragTracking()
   local header = self
+  -- hidden mid-drag (a tab switch, the window closing): the drag ends there
+  if not self._hideHooked then
+    self._hideHooked = true
+    self:HookScript("OnHide", function(h) if h._dragIndex then h:_StopDrag() end end)
+  end
   self:SetScript("OnUpdate", function()
     if not header._dragIndex then return end
 
@@ -327,21 +367,17 @@ function Mixin:_SetupDragTracking()
     local cursorX = GetCursorPosition() / (header:GetEffectiveScale() or 1)
     local delta = (cursorX - header._dragStartX) * header:_HandleSide(header._dragIndex)
 
-    -- The room the other columns leave; the result never drops below the
-    -- minimum, even when there is less room than that
+    -- The room the other columns leave (with fitToWidth, all but their
+    -- minimums: they give way as it grows); the result never drops below
+    -- the minimum, even when there is less room than that
     local cols = header._columns
-    local totalOther = 0
-    for j, c in ipairs(cols) do
-      if j ~= header._dragIndex and not c.stretch then
-        totalOther = totalOther + (c.width or 150)
-      end
-    end
-    local room = header:GetWidth() - header._leftPadding - totalOther - header:_StretchRoom()
+    local room = header:GetWidth() - header._leftPadding - header:_OthersWidth(header._dragIndex) - header:_StretchRoom()
     local newWidth = ClampWidth(header._dragStartWidth + delta, room)
 
     if cols[header._dragIndex].width ~= newWidth then
       cols[header._dragIndex].width = newWidth
       cols[header._dragIndex].want = newWidth
+      if header._fitToWidth then header:FitColumns() end
       header:RepositionHeaders()
       if header._onColumnResize then
         header._onColumnResize()
@@ -356,6 +392,12 @@ function Mixin:_StopDrag()
   end
   local index = self._dragIndex
   local moved = index and self._columns[index] and self._columns[index].width ~= self._dragStartWidth
+  if self._fitToWidth then
+    -- the columns that gave way keep the widths on screen
+    for _, c in ipairs(self._columns) do
+      if not c.stretch then c.want = c.width end
+    end
+  end
   self._dragIndex = nil
   self._dragHighlight = nil
   self:_SaveWidths()
@@ -528,6 +570,8 @@ end
 -- they don't fit. For a table that sizes itself to what it shows until the
 -- user sizes a column (onUserResize).
 function Mixin:AutoFitColumns(keep)
+  -- the kept columns stay as the user sized them when fitting, too
+  self._pinned = keep
   for i, col in ipairs(self._columns) do
     if not col.stretch and not (keep and keep[col.key]) then
       local width = ClampWidth(self:_ContentWidth(i))
@@ -547,16 +591,19 @@ function Mixin:AutoFitColumn(colIndex)
 
   local maxWidth = self:_ContentWidth(colIndex)
 
-  -- Clamp to the room the other columns leave, never below the minimum
-  local totalOther = 0
-  for j, c in ipairs(self._columns) do
-    if j ~= colIndex and not c.stretch then
-      totalOther = totalOther + (c.width or 150)
-    end
-  end
-  local room = self:GetWidth() - self._leftPadding - totalOther - self:_StretchRoom()
+  -- Clamp to the room the other columns leave (with fitToWidth, all but
+  -- their minimums, which give way), never below the minimum
+  local room = self:GetWidth() - self._leftPadding - self:_OthersWidth(colIndex) - self:_StretchRoom()
   col.width = ClampWidth(maxWidth, room)
   col.want = col.width
+  if self._fitToWidth then
+    self._holdIndex = colIndex
+    self:FitColumns()
+    self._holdIndex = nil
+    for _, c in ipairs(self._columns) do
+      if not c.stretch then c.want = c.width end
+    end
+  end
   self:RepositionHeaders()
   if self._onColumnResize then
     self._onColumnResize()
@@ -583,37 +630,51 @@ end
 -- takes its wanted width when they all fit. Otherwise only the width above
 -- each column's minimum shrinks, by one shared factor, so no column goes
 -- below its floor; when even the minimums do not fit, all sit at the
--- minimum and the header clips the rest.
+-- minimum and the header clips the rest. The column being dragged or
+-- fitted, and the columns the user sized (AutoFitColumns' keep), hold their
+-- widths while the others give way; only when the others' minimums leave
+-- them no room does every column shrink alike.
 function Mixin:FitColumns()
-  local room = self:GetWidth() - self._leftPadding
-  if self._minStretch then
-    for _, col in ipairs(self._columns) do
-      if col.stretch then room = room - self._minStretch break end
-    end
-  end
+  local room = self:GetWidth() - self._leftPadding - self:_StretchRoom()
   if room <= 0 then return end
 
-  local total, spare = 0, 0
-  for _, col in ipairs(self._columns) do
-    if not col.stretch then
-      local want = ClampWidth(col.want or col.width)
-      total = total + want
-      spare = spare + (want - MIN_COL_WIDTH)
+  local pinned = self._pinned
+  local function Holds(i, col)
+    return i == self._dragIndex or i == self._holdIndex or (pinned ~= nil and col.key ~= nil and pinned[col.key] == true)
+  end
+  local function Tally(holding)
+    local held, total, spare, loose = 0, 0, 0, 0
+    for i, col in ipairs(self._columns) do
+      if not col.stretch then
+        local want = ClampWidth(col.want or col.width)
+        if holding and Holds(i, col) then
+          held = held + want
+        else
+          total, spare, loose = total + want, spare + (want - MIN_COL_WIDTH), loose + 1
+        end
+      end
     end
+    return held, total, spare, loose
+  end
+  local holding = true
+  local held, total, spare, loose = Tally(true)
+  if held > 0 and held + loose * MIN_COL_WIDTH > room then
+    holding = false
+    held, total, spare = Tally(false)
   end
 
-  local excess = total - room
+  local excess = total - (room - held)
   local keep = 1
   if excess > 0 then
     keep = spare > 0 and math.max(0, 1 - excess / spare) or 0
   end
 
   local changed = false
-  for _, col in ipairs(self._columns) do
+  for i, col in ipairs(self._columns) do
     if not col.stretch then
       local want = ClampWidth(col.want or col.width)
       local width = want
-      if excess > 0 then
+      if excess > 0 and not (holding and Holds(i, col)) then
         width = math.floor(MIN_COL_WIDTH + (want - MIN_COL_WIDTH) * keep)
       end
       if col.width ~= width then

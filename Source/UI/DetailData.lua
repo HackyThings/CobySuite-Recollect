@@ -708,6 +708,7 @@ local function AchievementRow(row)
   if a.earned then return Set(row, "have", "Earned", colors[V().DONE], "have") end
   if a.criterionDone then return Set(row, "have", "That part done", colors[V().DONE], "have") end
   if type(a.required) == "number" and a.required > 1 and type(a.quantity) == "number" then
+    row.bar = { done = a.quantity, total = a.required }   -- the Overview's progress bar
     return Set(row, "missing", ("%d of %d"):format(a.quantity, a.required), colors[V().NEEDED], "missing")
   end
   Set(row, "missing", "Not earned", colors[V().NEEDED], "missing")
@@ -736,6 +737,7 @@ RESOLVE.linked = function(row, owner)
     return Set(row, nil, (words:gsub("^%l", string.upper)), U.Colors.LIGHT_GRAY, "none")
   end
   local open, many = parts.found - parts.done, parts.found > 1
+  if many then row.bar = { done = parts.done, total = parts.found } end
   if state == "open" then
     return Set(row, "missing", many and ("%d of %d linked parts to do"):format(open, parts.found) or "Linked part to do",
       colors[V().USEFUL], "missing")
@@ -751,6 +753,9 @@ RESOLVE.achievementReward = function(row)
   row.name = progress.name
   local words, open = A.ProgressWords(progress)
   words = words:gsub("^%l", string.upper)
+  if type(progress.done) == "number" and type(progress.total) == "number" and progress.total > 1 then
+    row.bar = { done = progress.done, total = progress.total }
+  end
   if open then return Set(row, "missing", words, Colors()[V().USEFUL], "missing") end
   Set(row, "have", words, Colors()[V().DONE], "have")
 end
@@ -1066,7 +1071,7 @@ end
 -- after it (an event's, and a profession, standing or quest the owner
 -- misses: "Not done, Engineering only, during a holiday or event"), said
 -- once however often the row is read again
-local SHOWN_KINDS = { event = true, profession = true, standing = true, quest = true }
+local SHOWN_KINDS = { event = true, profession = true, standing = true, quest = true, achievement = true, renown = true }
 local function EventState(row)
   local tags = row.tags
   if not tags or row.restricted or row.gone then return end
@@ -1087,9 +1092,18 @@ end
 function Data.Resolve(row, owner, budget)
   if row.gone or row.restricted then QuestTitle(row, budget) end
   row.stateInline = nil
+  row.bar = nil   -- set again only by a read that still has progress to show
   if row.gone then return Tagged(row, "gone", "unavailable", owner, "other") end
   if row.untold then return Tagged(row, "untold", nil, owner, "none") end
   if row.restricted then return Tagged(row, "other", "other", owner, "other") end
+  -- what a route requires, read live again at every refresh (an
+  -- achievement's progress, a renown level move while the row is open)
+  local relation = row.relation
+  if type(relation) == "table" and relation.shows then
+    local tags = Parts().Tags(relation, true, owner or Recollect.Verdicts.Rows.Owner())
+    row.tags = #tags > 0 and tags or nil
+    row.dimmed = Parts().AnyShown(tags) or nil
+  end
   local resolve = RESOLVE[row.kind]
   if resolve then
     resolve(row, owner or Recollect.Verdicts.Rows.Owner(), budget)
@@ -1457,7 +1471,21 @@ local function LinkOf(row)
   if what == "achievement" then return Try1(seams.AchievementLink, row.achievementID) end
   if what == "currency" then return Try1(seams.CurrencyLink, row.currencyID) end
   if what == "recipe" then return Try1(seams.SpellLink, row.spellID) end
-  if what == "quest" then return Try1(seams.QuestLink, row.questID) end
+  if what == "quest" then
+    -- the game's link, else one made from the quest's name once it's known
+    -- (a quest the log doesn't hold has no link until its data loads;
+    -- Cobanyte, 2026-09-28: a quest must open its tooltip like any link).
+    -- The one made here serves the tooltip and a click only, never chat:
+    -- its second field is a value only the game knows (-1 is right for a
+    -- holiday quest alone), and chat sends such a link as plain text
+    local link = Try1(seams.QuestLink, row.questID)
+    if link then return link end
+    local name = row.questID and Data.Name(row)
+    if type(name) == "string" and name ~= "" and IsPositiveID(row.questID) then
+      return ("|cffffff00|Hquest:%d:-1|h[%s]|h|r"):format(row.questID, name)
+    end
+    return nil
+  end
   if what == "illusion" then
     local ok, _, link = Try(seams.IllusionStrings, row.id)
     return ok and type(link) == "string" and link ~= "" and link or nil
@@ -1480,6 +1508,28 @@ function Data.Link(row)
   local link = LinkOf(row)
   if not link and row.itemID then Data.ItemName(row.itemID) end
   return link
+end
+
+-- ChatLink(row): a link chat will send whole, or nil. A quest's only when
+-- the game gives it (GetQuestLink, which Blizzard's own Shift-clicks use and
+-- insert nothing without); a miss asks for the quest's data, so a later
+-- Shift-click may get it. Everything else is Link's
+function Data.ChatLink(row)
+  if row.what ~= "quest" then return Data.Link(row) end
+  if not IsPositiveID(row.questID) then return nil end
+  local ok, link = Try(seams.QuestLink, row.questID)
+  if ok and type(link) == "string" and link:find("|Hquest:", 1, true) then return link end
+  Recollect.Facts.QuestInfo.Get(row.questID)
+  return nil
+end
+
+-- PlainWords(text): text with every escape taken out (colors, textures,
+-- atlases, stray bars), since chat drops a whole message holding one outside
+-- a real link
+function Data.PlainWords(text)
+  text = tostring(text or "")
+  text = text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|T.-|t", ""):gsub("|A.-|a", ""):gsub("|", "")
+  return text
 end
 
 -- Tooltip(row, tooltip): fills the tooltip for the row's thing; false when
@@ -1521,6 +1571,35 @@ function Data.ItemOf(row)
   if row.what ~= "mount" then return nil end
   local spellID = MountSpell(row)
   return spellID and Relations().MountItem(spellID) or nil
+end
+
+-- Wowhead(row): the row's thing's page on Wowhead, for the menu's Copy
+-- Wowhead link (Cobanyte, 2026-09-28), or nil. Only an address built from
+-- the row's own ID; nothing is read from the site. An item (a toy, an
+-- heirloom, decor, or the item behind a pet, an ensemble, an illusion or a
+-- mount) is its item page; the rest by what they are. A zone has none: its
+-- ID is the game's map ID, which is not Wowhead's zone ID.
+local WOWHEAD = "https://www.wowhead.com/"
+local WOWHEAD_PAGE = {
+  quest = function(row) return "quest", row.questID end,
+  achievement = function(row) return "achievement", row.achievementID end,
+  currency = function(row) return "currency", row.currencyID end,
+  recipe = function(row) return "spell", row.spellID end,
+  npc = function(row) return "npc", row.npcID end,
+  object = function(row) return "object", row.objectID end,
+  faction = function(row) return "faction", row.factionID end,
+  mount = function(row) return "spell", MountSpell(row) end,
+  pet = function(row) return "battle-pet", row.id end,   -- a species with no item behind it
+}
+
+function Data.Wowhead(row)
+  local itemID = Data.ItemOf(row)
+  if not itemID and (row.what == "toy" or row.what == "heirloom" or row.what == "decor") then itemID = row.id end
+  if IsPositiveID(itemID) then return WOWHEAD .. "item=" .. itemID end
+  local page = WOWHEAD_PAGE[row.what]
+  if not page then return nil end
+  local kind, id = page(row)
+  return IsPositiveID(id) and (WOWHEAD .. kind .. "=" .. id) or nil
 end
 
 -------------------------------------------------------------------------------
@@ -1575,6 +1654,11 @@ function Data.LinkColor(row)
   if row.itemID then return QualityColor(Data.Quality(row)) end
   if what == "mount" or what == "recipe" or what == "illusion" then return LINK_BLUE end
   if what == "encounter" then return Vendors().JOURNAL_COLOR end
+  if what == "npc" or what == "object" then
+    local boss = what == "npc" and row.npcID and Vendors().Boss(row.npcID)
+    if boss and boss.link then return Vendors().JOURNAL_COLOR end
+    return U.Colors.INFO_BLUE
+  end
   if what == "currency" then
     local info = Parts().Currency(row.currencyID)
     return info and QualityColor(info.quality) or nil
@@ -1589,10 +1673,10 @@ local LINKABLE = { item = true, toy = true, heirloom = true, decor = true, mount
   illusion = true, recipe = true, achievement = true, currency = true, quest = true, endeavor = true }
 function Data.Linkable(row)
   if row.itemID or LINKABLE[row.what] then return true end
-  if row.what == "npc" and row.npcID then
-    local boss = Vendors().Boss(row.npcID)
-    return boss ~= nil and boss.link ~= nil
-  end
+  -- an NPC or a spot is a link of Recollect's own even with no game link
+  -- (Cobanyte, 2026-09-28): hover says what it is, a click opens its menu
+  if row.what == "npc" and row.npcID then return true end
+  if row.what == "object" and row.objectID then return true end
   if row.what == "encounter" then
     local encounter = Vendors().Encounter(row.encounterID)
     return encounter ~= nil and encounter.link ~= nil

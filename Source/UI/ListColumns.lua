@@ -15,16 +15,21 @@ local ICON_SIZE = 16
 -- 900 in a 1000-wide window and left it about 60)
 Columns.REASON_MIN = 240
 Columns.DEFS = {
-  { key = "name", label = "Item", width = 200 },
-  { key = "count", label = "Count", width = 44, justify = "RIGHT" },
-  { key = "where", label = "Where", width = 120 },
-  { key = "purposeText", label = "Purpose", width = 100 },
+  { key = "name", label = "Item", width = 200,
+    tooltip = "The item, in its quality's color. Hover a row for its tooltip; click it for everything about it." },
+  { key = "count", label = "Count", width = 44, justify = "RIGHT", tooltip = "How many are in this stack." },
+  { key = "where", label = "Where", width = 120,
+    tooltip = "The bag or bank tab it is in. Another character's rows start with that character's name." },
+  { key = "purposeText", label = "Checks", width = 100,
+    tooltip = "The checks that answered for it, such as Toy, Reagent, Gear, Buys or Season. The item details window's Checks section gives each one's answer." },
   { key = "usedForText", label = "Used for", width = 130,
     tooltip = "What the game's own data links the item to. The audit panel beside a hovered row (hold Alt, or the key chosen in the settings) shows each one with its state." },
-  { key = "verdictRank", label = "Verdict", width = 90 },
-  { key = "asOf", label = "As of", width = 80,
-    tooltip = "When a bank row was captured. Rows read just now say live." },
-  { key = "reason", label = "Reason", width = 300, stretch = true },
+  { key = "verdictRank", label = "Verdict", width = 90,
+    tooltip = "Whether you still need it. Sorted by what to act on first: Needed, Use now, Useful, Can't tell, Junk, Outdated, Lower level, then Purpose done." },
+  { key = "asOf", label = "Last read", width = 80,
+    tooltip = "When Recollect last read this copy: live for what it reads now, else the date of the bank visit or login it was stored at." },
+  { key = "reason", label = "Reason", width = 300, stretch = true,
+    tooltip = "Why: the facts behind the verdict. The audit panel and the details window say more." },
 }
 
 -- One color per verdict, for the list, the tooltip hint and the audit panel

@@ -82,7 +82,12 @@
 -- anything (curator spec D34; relation.shows, never in flags): P<skillLine>
 -- a profession (professions = { skillLine }), E<faction>.<standing> a
 -- reputation standing (standing = { factionID, standing }, 1 Hated to 8
--- Exalted), Q<quest> after a completed quest (quests = { questID }). A route
+-- Exalted), N<faction>.<level> a renown level with a major faction (renown
+-- = { factionID, level }), Q<quest> after a completed quest (quests = {
+-- questID }, one Q per quest), A<ach> an achievement earned (achievements =
+-- { achievementID }, one A per achievement: "v255503|A62562A62563", what
+-- buying the Unbound Manawyrm requires). AllTheThings gives E, N, Q and A
+-- for purchases (b, v), accepted curator findings any of them. A route
 -- whose only conditions are these has no flags, so it serves every character
 -- exactly as one with none.
 -- For(itemID) returns { { kind, id, criteria, count, level, thing, vendors, plus,
@@ -107,7 +112,13 @@
 -- the game when that patch's expansion is later than the one the game files it
 -- under (the A table: the Seal Breaker Key, a Maw key the game calls Battle
 -- for Azeroth's, 90100). RecipesOf(skillLine) lists the recipe spells the
--- data knows for a profession (the S table), for curator mode. Nothing is
+-- data knows for a profession (the S table), for curator mode.
+-- MetasOf(achievementID) lists the meta achievements an achievement counts
+-- toward, and ChildrenOf(metaID) the achievements a meta achievement asks
+-- for (data format 5's H and I tables, from the big dump's achievement
+-- criteria of type 8, CRITERIA_TYPE_ACHIEVEMENT: the criterion's asset is
+-- the achievement to earn), each ascending; an empty list when the data
+-- names none, or has no such table (a file of an older format). Nothing is
 -- read while Facts.DataVersion has the shipped data off (its files of
 -- different versions, or of a format this Recollect doesn't read).
 -------------------------------------------------------------------------------
@@ -165,7 +176,7 @@ local function Flags(text)
   return flags
 end
 
--- The display-only conditions (P, E, Q) of a flags text, one shared table
+-- The display-only conditions (P, E, N, Q, A) of a flags text, one shared table
 -- per distinct text (read-only), or nil for none; and the text without them,
 -- for Flags (a text with nothing else then gives nil flags)
 local showsOf, plainOf = {}, {}
@@ -179,11 +190,17 @@ local function Shows(text)
   end
   local faction, standing = text:match("E(%d+)%.(%d+)")
   if faction then shows.standing = { factionID = tonumber(faction), standing = tonumber(standing) } end
+  local renownFaction, level = text:match("N(%d+)%.(%d+)")
+  if renownFaction then shows.renown = { factionID = tonumber(renownFaction), level = tonumber(level) } end
   for id in text:gmatch("Q(%d+)") do
     shows.quests = shows.quests or {}
     shows.quests[#shows.quests + 1] = tonumber(id)
   end
-  local plain = text:gsub("P%d+", ""):gsub("E%d+%.%d+", ""):gsub("Q%d+", "")
+  for id in text:gmatch("A(%d+)") do
+    shows.achievements = shows.achievements or {}
+    shows.achievements[#shows.achievements + 1] = tonumber(id)
+  end
+  local plain = text:gsub("P%d+", ""):gsub("E%d+%.%d+", ""):gsub("N%d+%.%d+", ""):gsub("Q%d+", ""):gsub("A%d+", "")
   if not next(shows) then shows = nil end
   showsOf[text], plainOf[text] = shows or false, plain
   return shows, plain
@@ -556,10 +573,13 @@ end
 --   class, race  ids, the sorted class or race IDs the route is for (the
 --                caller names them: UI.UsedFor reads the names)
 --   profession   ids = { skillLine } (P), standing ids = { factionID,
---                standing } (E), quest ids = { questID } (Q): conditions a
---                character can still meet (D34), listed for every character,
---                since only a live read tells whether the viewer meets them
---                (the caller reads and words them: UI.UsedFor)
+--                standing } (E), renown ids = { factionID, level } (N),
+--                quest ids = { questID } (Q, one tag per quest), achievement
+--                ids = { achievementID, ... } (every A of the route in one
+--                tag): conditions a character can still meet (D34), listed
+--                for every character, since only a live read tells whether
+--                the viewer meets them (the caller reads and words them:
+--                UI.UsedFor)
 --   event        "During a holiday or event" (h), for every character: the
 --                data carries no holiday ID yet
 -- words is how the tag reads first in a parenthetical, after how it reads
@@ -581,7 +601,8 @@ end
 local function Tag(kind, words, ids)
   return { kind = kind, words = words and words[1], after = words and words[2], ids = ids }
 end
--- The display-only conditions' tags (profession, standing, quest), added to tags
+-- The display-only conditions' tags (profession, standing, renown, quest,
+-- achievement), added to tags
 local function ShownTags(relation, tags)
   local shows = relation and relation.shows
   if not shows then return tags end
@@ -589,7 +610,13 @@ local function ShownTags(relation, tags)
   if shows.standing then
     tags[#tags + 1] = Tag("standing", nil, { shows.standing.factionID, shows.standing.standing })
   end
+  if shows.renown then tags[#tags + 1] = Tag("renown", nil, { shows.renown.factionID, shows.renown.level }) end
   for _, questID in ipairs(shows.quests or {}) do tags[#tags + 1] = Tag("quest", nil, { questID }) end
+  if shows.achievements then
+    local ids = {}
+    for i, achievementID in ipairs(shows.achievements) do ids[i] = achievementID end
+    tags[#tags + 1] = Tag("achievement", nil, ids)
+  end
   return tags
 end
 
@@ -792,6 +819,29 @@ function Relations.RecipesOf(skillLine)
   if type(text) ~= "string" then return list end
   for spell in text:gmatch("%d+") do list[#list + 1] = tonumber(spell) end
   return list
+end
+
+-- The IDs of one achievement's record in the H or I table ("41,45"), a new
+-- list each call, ascending as shipped; empty when there is none
+local function AchievementList(tableKey, achievementID)
+  local list = {}
+  if not Recollect.Utilities.IsPositiveID(achievementID) then return list end
+  local data = Data()
+  local text = Record(data and data[tableKey], achievementID)
+  for id in (text or ""):gmatch("%d+") do list[#list + 1] = tonumber(id) end
+  return list
+end
+
+-- The meta achievements an achievement counts toward (the H table: each
+-- meta whose criteria of type 8 name it), ascending; empty when none
+function Relations.MetasOf(achievementID)
+  return AchievementList("H", achievementID)
+end
+
+-- The achievements a meta achievement asks for (the I table, the reverse of
+-- H), ascending; empty when the data names none
+function Relations.ChildrenOf(metaID)
+  return AchievementList("I", metaID)
 end
 
 -- The client build the data came from ("69933"), or nil

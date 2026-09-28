@@ -71,11 +71,10 @@ Guide.SECTIONS = {
     body = {
       Bullets({
         "The verdict, in color, and the reason for it",
-        Block("USED FOR") .. ": what the item is used for, and where you stand",
+        Block("USED FOR") .. ": its most important uses, and where you stand",
         Block("COMES FROM") .. ": where to get more",
-        Block("GUIDE NOTES") .. ": tips from guide sites, for a few items",
-        Block("ABOUT") .. ": what kind of item it is, and its expansion",
-        Block("CHECKS") .. ": every check Recollect ran on it",
+        Block("GUIDE NOTES") .. ": a short note Recollect researched, for a few items no data explains",
+        "A short summary: press " .. Key("Alt+D") .. " for everything, in the item's details",
       }),
       Bullets({
         "Works on any item: bags, bank, chat links, vendors, loot, the auction house",
@@ -112,13 +111,16 @@ Guide.SECTIONS = {
     body = {
       Bullets({
         "Open it: " .. Key("/rec") .. ", or the minimap button",
+        "The top line counts your stacks by verdict",
         "Sort: click a column title",
         "Resize: drag a column divider, or double-click it to fit",
         "Search: the box at the top",
-        "Filter: the funnel, by verdict, place, or why Can't tell",
+        "Filter: the funnel, by verdict, where it is, its uses, or why Can't tell",
+        "Tabs along the bottom once another character is stored: My Items, All Characters, one per character",
         "Hold " .. Key("Alt") .. " over a row for its panel; click a row for its details",
       }),
-      Note("Your bank and warband bank show as of your last visit. Your other characters can be listed too: turn it on in /rec settings."),
+      Note("With the bank closed, your bank and warband bank show as of your last visit; other characters as of their last login. "
+        .. "Their items get only the checks that hold for the whole account. Turn them off in /rec settings."),
     },
     try = {
       { "/rec", "Open or close the Recollect Audit" },

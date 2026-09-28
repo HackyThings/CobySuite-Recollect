@@ -207,7 +207,7 @@ end
 -- The reason's words for a tally with nothing missing
 local function StateWords(t)
   local collectibles = t.have + t.unavailable + t.unread + t.failed + t.unassessed
-  if collectibles == 0 then return "none of them is a collectible" end
+  if collectibles == 0 then return t.total == 1 and "it isn't a collectible" or "none of them is a collectible" end
   if t.have == collectibles then return "you have every collectible among them" end
   local parts = { ("you have %d of the %d collectibles among them"):format(t.have, collectibles) }
   if t.unread > 0 then parts[#parts + 1] = ("%d can't be read yet"):format(t.unread) end
@@ -222,6 +222,43 @@ end
 
 -- What routes restrict that the owner fails, and the words for it (PI-14)
 local Restrictions, Kinds = R.Restrictions, R.KindWords
+
+-- When every purchase is limited to classes the owner isn't (and nothing
+-- else limits them), the words naming those classes and what the data
+-- lacks: "all Hunter, Shaman and Evoker only; none recorded yet for
+-- Paladin" (Cobanyte, 2026-09-28: a raid curio's vendor shows each class
+-- its own armor type's tokens, and the data held only what one class saw).
+-- It says what the data holds, never that a vendor sells one for this
+-- class. nil when a route has another limit, more than 4 classes, or a
+-- name can't be read, so the plain words stay
+local MAX_CLASSES_NAMED = 4
+local function ClassGap(others, owner)
+  local ids, set = {}, {}
+  for _, relation in ipairs(others) do
+    local flags = relation.flags or {}
+    if flags.faction ~= nil or flags.races or not flags.classes then return nil end
+    for id in pairs(flags.classes) do
+      if not set[id] then set[id], ids[#ids + 1] = true, id end
+    end
+  end
+  if #ids == 0 or #ids > MAX_CLASSES_NAMED or not owner or owner.classID == nil then return nil end
+  table.sort(ids)
+  local function Name(classID)
+    local ok, name = Recollect.Utilities.Try(Recollect.Purposes.client.GetClassName, classID)
+    return ok and type(name) == "string" and name ~= "" and name or nil
+  end
+  local names = {}
+  for _, id in ipairs(ids) do
+    local name = Name(id)
+    if not name then return nil end
+    names[#names + 1] = name
+  end
+  local own = Name(owner.classID)
+  if not own then return nil end
+  local list = #names == 1 and names[1]
+    or (table.concat(names, ", ", 1, #names - 1) .. " and " .. names[#names])
+  return ("all %s only; none recorded yet for %s"):format(list, own)
+end
 
 -- The check's answer for one list of relations and owner
 local function Answer(relations, owner, itemID)
@@ -284,7 +321,9 @@ local function Answer(relations, owner, itemID)
         return R.Unknown(headline .. "; " .. untoldWords .. (otherWords and ("; " .. otherWords) or ""), headline, "character")
       end
       if o.total > 0 then
-        local headline = ("Buys %d %s for another %s"):format(o.total, o.total == 1 and "thing" or "things", Kinds(mismatch))
+        local gap = ClassGap(others, owner)
+        local headline = gap and ("Buys %d %s, %s"):format(o.total, o.total == 1 and "thing" or "things", gap)
+          or ("Buys %d %s for another %s"):format(o.total, o.total == 1 and "thing" or "things", Kinds(mismatch))
         return R.Unknown(headline, headline)
       end
       return R.Unknown("What it buys can't be read yet", nil, "unreadable")

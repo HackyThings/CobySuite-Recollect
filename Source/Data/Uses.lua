@@ -24,7 +24,6 @@
 --                                              -- the item they sell (checked in game)
 --     mention = "text",                        -- text every part's own tooltip shows (English
 --                                              -- client; read only by the in-game check)
---     source = "https://...",                  -- where the facts were researched
 --     confirmed = "2026-09-23, build 69933: ...",  -- the in-game check behind the entry
 --   },
 --
@@ -34,9 +33,8 @@
 -- parts with the vendor's own cost, recorded when its window opens (the
 -- player need not hold the parts). An entry without a confirmed line is
 -- ignored by the checks and listed by the Lab as pending.
--- Facts may be researched online, only from sources whose terms and
--- robots.txt allow it, and are cited in source. Nothing is copied from
--- another addon.
+-- Every entry is our own wording, confirmed in game; nothing is copied from
+-- another addon or a website.
 -------------------------------------------------------------------------------
 Recollect.Data = Recollect.Data or {}
 
@@ -55,9 +53,6 @@ Recollect.Data.Uses = {
     reward = "the Ancestral War Bear",
     rewardItem = 257223,
     mention = "Honored Warrior's Cache",
-    source = "https://www.method.gg/guides/mounts/ancestral-war-bear-mount-guide ; "
-      .. "https://conquestcapped.com/guides/wow/treasures-of-zul-aman/ ; "
-      .. "https://www.warcraftmounts.com/mounts/ancestralwarbear.php",
     confirmed = "2026-09-23, build 69933: each part's tooltip reads Key to the Honored Warrior's Cache; "
       .. "the mount journal gives mount 2778 Ancestral War Bear the source Treasure: Honored Warrior's Cache, "
       .. "Zul'Aman; item 257223 teaches mount 2778",
@@ -76,8 +71,6 @@ Recollect.Data.Uses = {
     vendor = 199448,
     sold = 198873,
     mention = "Tattukiaka",
-    source = "https://www.method.gg/guides/mounts/ivory-traders-ottuk-mount-guide ; "
-      .. "https://www.warcraftmounts.com/mount.php?mountid=1516",
     confirmed = "2026-09-23, build 69933: the mount journal gives mount 1658 the source Vendor: Tattukiaka, "
       .. "Cost: 1 each of items 193696, 193633 and 193708; each part's tooltip names Tattukiaka; "
       .. "item 198873 teaches mount 1658",
@@ -95,7 +88,6 @@ Recollect.Data.Uses = {
     vendor = 199448,
     sold = 198871,
     mention = "Tattukiaka",
-    source = "https://www.warcraftmounts.com/mount.php?mountid=1513",
     confirmed = "2026-09-23, build 69933: the mount journal gives mount 1546 the source Vendor: Tattukiaka, "
       .. "Cost: 1 each of items 195502 and 195496; each part's tooltip names Tattukiaka; "
       .. "item 198871 teaches mount 1546",

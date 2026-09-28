@@ -24,6 +24,18 @@ local Host = Curator.Host
 local Protocol = {}
 Curator.Protocol = Protocol
 
+-- The transport version (Cobanyte, 2026-09-28): what the author's console
+-- and a curator must share for a pull, whatever their addon versions. It
+-- covers the messages (types, fields, order), the packing (CBOR, Deflate,
+-- Base64, chunking, the checksum) and the payload's shape (records, stamps,
+-- contexts, quests, notes). Raise it only when a change breaks an older
+-- client: a field removed, moved or read differently, or the packing
+-- changed. A field added that the other side can do without keeps it (the
+-- author's console is always the newest side, so it reads a payload with or
+-- without the field; 0.0.1b's versions.schema and frozen blocks are such an
+-- addition). An addon release that changes none of this keeps it, so the
+-- author on the next unreleased version still pulls curators on the last
+-- release. It rides in every R and O as the "protocol" field.
 Protocol.VERSION = 1
 Protocol.SEP = "~"
 Protocol.LIVE, Protocol.TEST = "l", "t"

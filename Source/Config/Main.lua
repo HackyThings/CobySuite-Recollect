@@ -15,8 +15,9 @@ local base = CobySuite_Recollect.Config.New({
     WAYPOINT_KEY     = "waypoint_key",      -- "ALT-W": sets a waypoint to the vendor the panel names
     PIN_ENABLED      = "pin_enabled",       -- the panel's pin key is on
     PIN_KEY          = "pin_key",           -- "ALT-D": pins the panel's full details in a window
-    LIST_OTHERS      = "list_other_characters",  -- the list shows other characters' stored items
+    LIST_OTHERS      = "list_other_characters",  -- the list shows other characters' stored items, a tab each (on by default)
     SHOW_MINIMAP     = "show_minimap_button",    -- the minimap button (UI/Minimap.lua)
+    WAYPOINT_PROVIDER = "waypoint_provider",     -- "auto" (TomTom when loaded, else the game's pin) | "game" (UI/Waypoint.lua)
   },
   defaults = {
     ["show_bank"]    = true,
@@ -27,8 +28,9 @@ local base = CobySuite_Recollect.Config.New({
     ["waypoint_key"]     = "ALT-W",
     ["pin_enabled"]      = true,
     ["pin_key"]          = "ALT-D",
-    ["list_other_characters"] = false,
+    ["list_other_characters"] = true,
     ["show_minimap_button"]   = true,
+    ["waypoint_provider"]     = "auto",
   },
   validate = {
     ["show_bank"]    = { type = "boolean" },
@@ -41,6 +43,7 @@ local base = CobySuite_Recollect.Config.New({
     ["pin_key"]          = { type = "string" },
     ["list_other_characters"] = { type = "boolean" },
     ["show_minimap_button"]   = { type = "boolean" },
+    ["waypoint_provider"]     = { type = "string", values = { "auto", "game" } },
   },
   debug = Recollect.Debug,
   onSet = function(name, old, value)
@@ -67,5 +70,16 @@ function Config.InitializeData()
   -- Anything but a table here is a damaged file: start that table over
   if type(RECOLLECT_WINDOW_STATE) ~= "table" then
     RECOLLECT_WINDOW_STATE = {}
+  end
+  -- Once: "Include your other characters" became on by default
+  -- (Cobanyte, 2026-09-28), and a saved "off" from the beta, when it
+  -- defaulted off, is turned on this one time; a later "off" stays
+  local done = type(RECOLLECT_WINDOW_STATE.migrations) == "table" and RECOLLECT_WINDOW_STATE.migrations or {}
+  RECOLLECT_WINDOW_STATE.migrations = done
+  if not done.listOthersOn then
+    done.listOthersOn = true
+    if type(RECOLLECT_CONFIG) == "table" and RECOLLECT_CONFIG.list_other_characters == false then
+      RECOLLECT_CONFIG.list_other_characters = true
+    end
   end
 end

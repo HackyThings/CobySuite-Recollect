@@ -29,9 +29,12 @@ Recollect.Facts.DataVersion = DataVersion
 -- the stamps and the curator indexes; 3: the gold-only trade code V and the
 -- display-only route conditions P, E and Q; 4: the sources D (Encounter
 -- Journal loot), N (a renown reward), O (the Black Market) and U (the
--- Trading Post). Each adds codes the one before lacks, so an older file
--- still reads)
-DataVersion.SUPPORTED_FORMATS = { [2] = true, [3] = true, [4] = true }
+-- Trading Post; 5: the meta achievement tables H and I, Relations.MetasOf and
+-- ChildrenOf, and the display-only route conditions N (a renown level) and A
+-- (an achievement earned), with E and Q, on purchases from AllTheThings). Each
+-- adds codes or tables the one before lacks, so an older file still reads, a
+-- missing table as none)
+DataVersion.SUPPORTED_FORMATS = { [2] = true, [3] = true, [4] = true, [5] = true }
 
 local UNSTAMPED = "unstamped"
 local FILES = { "Relations", "Vendors", "Hints" }

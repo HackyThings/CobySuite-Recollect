@@ -140,6 +140,11 @@ Recollect.Purposes.client = {
   GetPetInfoBySpeciesID = function(speciesID) return C_PetJournal.GetPetInfoBySpeciesID(speciesID) end,
   GetServerExpansionLevel = function() return GetServerExpansionLevel() end,
   GetExpansionName = function(expansionID) return _G["EXPANSION_NAME" .. expansionID] end,
+  -- a class's name in the player's language, for reasons that name classes
+  GetClassName = function(classID)
+    local info = C_CreatureInfo.GetClassInfo(classID)
+    return info and info.className or nil
+  end,
   -- Gear: the appearance (C_TransmogCollection) and item levels (C_Item)
   GetTransmogItemInfo = function(itemInfo) return C_TransmogCollection.GetItemInfo(itemInfo) end,
   GetSourceInfo = function(sourceID) return C_TransmogCollection.GetSourceInfo(sourceID) end,

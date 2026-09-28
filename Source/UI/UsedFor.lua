@@ -23,6 +23,8 @@
 --   Reward from "Pink Elekks On Parade" (not done)
 --   Reward from the achievement "Treasures of Voidstorm" (3 of 5 done)
 --   Sold by Innkeeper Farley (Elwynn Forest)
+--   Sold by Sergeant Vornin (Silvermoon City) (Requires the achievements
+--     "Void Response Team" (3 of 5 done) and "Ritual Site Disruptor" (earned))
 --   Drops from Hogger
 --   Found at a spot in Naigtal (22.9, 61.3)
 --   Drops from enemies in Zul'Aman
@@ -39,10 +41,17 @@
 -- that sells it), the sources in the same form, and extra = { unavailable
 -- (lines of routes no longer in the game), pending (quests of the uses still
 -- being checked), pendingSources (quests it comes from still being
--- checked, noted under COMES FROM, never under USED FOR) }. The uses hold at
--- most MAX_LINES lines besides headings, the sources MAX_SOURCES, then "and
--- N more"; opts.full (the pinned view, UI.DetailWindow) raises both to
--- FULL_LINES and lists the routes no longer available. opts.tip (the
+-- checked, noted under COMES FROM, never under USED FOR), buys (every
+-- purchase summed up in one line, BuySummary: "Buys 4 decor and 2 pets you
+-- don't have, at 4 vendors (70 things in all)", which the audit panel shows
+-- in place of the "Buys at" groups; nil with opts.full or nothing bought) }.
+-- The uses hold at most MAX_LINES lines besides headings, the sources
+-- MAX_SOURCES, then "and N more" (a note marked more, as is "N more still
+-- being checked"); a purchase's line is marked buy, and the closing line for
+-- uses no longer in the game gone (and every when no use is left). The
+-- audit panel shows only a few of these (UI.AuditPanel.Compact); opts.full
+-- (the pinned view, UI.DetailWindow) raises both limits to FULL_LINES and
+-- lists the routes no longer available. opts.tip (the
 -- tooltip's facts, Facts.Tooltip.Parse) and opts.facts (Facts.Item.Get)
 -- let the lines read the Use line: what using it gives, and an older
 -- system's line.
@@ -154,7 +163,7 @@
 -- NoteLines(itemID, owner) words the guide notes (Facts.Notes, Data/Notes.lua)
 -- for the panel's GUIDE NOTES and the details window: the note, how many,
 -- where, where it comes from, an achievement's or quest's live state, and
--- whose words they are ("Per method.gg; not confirmed in game yet"). A note
+-- that it is a guide note ("Guide note; not confirmed in game yet"). A note
 -- is never a USED FOR line and never changes a verdict.
 -------------------------------------------------------------------------------
 local UsedFor = {}
@@ -392,10 +401,15 @@ local function NamedWords(tag)
 end
 
 -- Display-only conditions (D34): a profession, a reputation standing, a
--- completed quest. ShownMet says whether the viewer meets one (true, false,
--- or nil: another character's row, or a read that fails); ShownWords words
--- it ("Engineering only", "Requires Revered with Cenarion Expedition",
--- 'After quest "The Call"'), with names read live
+-- renown level, a completed quest, achievements earned. ShownMet says
+-- whether the owner meets one (true, false, or nil: another character's row,
+-- or a read that fails; achievements an account-wide one on any row);
+-- ShownWords words it ("Engineering only", "Requires Revered with Cenarion
+-- Expedition", "Requires Renown 6 with Silvermoon Court (you're at 4)",
+-- 'After quest "The Call"', 'After quest "The Call" (done)', 'Requires the
+-- achievement "Void Response Team" (3 of 5 done)', several joined: 'Requires
+-- the achievements "X" (earned) and "Y" (not earned)'), with names and
+-- states read live (Facts.Achievements.Progress and ProgressWords)
 local function ProfessionLines(client)
   local ok, a, b, c, d, e = Try(client.GetProfessions)
   if not ok then return nil end
@@ -408,10 +422,34 @@ local function ProfessionLines(client)
   return lines
 end
 
+local Renown   -- the owner's renown with a major faction, defined with the renown lines below
+
+-- Whether one achievement counts as earned for the owner: true, false, or
+-- nil when it can't be told (a read that fails; another character's copy of
+-- one not known to be account-wide, rule 46; one earned on another character
+-- that isn't account-wide)
+local function AchievementMet(progress, owner)
+  if not progress then return nil end
+  local viewer = owner and owner.isViewer
+  if not viewer and progress.accountWide ~= true then return nil end
+  if not progress.earned then return false end
+  if progress.accountWide == true or progress.byMe then return true end
+  return nil
+end
+
 local function ShownMet(tag, owner)
+  local ids = tag.ids or {}
+  if tag.kind == "achievement" then
+    local all = true
+    for _, achievementID in ipairs(ids) do
+      local met = AchievementMet(Recollect.Facts.Achievements.Progress(achievementID), owner)
+      if met == nil then return nil end
+      if not met then all = false end
+    end
+    return all
+  end
   if not (owner and owner.isViewer) then return nil end
   local client = Recollect.Purposes.client
-  local ids = tag.ids or {}
   if tag.kind == "profession" then
     local lines = ProfessionLines(client)
     return lines and lines[ids[1]] == true or nil
@@ -419,6 +457,11 @@ local function ShownMet(tag, owner)
     local ok, data = Try(seams.FactionData, ids[1])
     if not ok or type(data) ~= "table" or type(data.reaction) ~= "number" then return nil end
     return data.reaction >= (ids[2] or 0)
+  elseif tag.kind == "renown" then
+    local state = Renown(ids[1], ids[2], true)
+    if state == "reached" then return true end
+    if state == "short" then return false end
+    return nil
   elseif tag.kind == "quest" then
     local ok, done = Try(client.IsQuestFlaggedCompleted, ids[1])
     if not ok or type(done) ~= "boolean" then return nil end
@@ -432,7 +475,24 @@ local function SeamName(seam, id)
   return ok and type(name) == "string" and name ~= "" and name or nil
 end
 
-local function ShownWords(tag)
+-- '"Void Response Team" (3 of 5 done)': one achievement a route requires,
+-- its name heard as a link's, with its progress when it can be told for the
+-- owner (another character's copy only for an account-wide one, rule 46)
+local function RequiredAchievement(achievementID, owner)
+  local progress = Recollect.Facts.Achievements.Progress(achievementID)
+  if not progress then return ("%d"):format(achievementID or 0) end
+  local name = ('"%s"'):format(Named("achievement", achievementID, progress.name))
+  if not (owner and owner.isViewer) and progress.accountWide ~= true then return name end
+  return ("%s (%s)"):format(name, (Recollect.Facts.Achievements.ProgressWords(progress)))
+end
+
+-- "A", "A and B", "A, B and C"
+local function Joined(list)
+  if #list <= 1 then return list[1] or "" end
+  return table.concat(list, ", ", 1, #list - 1) .. " and " .. list[#list]
+end
+
+local function ShownWords(tag, owner, met)
   local ids = tag.ids or {}
   local words
   if tag.kind == "profession" then
@@ -441,9 +501,19 @@ local function ShownWords(tag)
   elseif tag.kind == "standing" then
     local label = SeamName(seams.StandingLabel, ids[2] or 0)
     words = label and ("Requires %s with %s"):format(label, FactionName(ids[1])) or "Requires a reputation standing"
+  elseif tag.kind == "renown" then
+    local state, name, now = Renown(ids[1], ids[2], owner and owner.isViewer)
+    words = ("Requires Renown %d with %s"):format(ids[2] or 0, name)
+    if state == "short" then words = ("%s (you're at %d)"):format(words, now) end
+  elseif tag.kind == "achievement" then
+    local names = {}
+    for i, achievementID in ipairs(ids) do names[i] = RequiredAchievement(achievementID, owner) end
+    words = ("Requires the achievement%s %s"):format(#names > 1 and "s" or "", Joined(names))
   else
     local title = SeamName(seams.QuestTitle, ids[1])
+    if title then Named("quest", ids[1], title) end
     words = title and ('After quest "%s"'):format(title) or ("After quest %d"):format(ids[1] or 0)
+    if met then words = words .. " (done)" end
   end
   -- a name keeps its capitals after another tag; only the leading word lowers
   local after = words:match("^(For one profession only)$") and "for one profession only"
@@ -461,12 +531,19 @@ end
 -- no race recorded), is worded as not recorded, as the checks word it
 -- (PI-14), never as a mismatch; "other" names each condition missed
 -- (faction, class, race), else "not for this character". Display-only
--- conditions (a profession, a standing, a completed quest; D34) follow, each
--- unless the viewer meets it, marked shown = true, whatever applies says
--- short of unavailable. An event route adds "During a holiday or event" for
+-- conditions (a profession, a standing, renown, a completed quest,
+-- achievements; D34) follow, whatever applies says short of unavailable: a
+-- profession, standing or renown only while the owner doesn't meet it; a
+-- quest or the route's achievements always, with their state ("(done)",
+-- "(3 of 5 done)", "(earned)"), since they say what buying takes. One the
+-- owner isn't read to meet is marked shown = true (the line dims); one met
+-- is kept undimmed. An event route adds "During a holiday or event" for
 -- every character, including one it serves. Empty when there is nothing to
 -- say.
 local OTHER_WORDS = "not for this character"
+local SHOWN_CONDITIONS = { profession = true, standing = true, renown = true, quest = true, achievement = true }
+-- worded even when met, with their state: they say what buying takes
+local ALWAYS_SHOWN = { quest = true, achievement = true }
 local function Tags(relation, applies, owner)
   local R = Relations()
   local conditions = R.Conditions(relation, owner)
@@ -492,10 +569,13 @@ local function Tags(relation, applies, owner)
   end
   if applies ~= "unavailable" then
     for _, tag in ipairs(conditions) do
-      if (tag.kind == "profession" or tag.kind == "standing" or tag.kind == "quest") and ShownMet(tag, owner) ~= true then
-        tag.words, tag.after = ShownWords(tag)
-        tag.shown = true
-        out[#out + 1] = tag
+      if SHOWN_CONDITIONS[tag.kind] then
+        local met = ShownMet(tag, owner) == true
+        if not met or ALWAYS_SHOWN[tag.kind] then
+          tag.words, tag.after = ShownWords(tag, owner, met)
+          tag.shown = not met or nil
+          out[#out + 1] = tag
+        end
       end
     end
   end
@@ -535,12 +615,33 @@ end
 -- the state (AuditPanel.LineText colors only the closing parenthetical). A
 -- display-only condition the owner misses (D34) is worded the same way and
 -- dims the line (dimmed = true), which stays where it was: no verdict reads it
+-- Tags(relation, applies, owner), with the names their words use (a
+-- required achievement's, a quest's): handed to the line being built, else
+-- returned for the line itself
+local function NamedTags(relation, applies, owner)
+  local outer = naming
+  naming = {}
+  local ok, tags = pcall(Tags, relation, applies, owner)
+  local names = naming
+  naming = outer
+  if not ok then error(tags, 0) end
+  if outer then
+    for _, name in ipairs(names) do outer[#outer + 1] = name end
+    names = {}
+  end
+  return tags, names
+end
+
 local function Tagged(line, relation, applies, owner)
   if applies == true and not (relation.flags and relation.flags.event) and not relation.shows then return line end
-  local tags = Tags(relation, applies, owner)
+  local tags, names = NamedTags(relation, applies, owner)
   local words = TagText(tags)
   if not words then return line end
   line.tags = tags
+  if #names > 0 then
+    line.links = line.links or {}
+    for _, name in ipairs(names) do line.links[#line.links + 1] = name end
+  end
   if applies ~= true then
     line.text = ("%s (%s)"):format(line.text, words)
     line.color, line.tier = U.Colors.LABEL_GRAY, TIER_CLOSED
@@ -597,30 +698,108 @@ local function Room(taken, group, tier, max)
   return true
 end
 
--- Entries(itemID, decor, buys, buyApplies, owner, max): the entries that can
--- show, in order, and how many there are in all (Mark of Honor's
--- purchases, about 8,700, make a few dozen entries, not thousands)
-local function Entries(itemID, decorRelations, buyRelations, buyApplies, owner, max, budget)
+-------------------------------------------------------------------------------
+-- What it buys, summed up in one line for the audit panel (BuySummary):
+-- every thing Entries counts is tallied, not only the ones it keeps
+-------------------------------------------------------------------------------
+local MAX_VENDOR_LIST = 12   -- a route's vendor list the data build may have cut (rule 25): no count from it
+local MAX_TEXT_SELLERS = 2   -- sellers Facts.Vendors.FromSourceText names at most
+local MAX_NAMED_VENDORS = 8  -- vendors named to tell a data vendor from one a source text names
+
+local function Sellers()
+  return { texts = {}, textCount = 0, npcs = {}, npcCount = 0, lists = {}, none = 0, capped = false }
+end
+
+local function Tally()
+  return { total = 0, missing = {}, missingCount = 0, collectibles = 0, owned = 0, unread = 0, plain = 0, leads = 0,
+    open = Sellers(), all = Sellers(), leadSellers = Sellers() }
+end
+
+-- One thing's sellers into a set: the source text's (texts), else the
+-- data's vendor list (a relation's seller string read once), else none
+local function AddSellers(set, texts, relation)
+  if texts and #texts > 0 then
+    -- Vendors.FromSourceText names two sellers at most: a text that named two may have named more
+    if #texts >= MAX_TEXT_SELLERS then set.capped = true end
+    for _, text in ipairs(texts) do
+      if not set.texts[text] then
+        set.texts[text] = true
+        set.textCount = set.textCount + 1
+      end
+    end
+    return
+  end
+  local vendors = relation and relation.vendors
+  if not vendors or #vendors == 0 then
+    set.none = set.none + 1
+    return
+  end
+  local key = relation.seller or vendors
+  if set.lists[key] then return end
+  set.lists[key] = true
+  if #vendors >= MAX_VENDOR_LIST then set.capped = true end
+  for _, npc in ipairs(vendors) do
+    if not set.npcs[npc] then
+      set.npcs[npc] = true
+      set.npcCount = set.npcCount + 1
+    end
+  end
+end
+
+-- One thing counted: its state, whether it serves this character, and its sellers
+local function Count(tally, what, state, collectible, restricted, texts, relation, leads)
+  tally.total = tally.total + 1
+  AddSellers(tally.all, texts, relation)
+  if collectible then
+    tally.collectibles = tally.collectibles + 1
+    if state == "have" then
+      tally.owned = tally.owned + 1
+    elseif state == "missing" and not restricted then
+      tally.missing[what] = (tally.missing[what] or 0) + 1
+      tally.missingCount = tally.missingCount + 1
+      AddSellers(tally.open, texts, relation)
+    elseif state == nil or state == "unread" then
+      tally.unread = tally.unread + 1
+    end
+  else
+    tally.plain = tally.plain + 1
+    if leads and not restricted then
+      tally.leads = tally.leads + 1
+      AddSellers(tally.leadSellers, texts, relation)
+    end
+  end
+end
+
+-- Entries(itemID, decor, buys, buyApplies, owner, max, budget, tally): the
+-- entries that can show, in order, and how many there are in all (Mark of
+-- Honor's purchases, about 8,700, make a few dozen entries, not thousands);
+-- tally, when given, counts every thing (BuySummary)
+local function Entries(itemID, decorRelations, buyRelations, buyApplies, owner, max, budget, tally)
   local entries, seen, taken, total, followed = {}, {}, {}, 0, 0
-  local function Add(entry)
+  local function Add(entry, texts)
     seen[entry.key] = true
     total = total + 1
+    if tally then Count(tally, entry.what, entry.state, true, false, texts, nil, false) end
     if Room(taken, entry.group, entry.tier, max) then entries[#entries + 1] = entry end
   end
+  local Vendors = Recollect.Facts.Vendors
   for _, relation in ipairs(decorRelations) do
     local owned, info = Recollect.Purposes.Registry.DecorOwned(relation.id)
     local state = owned ~= nil and (owned > 0 and "have" or "missing") or nil
-    local seller = SourceSellers(info and info.sourceText, itemID)
+    local texts = Vendors.FromSourceText(info and info.sourceText, "item", itemID)
+    local seller = #texts > 0 and table.concat(texts, " or ") or nil
     Add({ what = "decor", id = relation.id, count = relation.count or 1, state = state,
-      key = "decor:" .. relation.id, sellerText = seller, group = seller and ("text:" .. seller) or nil, tier = EntryTier(state) })
+      key = "decor:" .. relation.id, sellerText = seller, group = seller and ("text:" .. seller) or nil, tier = EntryTier(state) },
+      texts)
   end
   local index = Recollect.Facts.Journals.Get()
   for _, target in ipairs((index and index[itemID]) or {}) do
     local state, name = Recollect.Purposes.Registry.CollectibleState(target, owner.faction, owner.isViewer)
-    local seller = SourceSellers(Recollect.Facts.Journals.SourceText(target.kind, target.id), itemID)
+    local texts = Vendors.FromSourceText(Recollect.Facts.Journals.SourceText(target.kind, target.id), "item", itemID)
+    local seller = #texts > 0 and table.concat(texts, " or ") or nil
     Add({ what = target.kind, id = target.id, name = name or (target.kind .. " " .. target.id), count = target.count or 1,
       state = state, key = target.kind .. ":" .. target.id, sellerText = seller, group = seller and ("text:" .. seller) or nil,
-      tier = EntryTier(state) })
+      tier = EntryTier(state) }, texts)
   end
   for i, relation in ipairs(buyRelations) do
     local thing = Recollect.Facts.Buys.Resolve(relation, owner)
@@ -639,6 +818,10 @@ local function Entries(itemID, decorRelations, buyRelations, buyApplies, owner, 
         chain = Recollect.Facts.Chains.Summary(thing.id, owner, budget, itemID)
         if chain and chain.best.state == "open" then tier = TIER_OPEN end
       end
+      if tally then
+        Count(tally, thing.what, thing.state, thing.collectible, restricted, nil, relation,
+          chain ~= nil and chain.best.state == "open")
+      end
       if Room(taken, group, tier, max) then
         entries[#entries + 1] = { what = thing.what, thing = thing, count = relation.count or 1, ofItem = itemID,
           state = not restricted and thing.state or nil, key = thing.key, relation = relation, restricted = restricted,
@@ -647,6 +830,130 @@ local function Entries(itemID, decorRelations, buyRelations, buyApplies, owner, 
     end
   end
   return entries, total
+end
+
+-- The kinds a summary names, in this order when their counts tie
+local KIND_WORDS = { mount = { "mount", "mounts" }, pet = { "pet", "pets" }, toy = { "toy", "toys" },
+  decor = { "decor", "decor" }, ensemble = { "ensemble", "ensembles" },
+  illusion = { "weapon illusion", "weapon illusions" }, heirloom = { "heirloom", "heirlooms" },
+  recipe = { "recipe", "recipes" } }
+local KIND_ORDER = { "mount", "pet", "toy", "decor", "ensemble", "illusion", "heirloom", "recipe" }
+local MAX_KINDS = 3
+
+local function Counted(n, one, many) return ("%d %s"):format(n, n == 1 and one or many) end
+
+local function Joined(parts)
+  if #parts <= 1 then return parts[1] or "" end
+  return table.concat(parts, ", ", 1, #parts - 1) .. " and " .. parts[#parts]
+end
+
+-- "4 decor and 2 pets": the kinds with the most first, three at most, the
+-- rest as other collectibles
+local function KindWords(missing)
+  local kinds, rest = {}, 0
+  for i, what in ipairs(KIND_ORDER) do
+    if missing[what] then kinds[#kinds + 1] = { what = what, n = missing[what], order = i } end
+  end
+  for what, n in pairs(missing) do
+    if not KIND_WORDS[what] then rest = rest + n end
+  end
+  table.sort(kinds, function(a, b)
+    if a.n ~= b.n then return a.n > b.n end
+    return a.order < b.order
+  end)
+  local parts = {}
+  for i, kind in ipairs(kinds) do
+    if i <= MAX_KINDS then
+      parts[#parts + 1] = Counted(kind.n, KIND_WORDS[kind.what][1], KIND_WORDS[kind.what][2])
+    else
+      rest = rest + kind.n
+    end
+  end
+  if rest > 0 then
+    parts[#parts + 1] = #parts > 0 and Counted(rest, "other collectible", "other collectibles")
+      or Counted(rest, "collectible", "collectibles")
+  end
+  return Joined(parts)
+end
+
+-- A vendor's name without its place ("Fizz Alechux (Razorwind Shores)" is "Fizz Alechux")
+local function VendorName(words)
+  return type(words) == "string" and (words:match("^(.-) %(") or words) or nil
+end
+
+-- Where a set of things is sold, as words after the things (" at 4 vendors",
+-- " at Fizz Alechux (Razorwind Shores)"), or nil when the count can't be
+-- stated: a thing with no vendor named, a vendor list the data may have cut,
+-- or a vendor a source text names and one the data names by ID that can't
+-- be told apart (the same vendor may be named both ways, so the count is
+-- of names, and only when every one can be read)
+local function SellerWords(set)
+  if set.none > 0 or set.capped then return nil end
+  local count = set.textCount + set.npcCount
+  if count == 0 then return nil end
+  local Vendors = Recollect.Facts.Vendors
+  if set.textCount > 0 and set.npcCount > 0 then
+    if set.npcCount > MAX_NAMED_VENDORS then return nil end
+    local names, first = {}, nil
+    count = 0
+    local function Name(name, words)
+      if not names[name] then
+        names[name] = true
+        count = count + 1
+        first = first or words
+      end
+    end
+    for text in pairs(set.texts) do Name(VendorName(text), text) end
+    for npc in pairs(set.npcs) do
+      local name = Vendors.NpcName(npc)
+      if type(name) ~= "string" or name == "" then return nil end
+      Name(name, Vendors.Describe(npc))
+    end
+    if count == 1 and first then return " at " .. first end
+    return (" at %d vendors"):format(count)
+  end
+  if count == 1 then
+    local words = next(set.texts) or Vendors.Describe(next(set.npcs))
+    return words and (" at " .. words) or " at 1 vendor"
+  end
+  return (" at %d vendors"):format(count)
+end
+
+-- BuySummary(tally): what the item buys as one line for the audit panel,
+-- from every thing Entries counted, never only the ones shown. Only what
+-- the reads verify: "you don't have" counts only collectibles read as
+-- missing that serve this character; plain items only through a chain that
+-- was followed and leads to one (rule 39); "every collectible among them"
+-- only when each one read as owned (rule 31); "can't be read" for one that
+-- didn't read. nil when it buys nothing.
+local function BuySummary(tally)
+  if not tally or tally.total == 0 then return nil end
+  local V, colors = Verdict(), Colors()
+  local inAll = function(shown)
+    return tally.total > shown and (" (%d things in all)"):format(tally.total) or ""
+  end
+  if tally.missingCount > 0 then
+    local at = SellerWords(tally.open)
+    return { text = ("Buys %s you don't have%s%s"):format(KindWords(tally.missing), at and ("," .. at) or "",
+      inAll(tally.missingCount)), color = colors[V.USEFUL], tier = TIER_OPEN, summary = true }
+  end
+  if tally.leads > 0 then
+    local at = SellerWords(tally.leadSellers)
+    return { text = ("Buys %s that %s to things you don't have%s%s"):format(Counted(tally.leads, "item", "items"),
+      tally.leads == 1 and "leads" or "lead", at and ("," .. at) or "", inAll(tally.leads)),
+      color = colors[V.USEFUL], tier = TIER_OPEN, summary = true }
+  end
+  local text = ("Buys %s%s"):format(Counted(tally.total, "thing", "things"), SellerWords(tally.all) or "")
+  if tally.collectibles > 0 and tally.owned == tally.collectibles then
+    -- plain items have no owned state, so they may still be wanted
+    local only = tally.plain == 0
+    return { text = text .. " (you have every collectible among them)", color = only and colors[V.DONE] or U.Colors.LIGHT_GRAY,
+      tier = only and TIER_CLOSED or TIER_INFO, summary = true }
+  end
+  if tally.unread > 0 then
+    text = text .. (" (%d can't be read)"):format(tally.unread)
+  end
+  return { text = text, color = U.Colors.LIGHT_GRAY, tier = TIER_INFO, summary = true }
 end
 
 -- The sellers the data names, worded ("A (Zone) or B (Zone)"), or nil
@@ -1077,7 +1384,7 @@ end
 -- faction against a reward's level: "reached" or "short" with the renown
 -- now, "unread" when it can't be read, nil when readState is false; then
 -- the faction's name (read live) and its data (textureKit, for an icon)
-local function Renown(factionID, level, readState)
+function Renown(factionID, level, readState)
   local IsSecret = Recollect.Utilities.IsSecret
   local ok, data = Try(seams.MajorFactionData, factionID)
   data = ok and type(data) == "table" and data or nil
@@ -1315,9 +1622,17 @@ local function Merge(lines)
   return out
 end
 
--- A note line ("and 3 more", "2 more still being checked"): no use of its own
+-- A note line: no use of its own
 local function Note(text)
   return { text = text, color = U.Colors.LABEL_GRAY, note = true }
+end
+
+-- A note that stands for lines not shown ("and 3 more", "2 more still being
+-- checked"): more = true, so the audit panel can say "for everything" instead
+local function More(text)
+  local line = Note(text)
+  line.more = true
+  return line
 end
 
 -- Every line ordered by tier, stable: in each tier the non-buy lines (a
@@ -1369,15 +1684,17 @@ local function Assemble(lines, entries, max, pending, places, total)
             places[#places + 1] = vendor
           end
         end
-        out[#out + 1] = Build(BuyLine, entry, entry.group ~= nil)
+        local line = Build(BuyLine, entry, entry.group ~= nil)
+        line.buy = true   -- what it buys: the audit panel sums these up in one line
+        out[#out + 1] = line
         shown = shown + 1
       end
       if shown >= max then break end
     end
   end
   local more = #lines + (total or #entries) - shown
-  if more > 0 then out[#out + 1] = Note(("and %d more"):format(more)) end
-  if pending > 0 then out[#out + 1] = Note(("%d more still being checked"):format(pending)) end
+  if more > 0 then out[#out + 1] = More(("and %d more"):format(more)) end
+  if pending > 0 then out[#out + 1] = More(("%d more still being checked"):format(pending)) end
   return out
 end
 
@@ -1509,7 +1826,7 @@ local function GoneLine(unavailable, every)
   end
   local words = #parts > 1 and (table.concat(parts, ", ", 1, #parts - 1) .. " and " .. parts[#parts]) or parts[1]
   local lead = every and "Every use Recollect knows is gone from the game: it " or "Also no longer in the game: it "
-  return { text = lead .. words, color = Colors()[Verdict().OUTDATED], note = true, gone = true }
+  return { text = lead .. words, color = Colors()[Verdict().OUTDATED], note = true, gone = true, every = every or nil }
 end
 
 -- How many ways to get the item are no longer in the game
@@ -1655,7 +1972,9 @@ function UsedFor.Lines(itemID, stack, owner, opts)
   end
   local buyPlaces = {}
   local max = full and FULL_LINES or MAX_LINES
-  local entries, total = Entries(itemID, decor, buys, buyApplies, owner, max, budget)
+  -- every purchase tallied for the panel's one-line summary (not the pinned view's)
+  local tally = not full and Tally() or nil
+  local entries, total = Entries(itemID, decor, buys, buyApplies, owner, max, budget, tally)
   local uses = Assemble(Merge(lines), entries, max, pending, buyPlaces, total)
   local gone = GoneLine(unavailable, not AnyUse(uses) and pending == 0
     and not UsedFor.LiveUse(itemID, relations, owner, questApplies))
@@ -1667,8 +1986,8 @@ function UsedFor.Lines(itemID, stack, owner, opts)
   local merged, comesFrom = Merge(sources), {}
   local maxSources = full and FULL_LINES or MAX_SOURCES
   for i = 1, math.min(#merged, maxSources) do comesFrom[i] = merged[i] end
-  if #merged > maxSources then comesFrom[#comesFrom + 1] = Note(("and %d more"):format(#merged - maxSources)) end
-  if pendingSources > 0 then comesFrom[#comesFrom + 1] = Note(("%d more still being checked"):format(pendingSources)) end
+  if #merged > maxSources then comesFrom[#comesFrom + 1] = More(("and %d more"):format(#merged - maxSources)) end
+  if pendingSources > 0 then comesFrom[#comesFrom + 1] = More(("%d more still being checked"):format(pendingSources)) end
   local removed = RemovedLine(itemID)
   if removed then
     table.insert(comesFrom, 1, removed)
@@ -1679,11 +1998,11 @@ function UsedFor.Lines(itemID, stack, owner, opts)
         goneSources == 1 and "way to get it is" or "ways to get it are"))
     end
   end
-  local extra = { pending = pending, pendingSources = pendingSources, unavailable = {} }
+  local extra = { pending = pending, pendingSources = pendingSources, unavailable = {}, buys = BuySummary(tally) }
   if full then
     local none = { left = 0 }
     for i = 1, math.min(#unavailable, FULL_LINES) do extra.unavailable[i] = Build(UnavailableLine, unavailable[i], none) end
-    if #unavailable > FULL_LINES then extra.unavailable[#extra.unavailable + 1] = Note(("and %d more"):format(#unavailable - FULL_LINES)) end
+    if #unavailable > FULL_LINES then extra.unavailable[#extra.unavailable + 1] = More(("and %d more"):format(#unavailable - FULL_LINES)) end
   else
     extra.unavailableCount = #unavailable
   end
@@ -1717,7 +2036,7 @@ end
 
 -- NoteLines(itemID, owner): the item's guide notes as { text, details =
 -- { "How many: ...", "Where: ...", "Comes from: ..." }, state = { text,
--- color, links } or nil, label ("Per method.gg; not confirmed in game
+-- color, links } or nil, label ("Guide note; not confirmed in game
 -- yet"), source, confirmed, note }, in Data/Notes.lua's order
 function UsedFor.NoteLines(itemID, owner)
   owner = owner or Recollect.Verdicts.Rows.Owner()
@@ -1728,10 +2047,10 @@ function UsedFor.NoteLines(itemID, owner)
     if note.howMany then details[#details + 1] = "How many: " .. note.howMany end
     if note.where then details[#details + 1] = "Where: " .. note.where end
     if note.from then details[#details + 1] = "Comes from: " .. note.from end
-    local label = note.confirmed and ("Per %s; confirmed in game: %s"):format(note.source, note.confirmed)
-      or ("Per %s; not confirmed in game yet"):format(note.source)
+    local label = note.confirmed and ("Guide note; confirmed in game: %s"):format(note.confirmed)
+      or "Guide note; not confirmed in game yet"
     out[#out + 1] = { text = note.text, details = details, state = Build(NoteState, note, owner, budget), label = label,
-      source = note.source, confirmed = note.confirmed, note = note, color = U.Colors.LABEL_GRAY }
+      confirmed = note.confirmed, note = note, color = U.Colors.LABEL_GRAY }
   end
   return out
 end
@@ -1753,4 +2072,5 @@ UsedFor.parts = {
   end,
 }
 
-UsedFor._test = { seams = seams }
+-- Tally, Count and BuySummary: the panel's purchase summary, for the suites
+UsedFor._test = { seams = seams, Tally = Tally, Count = Count, BuySummary = BuySummary }

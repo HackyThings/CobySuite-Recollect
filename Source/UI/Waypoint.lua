@@ -23,6 +23,12 @@
 -- waypoint (a city's inner map) is climbed to its parent, the position moved
 -- through world coordinates. It never opens the world map: that path writes
 -- map state from addon code (contract rule 29).
+--
+-- With TomTom loaded and the waypoint_provider option on "auto" (the
+-- default; Cobanyte, 2026-09-28), the waypoint goes to TomTom instead, through
+-- its own TomTom:AddWaypoint(mapID, x, y, { title, from }), which takes the
+-- map it is given (no climbing). A TomTom call that fails falls back to the
+-- game's pin. Other navigation addons that take TomTom's calls work the same.
 -------------------------------------------------------------------------------
 local Waypoint = {}
 Recollect.UI.Waypoint = Waypoint
@@ -42,6 +48,11 @@ local seams = {
   WorldPos = function(mapID, x, y) return C_Map.GetWorldPosFromMapPos(mapID, CreateVector2D(x, y)) end,
   MapPos = function(continentID, worldPos, mapID) return C_Map.GetMapPosFromWorldPos(continentID, worldPos, mapID) end,
   InCombat = function() return InCombatLockdown() end,
+  -- TomTom (an optional addon): its global and its AddWaypoint, or nil
+  TomTom = function()
+    local tomtom = rawget(_G, "TomTom")
+    return type(tomtom) == "table" and type(tomtom.AddWaypoint) == "function" and tomtom or nil
+  end,
   Bind = function(owner, key) SetOverrideBindingClick(owner, true, key, BUTTON_NAME) end,
   Clear = function(owner) ClearOverrideBindings(owner) end,
 }
@@ -92,9 +103,34 @@ function Waypoint.Placeable(mapID, x, y)
   return nil
 end
 
--- Set a waypoint: true, or false and why
-function Waypoint.Set(waypoint)
+-- Whether TomTom is loaded (it has AddWaypoint)
+function Waypoint.TomTomLoaded()
+  local ok, tomtom = pcall(seams.TomTom)
+  return ok and tomtom ~= nil
+end
+
+-- Whether a waypoint goes to TomTom now: the option and TomTom loaded
+function Waypoint.UsesTomTom()
+  if Config.Get(Config.Options.WAYPOINT_PROVIDER) == "game" then return false end
+  return Waypoint.TomTomLoaded()
+end
+
+-- Set(waypoint, provider): TomTom's or the game's map pin, as the option
+-- says (Waypoint.UsesTomTom), or as provider picks ("tomtom", "game": the
+-- item details menu's choice). Returns true and "TomTom" or "map" on
+-- success, else false and why
+function Waypoint.Set(waypoint, provider)
   if type(waypoint) ~= "table" then return false, "no vendor known" end
+  local tomtom
+  if provider == "tomtom" then tomtom = Waypoint.TomTomLoaded()
+  elseif provider == "game" then tomtom = false
+  else tomtom = Waypoint.UsesTomTom() end
+  if tomtom and tonumber(waypoint.mapID) and tonumber(waypoint.x) and tonumber(waypoint.y) then
+    local tomtom = seams.TomTom()
+    local ok = pcall(tomtom.AddWaypoint, tomtom, waypoint.mapID, waypoint.x, waypoint.y,
+      { title = waypoint.what or "Recollect", from = "Recollect", persistent = false })
+    if ok then return true, "TomTom" end
+  end
   local mapID, x, y = Waypoint.Placeable(waypoint.mapID, waypoint.x, waypoint.y)
   if not mapID then return false, "that map takes no waypoint" end
   local okPoint, point = Try(seams.Point, mapID, x, y)
@@ -102,7 +138,7 @@ function Waypoint.Set(waypoint)
   local okSet, wasSet = Try(seams.Set, point)
   if not okSet or wasSet == false then return false, "the game did not set the waypoint" end
   pcall(seams.SuperTrack)
-  return true
+  return true, "map"
 end
 
 local function Unbind()

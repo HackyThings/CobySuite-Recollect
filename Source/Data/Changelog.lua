@@ -14,6 +14,40 @@
 -------------------------------------------------------------------------------
 Recollect.Data.Changelog = {
   {
+    version = "0.0.1b",
+    title = "Clearer answers",
+    date = "2026-09-28",
+    new = {
+      "Still needed?: an answer band atop the item details, with why",
+      "Recollect Audit: tabs for My Items, All Characters and each character",
+      "Requirements: what a vendor item needs you to complete first",
+      "NPCs and treasures: hover for what they are, right-click for more",
+      "TomTom: waypoints go to TomTom's arrow when it's installed",
+      "Copy Wowhead link: from any right-click menu in the item details",
+      "Curators on an alt: asked once whether to join the community",
+      "Shift-click: link items, quests, achievements and NPCs in chat",
+    },
+    changed = {
+      "Audit panel: a short summary; {Alt+D} shows everything",
+      "What it's for: opens by explaining what the item is",
+      "Achievements: a section of their own, with their meta achievements",
+      "Treasures: keys say what the treasure holds",
+      "Right-click menus: the game's own menu, at the mouse",
+      "Recollect Audit: grouped filters, counts by verdict, clearer columns",
+      "Settings: resizable, tidier groups, a Guide button",
+      "What crafting takes: now under How to get more",
+    },
+    fixed = {
+      "Tables: dragging a divider on a full table widens the column",
+      "What it takes: the Others and Status columns show their values",
+      "Windows no longer jump when resized by the corner",
+      "Every quality of a crafted item shows the recipe that makes it",
+      "Items that milling and prospecting take show those recipes",
+      "Minimap button: sits outside the minimap again",
+      "Curators: unsent findings are kept through updates",
+    },
+  },
+  {
     version = "0.0.1a",
     title = "Curators and glyphs",
     date = "2026-09-28",

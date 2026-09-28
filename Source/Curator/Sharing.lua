@@ -154,14 +154,48 @@ local function AddQuest(db, out, index)
   if entry.kind == "delta" and entry.base then AddQuest(db, out, entry.base) end
 end
 
--- Snapshot(): the payload table (the intake shape's fields) and the
--- revisions it holds (Store.Pending's shape, for K)
+-- A frozen block as a payload: every finding in it as it was, and the
+-- versions it was made under (the data build reads it by those). A block of
+-- this layout gets its quest bases written out as live ones do; one of
+-- another layout goes exactly as stored
+local function FrozenSnapshot(block)
+  local out = { protocol = Protocol.VERSION, curator = CuratorID(), frozen = true, frozenAt = block.frozenAt,
+    records = Copy(block.records or {}), confirms = Copy(block.confirms or {}), contexts = Copy(block.contexts or {}),
+    quests = {},
+    versions = { addon = block.addonVersion, data = block.dataVersion, format = block.formatVersion,
+      protocol = Protocol.VERSION, schema = block.schema } }
+  for index, entry in pairs(block.quests or {}) do
+    if block.schema == Curator.Main.SCHEMA and type(entry) == "table" then
+      local copy = { char = entry.char, at = entry.at, kind = entry.kind, base = entry.base, data = entry.data }
+      if entry.kind == "base" then copy.data = Curator.Context.BaseText(entry) end
+      out.quests[index] = copy
+    else
+      out.quests[index] = Copy(entry)
+    end
+  end
+  return out
+end
+
+-- Snapshot(): the payload table (the intake shape's fields) and what it
+-- holds for K (Store.Pending's shape, or { block } for a frozen block). The
+-- live findings go first; once none is pending, the oldest frozen block not
+-- waiting for V goes whole (one block a pull keeps each under the cap)
 function Sharing.Snapshot()
   local db = Curator.Store.DB()
   local pending = Curator.Store.Pending()
   local versions = Host.Versions()
+  if not next(pending.recs) and not next(pending.confirms) then
+    local block = Curator.Store.NextFrozen()
+    if block then
+      local out = FrozenSnapshot(block)
+      local held = { block = block }
+      out.notes, held.notes = Curator.Notes.Pending()
+      return out, held
+    end
+  end
   local out = { protocol = Protocol.VERSION, curator = CuratorID(), records = {}, confirms = {}, contexts = {}, quests = {},
-    versions = { addon = versions.addon, data = versions.data, format = versions.format, protocol = Protocol.VERSION } }
+    versions = { addon = versions.addon, data = versions.data, format = versions.format, protocol = Protocol.VERSION,
+      schema = Curator.Main.SCHEMA } }
   local used = {}
   for id in pairs(pending.recs) do
     local record = db.records[id]
@@ -297,7 +331,11 @@ function Sharing.OnAcknowledge(msg)
     return
   end
   Host.Log("Curator collection %s acknowledged: the author has it", tostring(transfer.request))
-  Curator.Store.Acknowledged(transfer.request, transfer.pending)
+  if transfer.pending.block then
+    Curator.Store.FrozenAcknowledged(transfer.pending.block, transfer.request)
+  else
+    Curator.Store.Acknowledged(transfer.request, transfer.pending)
+  end
   Curator.Notes.Acknowledged(transfer.request, transfer.pending.notes)
   local mode = transfer.mode
   transfer = nil
@@ -313,10 +351,12 @@ function Sharing.OnSaved(msg)
   Host.Log("Curator saved report from %s: saved %s; lost %s", tostring(msg.sender), tostring(msg.fields[1]), tostring(msg.fields[2]))
   for _, request in ipairs(Protocol.ParseList(msg.fields[1])) do
     if db.awaiting[request] then Curator.Store.Saved(request) end
+    Curator.Store.FrozenSaved(request)
     Curator.Notes.Saved(request)
   end
   for _, request in ipairs(Protocol.ParseList(msg.fields[2])) do
     if db.awaiting[request] then Curator.Store.Lost(request) end
+    Curator.Store.FrozenLost(request)
     Curator.Notes.Lost(request)
   end
 end
@@ -364,18 +404,11 @@ function Sharing.SendLeaving()
   return Send("L", Protocol.LIVE, CuratorID())
 end
 
--- D27: once per character with curator mode on, a line saying findings go
--- out from characters in the community
+-- D27, since 2026-09-28 a window: a curator on a character outside the
+-- community is asked once whether to add it (UI/JoinPrompt.lua)
 function Sharing.LoginNotice(guid)
-  if not Curator.Main.IsEnabled() or type(guid) ~= "string" then return false end
-  local db = Curator.Main.DB()
-  db.told = type(db.told) == "table" and db.told or {}
-  if db.told[guid] then return false end
-  db.told[guid] = true
-  if Transport.IsMember() then return false end
-  Host.Print("Recollect is recording curator findings on this character. They're sent from characters that have "
-    .. "joined the Recollect Curators community: type /rec curator join to join on this one.")
-  return true
+  if not Curator.JoinPrompt then return false end
+  return Curator.JoinPrompt.Offer(guid)
 end
 
 -------------------------------------------------------------------------------

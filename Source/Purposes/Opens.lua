@@ -28,6 +28,34 @@ local function Where(object)
   return ("%s (%.1f, %.1f)"):format(zone, object.x * 100, object.y * 100), zone
 end
 
+-- What a treasure holds, in words (Cobanyte, 2026-09-28: say what it gives,
+-- or that it can give several things): ", which holds Amani War Axe",
+-- ", which can hold Axe, Spear or Bow", ", which can hold any of 12 items";
+-- "" for a spot with no known contents. Names are read live; one not loaded
+-- yet is counted instead of named.
+local HOLDS_NAMED = 3
+local function Holds(object)
+  local n = #object.contents
+  if n == 0 then return "" end
+  local Name = Recollect.Facts.Item.Name
+  if n == 1 then
+    local name = Name(object.contents[1])
+    return name and (", which holds " .. name) or ", which holds 1 item"
+  end
+  if n <= HOLDS_NAMED then
+    local names = {}
+    for i, itemID in ipairs(object.contents) do
+      names[i] = Name(itemID)
+      if not names[i] then return (", which can hold any of %d items"):format(n) end
+    end
+    return (", which can hold %s or %s"):format(table.concat(names, ", ", 1, n - 1), names[n])
+  end
+  return (", which can hold any of %d items"):format(n)
+end
+
+-- Shared with the details window's explanation (UI.DetailWindow)
+Recollect.Purposes.Opens = { Holds = Holds }
+
 R.Register({
   key = "opens",
   label = "Opens",
@@ -61,13 +89,13 @@ R.Register({
     local noun = function(object) return #object.contents > 0 and "a treasure" or "a spot" end
     if open then
       local where = Where(open)
-      return R.Result(V.USEFUL, where and ("Opens %s in %s you haven't looted yet"):format(noun(open), where)
-        or ("Opens %s you haven't looted yet"):format(noun(open)))
+      return R.Result(V.USEFUL, (where and ("Opens %s in %s you haven't looted yet"):format(noun(open), where)
+        or ("Opens %s you haven't looted yet"):format(noun(open))) .. Holds(open))
     end
     local any = unread or looted
     if any then
       local _, zone = Where(any)
-      local headline = zone and ("Opens %s in %s"):format(noun(any), zone) or ("Opens %s"):format(noun(any))
+      local headline = (zone and ("Opens %s in %s"):format(noun(any), zone) or ("Opens %s"):format(noun(any))) .. Holds(any)
       if looted and not unread then
         local result = R.Unknown(headline .. "; you've looted it", headline)
         -- an NPC it is also used at is a use with no state read

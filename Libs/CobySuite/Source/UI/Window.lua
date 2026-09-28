@@ -183,6 +183,15 @@ function UI.CreateWindow(opts)
     f.ResizeGrip = UI.CreateResizeGrip(f)
     f.ResizeGrip:SetScript("OnMouseDown", function(_, button)
       if button ~= "LeftButton" then return end
+      -- Anchored by its top-left corner where it stands, so sizing from the
+      -- bottom-right moves only that corner: a window anchored at its
+      -- center could jump past the cursor when sizing began. Both are in the
+      -- window's own units, measured from the screen's bottom-left.
+      local left, top = f:GetLeft(), f:GetTop()
+      if left and top then
+        f:ClearAllPoints()
+        f:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
+      end
       f._sizing = true
       f:StartSizing("BOTTOMRIGHT")
     end)
