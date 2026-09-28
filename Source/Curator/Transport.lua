@@ -9,13 +9,19 @@
 --   - whispers, for a message to one addressee whose character is known
 --     (Route: the author's character once a message from them passed the
 --     role check, a curator's once its R came in). 30 of 30 arrived at 4 a
---     second, whole, about half a second each way. Only to a character of
---     this realm or a connected one (GetAutoCompleteRealms);
+--     second, whole, about half a second each way. Any realm: between
+--     realms that aren't connected (Alleria and Illidan), with no Battle.net
+--     friendship and no shared guild, only the community, 60 of 60 arrived
+--     at a pull's pace and 40 of 40 in a burst each way (the route test,
+--     2026-09-28); opposite factions are untested;
 --   - the hidden channel, Const.CHANNEL_NAME, a custom channel joined with
 --     JoinTemporaryChannel and in no chat window (so no join notice shows),
 --     for messages to everyone (the presence check) and for any addressee
 --     with no route. 60 of 60 arrived at one message every 2 seconds; faster
---     draws the channel throttle.
+--     draws the channel throttle. A custom channel reaches only this realm
+--     and the ones connected to it (ChannelReaches), so the author's
+--     presence check is also whispered to each online member elsewhere
+--     (SendTo, Sweep.lua).
 -- A member of the community joins the hidden channel by itself (the channel
 -- watch, CheckChannel: 15 seconds after login and on channel and club
 -- changes); it is told once, after a second look CONFIRM seconds later,
@@ -289,10 +295,16 @@ local function NormalRealm(realm)
   return (realm:gsub("[%s%-]", "")):lower()
 end
 
--- Whisperable(name): whether a whisper can reach "Name-Realm": this realm or
--- one connected to it
+-- Whisperable(name): whether "Name-Realm" can be whispered: any realm (the
+-- route test, 2026-09-28: whispers crossed realms that aren't connected)
 function Transport.Whisperable(name)
-  if type(name) ~= "string" then return false end
+  return type(name) == "string" and name ~= "" and not Host.IsSecret(name)
+end
+
+-- ChannelReaches(name): whether the hidden channel reaches "Name-Realm":
+-- this realm or one connected to it (a custom channel stops there)
+function Transport.ChannelReaches(name)
+  if type(name) ~= "string" or Host.IsSecret(name) then return false end
   local realm = NormalRealm(name:match("^[^%-]+%-(.+)$"))
   if not realm then return true end
   local mine = NormalRealm(Seam("Realm"))
@@ -308,6 +320,7 @@ end
 -- The character a queued message is whispered to, or nil for the channel
 local function WhisperTo(item)
   if item.channel then return nil end
+  if item.target and Transport.Whisperable(item.target) then return item.target end
   local to = item.text:match("^[^~]*~[^~]*~([^~]*)")
   local name = to and routes[to]
   if name and Transport.Whisperable(name) then return name end
@@ -510,6 +523,20 @@ end
 function Transport.Send(kind, mode, to, ...)
   local text = Protocol.Encode(kind, mode, to, ...)
   return Transport.Enqueue(text, nil, nil, kind ~= "D")
+end
+
+-- SendTo(name, onSent, kind, mode, to, ...): a message whispered to one
+-- character whatever the routes say (the presence check to a member the
+-- hidden channel can't reach); a refused whisper goes once more on the
+-- channel, as any whisper does
+function Transport.SendTo(name, onSent, kind, mode, to, ...)
+  local text = Protocol.Encode(kind, mode, to, ...)
+  if type(text) ~= "string" or not Transport.Whisperable(name) then return false end
+  local item = { text = text, onSent = onSent, target = name }
+  queue[#queue + 1] = item
+  Host.Log("Curator queued %s for %s (%d characters); %d waiting", kind, name, #text, #queue)
+  if not pumping and not paused then Schedule(Transport.Wait()) end
+  return true
 end
 
 -- EnqueueLocal(text, onSent): hands a message to this client's own

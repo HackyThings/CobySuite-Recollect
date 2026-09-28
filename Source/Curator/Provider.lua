@@ -206,8 +206,9 @@ function Provider.Slash(rest)
     Provider.PrintJoinLink()
   elseif word == "channel" then
     Provider.AddChannel()
-  elseif word == "ping" and Curator.Ping then
-    Curator.Ping.Start()
+  elseif (word == "ping" or word == "transport") and Curator.Ping then
+    -- an optional "Name-Realm" after it: the player whose answers count
+    Curator.Ping.Start(rest and rest:match("^%s*%S+%s+(%S+)"))
   elseif word == "pong" and Curator.Ping then
     if not Curator.Ping.Listen("asked with /rec curator pong") then Host.Print("Recollect: already listening for curator tests.") end
     Host.Print("Recollect: answering curator tests (the answers are automatic; this only joins the test channel).")

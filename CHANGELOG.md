@@ -4,6 +4,16 @@ All notable changes to Recollect are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [0.0.1c] - 2026-09-28
+
+### Added
+
+- **Curator connection test:** `/rec curator transport Name-Realm` (or `/rec curator ping`) tests every way Recollect can reach that player and reports which work and how much each carries. A route counts as working only when that player answered, not whoever else happened to be online.
+
+### Fixed
+
+- **Curators on other realms:** curator mode now reaches curators whose realm isn't connected to the author's. Recollect had only used whispers within a realm group and sent everything else on a chat channel that stops there; whispers reach across realms, so collections go by whisper.
+
 ## [0.0.1b] - 2026-09-28
 
 ### Added

@@ -213,7 +213,11 @@ end
 function Ping.SendRoute(route, text, target)
   local key = Ping.ROUTES[route].key
   local prefix, T = Curator.Const.PREFIX, Curator.Transport
-  local community, index = T.Community(), T.ChannelIndex()
+  -- the community's own stream channel (Transport.ChannelIndex is the hidden
+  -- channel since 2026-09-28, which the custom probes cover)
+  local community = T.Community()
+  local index = community and community.channelName and Seam("ChannelInfo", community.channelName)
+  if type(index) ~= "number" or index <= 0 then index = nil end
   local result, err
   if key:sub(1, 4) == "comm" then
     if not (community and index) then return "no community channel" end
@@ -556,8 +560,8 @@ end
 local function Decide()
   local working = {}
   for _, route in ipairs(Ping.PREFERENCE) do
-    for _, entry in pairs(state.heard[route] or {}) do
-      if (entry.pongs or 0) > 0 then
+    for from, entry in pairs(state.heard[route] or {}) do
+      if (entry.pongs or 0) > 0 and (not state.target or tostring(from):lower() == state.target:lower()) then
         working[#working + 1] = route
         break
       end
@@ -580,12 +584,20 @@ local function Decide()
   Sequence(steps, Finish)
 end
 
-function Ping.Start()
+-- Start(target): the whole test; target ("Name-Realm", optional) makes a
+-- route count as working only when that player answered, since every
+-- Recollect client answers test pings and another member's answer proves
+-- nothing about the one being tested
+function Ping.Start(target)
   if state.running then
     Host.Print("Recollect: the curator test is already running; it prints its summary when done.")
     return false
   end
   Ping.Reset()
+  if type(target) == "string" and target ~= "" then
+    state.target = Curator.Transport.Canonical(target) or target
+    Log("Curator test target: %s (a route counts only when they answer)", state.target)
+  end
   state.running = true
   startedAt = Now()
   Seam("Join", Ping.CHANNEL)
@@ -807,6 +819,7 @@ function Ping.Lines()
     return { "Curator test: not run this session (/rec curator ping)" }
   end
   local out = {}
+  if state.target then out[#out + 1] = "Target: " .. state.target .. " (routes count only when they answered)" end
   for _, line in ipairs(state.local_ or {}) do out[#out + 1] = "Local check " .. line end
   for route, def in ipairs(Ping.ROUTES) do
     local heard = {}

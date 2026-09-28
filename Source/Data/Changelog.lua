@@ -14,6 +14,17 @@
 -------------------------------------------------------------------------------
 Recollect.Data.Changelog = {
   {
+    version = "0.0.1c",
+    title = "Curators on any realm",
+    date = "2026-09-28",
+    new = {
+      "Curator test: {/rec curator transport} checks the link to one player",
+    },
+    fixed = {
+      "Curator mode: reaches curators on realms not connected to yours",
+    },
+  },
+  {
     version = "0.0.1b",
     title = "Clearer answers",
     date = "2026-09-28",

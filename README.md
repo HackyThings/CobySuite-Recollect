@@ -80,7 +80,7 @@ Curator mode is optional and off by default: turn it on under `/rec settings`, C
 
 With curator mode on you can also flag an item from its details window (Curator Flag: pick what's wrong and, if you like, add your own words) or send feedback with `/rec feedback`. Recollect's own errors are sent along too, so they can be fixed. Only the author reads flags, feedback and errors.
 
-The author collects these findings through the "Recollect Curators" community (`/rec curator join` prints the invite link) to improve the database that ships with Recollect. Members of the community can see each other's character names and zones. The first time you log in on a character that isn't in the community, a small window asks whether to add it; if you'd rather not, that character isn't asked again. Characters in the community also join a hidden chat channel that carries the collections: it never shows in your chat windows, but it takes one of your chat channel slots. Findings not collected yet are kept when Recollect or its database updates, labelled with the version they were recorded under. Turning curator mode off offers to delete your findings.
+The author collects these findings through the "Recollect Curators" community (`/rec curator join` prints the invite link) to improve the database that ships with Recollect. Members of the community can see each other's character names and zones. The first time you log in on a character that isn't in the community, a small window asks whether to add it; if you'd rather not, that character isn't asked again. Collections travel as hidden whispers between you and the author, on any realm. Characters in the community also join a hidden chat channel used to find online curators: it never shows in your chat windows, but it takes one of your chat channel slots. Findings not collected yet are kept when Recollect or its database updates, labelled with the version they were recorded under. Turning curator mode off offers to delete your findings.
 
 ## Commands
 
@@ -89,7 +89,7 @@ The author collects these findings through the "Recollect Curators" community (`
 - `/rec guide`: open or close the feature guide (it opens by itself the first time you log in)
 - `/rec changelog` (or `/rec change`): what changed in each version (it opens by itself after an update)
 - `/rec debug`: open or close the debug log
-- `/rec curator`: curator mode's status; `join` prints the community's invite link, `cancel` stops a collection, `channel` joins the hidden curator channel again, `diag` prints what your game sees, for a bug report, and `ping` runs a five-minute connection test with the author's game and prints a report
+- `/rec curator`: curator mode's status; `join` prints the community's invite link, `cancel` stops a collection, `channel` joins the hidden curator channel again, `diag` prints what your game sees, for a bug report, and `transport Name-Realm` (or `ping`) runs a five-minute connection test with that player's game and prints a report
 - `/rec feedback` (or `/rec bug`): write feedback for the author; it's sent with your next curator collection
 - `/rec version`: print the addon version
 - `/rec help`: list the commands
