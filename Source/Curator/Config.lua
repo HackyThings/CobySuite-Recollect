@@ -47,6 +47,11 @@ Curator.Const = {
   CLUB_ID = 503127671,     -- the "Recollect Curators" community (a number in game; compared as text); nil: found by name
   TICKET_ID = "jKPlgr0hzZD", -- the public invite ticket: never expires, unlimited uses (made 2026-09-26)
   PREFIX = "RecollectCur",  -- at most 16 bytes
+  -- The hidden channel the curator traffic goes on: a custom channel joined
+  -- with JoinTemporaryChannel, in no chat window. The community's own channel
+  -- never delivered an addon message between two players (the route test,
+  -- 2026-09-28); a custom channel and whispers did.
+  CHANNEL_NAME = "RecollectCurators",
   CAP_BYTES = 1024 * 1024, -- the recorder fields of RECOLLECT_CURATOR_DB (D17)
   AWAITING_DAYS = 30,      -- acknowledged collections not confirmed saved are dropped after this
   RECEIVED_DAYS = 30,      -- the author's received list is pruned after this

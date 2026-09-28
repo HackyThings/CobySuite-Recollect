@@ -189,18 +189,25 @@ local BUTTON_WORDS = { BUTTON1 = "Left Click", BUTTON2 = "Right Click", BUTTON3 
 
 -- CompareVersions(a, b): -1, 0 or 1 as version a is older than, the same as
 -- or newer than b; each run of digits is a number and missing parts count as
--- 0 ("1.10" is newer than "1.9"; "1.2" equals "1.2.0")
+-- 0 ("1.10" is newer than "1.9"; "1.2" equals "1.2.0"); with the numbers
+-- equal, letters right after the last number make a later build ("0.0.1a"
+-- is newer than "0.0.1", "0.0.1b" than "0.0.1a")
 function U.CompareVersions(a, b)
   local function Parts(v)
     local parts = {}
     for n in tostring(v or ""):gmatch("%d+") do parts[#parts + 1] = tonumber(n) end
     return parts
   end
+  local function Suffix(v)
+    return (tostring(v or ""):match("%d(%a*)%s*$") or ""):lower()
+  end
   local pa, pb = Parts(a), Parts(b)
   for i = 1, math.max(#pa, #pb) do
     local x, y = pa[i] or 0, pb[i] or 0
     if x ~= y then return x < y and -1 or 1 end
   end
+  local sa, sb = Suffix(a), Suffix(b)
+  if sa ~= sb then return sa < sb and -1 or 1 end
   return 0
 end
 

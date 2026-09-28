@@ -376,6 +376,15 @@ function Host.NotesChanged()
   Recollect.EventBus:Fire(Recollect.Events.CuratorNotesChanged)
 end
 
+-- Opens Recollect's debug log window (the curator test, when it finishes,
+-- so its report is one Copy All away); nothing in combat
+function Host.OpenDebugLog()
+  local window = Recollect.DebugWindow
+  if not window or InCombatLockdown() then return false end
+  local ok = pcall(function() if not window:IsShown() then window:Show() end end)
+  return ok
+end
+
 -- Runs fn once Recollect's SavedVariables and config are loaded
 function Host.OnLoaded(fn)
   EventUtil.ContinueOnAddOnLoaded("Recollect", fn)

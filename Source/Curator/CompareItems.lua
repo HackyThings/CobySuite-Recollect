@@ -119,10 +119,13 @@ end
 
 -- Recipe(spell, schematic, ctx): schematic = { product, quantity, reagents =
 -- { { itemIDs, count } } } (the required basic reagents). Returns
--- "confirmed", "addition" or "conflict".
-function Compare.Recipe(spell, schematic, ctx)
+-- "confirmed", "addition" or "conflict"; mayAdd false (Recipe.MayAdd: a
+-- dummy or salvage recipe) records nothing for an unshipped recipe and
+-- returns "skipped".
+function Compare.Recipe(spell, schematic, ctx, mayAdd)
   local observed = ("%dx%d"):format(schematic.product or 0, schematic.quantity or 0)
   local shipped = Host.Recipe(spell)
+  if not shipped and mayAdd == false then return "skipped" end   -- a dummy or salvage recipe (Recipe.MayAdd)
   if not shipped then
     Record("addition", "R:" .. spell, observed .. "|" .. ReagentsText(schematic.reagents), nil, ctx)
     return "addition"

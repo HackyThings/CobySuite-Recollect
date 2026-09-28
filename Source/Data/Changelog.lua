@@ -14,6 +14,23 @@
 -------------------------------------------------------------------------------
 Recollect.Data.Changelog = {
   {
+    version = "0.0.1a",
+    title = "Curators and glyphs",
+    date = "2026-09-28",
+    new = {
+      "Curator check: {/rec curator diag} shows what curator mode sees",
+    },
+    changed = {
+      "Database: 17 missing Inscription glyph recipes added",
+      "Database: Fused Vitality shown as a Tailoring weekly reward",
+    },
+    fixed = {
+      "Curator mode: collections now reach the author from other players",
+      "Curator mode: works when your game doesn't know the author yet",
+      "Curator mode: salvage recipes are no longer reported as missing",
+    },
+  },
+  {
     version = "0.0.1",
     title = "First beta",
     date = "2026-09-27",

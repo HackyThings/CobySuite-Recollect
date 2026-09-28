@@ -143,7 +143,7 @@ CobySuite_Recollect.Slash.Register({
       end,
     },
     {
-      name = "curator", usage = "curator [join|cancel]",
+      name = "curator", usage = "curator [join|cancel|diag|ping]",
       help = "Curator mode: help build Recollect's database (status or the running collection; join prints the invite link; cancel stops a collection)",
       run = function(rest)
         local provider = curatorProvider

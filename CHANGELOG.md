@@ -4,6 +4,22 @@ All notable changes to Recollect are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [0.0.1a] - 2026-09-28
+
+### Added
+
+- **Curator check:** `/rec curator diag` prints what your game sees of curator mode (the community, its channel, who can collect, the messages that arrived, and why the last one went unanswered), and the debug log (`/rec debug`, Copy All) records each step, so a curator can send it to the author.
+
+### Changed
+
+- **Database:** added 17 Inscription glyph recipes that were missing (Glyph of Shackle Undead and others), so their parchment and inks now say which glyphs they make. Fused Vitality now shows as a reward of the Tailoring weekly quest.
+
+### Fixed
+
+- **Curator collections from a friend's game:** a curator whose game didn't know the author's character yet ignored every request from the author. It now reads the name from the community list, and reads the list again when a message arrives from someone it doesn't know yet.
+- **Curator collections between two players:** the game never passed curator messages between players over the community's chat channel, so the author could only reach their own game. Curator mode now whispers the author directly once the author has been in touch, and otherwise uses a hidden channel that it joins by itself and that never shows in your chat. `/rec curator channel` joins it again if it ever can't (for example when every chat channel slot is in use).
+- **Curator findings:** salvage recipes such as Milling are no longer reported as missing from the database.
+
 ## [0.0.1] - 2026-09-27
 
 ### Added
@@ -85,5 +101,6 @@ All notable changes to Recollect are documented here. Format follows [Keep a Cha
   - **Feedback:** `/rec feedback` opens a box for anything you want the author to know. It goes with your next collection too.
   - **Errors:** any Recollect error your game shows is kept and sent along, so it can be fixed. Flags, feedback and errors are read only by the author, and what the author already has is cleared when a new database arrives.
 
-[Unreleased]: https://github.com/HackyThings/CobySuite-Recollect/compare/v0.0.1...HEAD
+[Unreleased]: https://github.com/HackyThings/CobySuite-Recollect/compare/v0.0.1a...HEAD
+[0.0.1a]: https://github.com/HackyThings/CobySuite-Recollect/releases/tag/v0.0.1a
 [0.0.1]: https://github.com/HackyThings/CobySuite-Recollect/releases/tag/v0.0.1

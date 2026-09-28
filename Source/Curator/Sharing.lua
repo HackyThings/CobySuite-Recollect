@@ -48,11 +48,34 @@ local function CuratorID()
   return Curator.Main.CuratorID()
 end
 
+-- The last message this client left unanswered from someone who might be
+-- the author, and why ({ kind, sender, why, at }), for /rec curator diag
+Sharing.lastDropped = nil
+
+local function Dropped(msg, why)
+  Sharing.lastDropped = { kind = msg.kind, sender = msg.sender, why = why, at = GetServerTime() }
+  Host.Log("Curator did not answer %s from %s: %s", tostring(msg.kind), tostring(msg.sender), why)
+  return false
+end
+
 -- Whether a message counts as the author's, and is for this account
 local function FromAuthor(msg)
   local toMe = msg.to == CuratorID() or (msg.to == Protocol.ALL and msg.kind == "H")
-  if not toMe or not Membership.MayPull(msg.sender) then return false end
-  if msg.mode == Protocol.TEST and not msg.self then return false end
+  if not toMe then return false end   -- another curator's: nothing to say about it
+  if not Membership.MayPull(msg.sender) then
+    local role = Membership.RoleOf(msg.sender)
+    if role == nil then
+      -- the roster may not have had their name yet: read it again for the next message
+      if Membership.RefreshSoon then Membership.RefreshSoon() end
+      return Dropped(msg, "the sender isn't in this character's list of community members yet (it's read again now)")
+    end
+    return Dropped(msg, ("the sender is a %s here, and only the Owner or a Leader can collect"):format(
+      Membership.ROLE_NAMES[role] or "member"))
+  end
+  if msg.mode == Protocol.TEST and not msg.self then return Dropped(msg, "a test message from another character") end
+  if msg.kind == "H" then Sharing.lastHello = { sender = msg.sender, at = GetServerTime() } end
+  -- the author's character is known now: what goes to the author is whispered to it
+  Transport.Route(Protocol.AUTHOR, msg.sender)
   return true
 end
 Sharing.FromAuthor = FromAuthor
@@ -89,6 +112,8 @@ function Sharing.OnHello(msg)
   end
   local versions = Host.Versions()
   local counts = Curator.Store.Counts()
+  Host.Log("Curator answering the presence check from %s: state %s, %d findings and %d notes pending, %s", msg.sender,
+    state, counts.pending, Curator.Notes.Counts().pending, f[3] ~= "" and "with the installation check" or "presence only")
   Send("R", msg.mode, f[1], CuratorID(), versions.addon, versions.data, versions.format, Protocol.VERSION,
     checksum, state, Transport.Activity(), counts.pending + Curator.Notes.Counts().pending, counts.pendingBytes,
     Protocol.List(Sharing.AwaitingIDs()))
@@ -162,6 +187,7 @@ local Count = CobySuite_Recollect.Utilities.TableCount
 -- A pull
 -------------------------------------------------------------------------------
 local function Refuse(request, mode, reason, localOnly)
+  Host.Log("Curator collection %s refused: %s", tostring(request), tostring(reason))
   SendFor(localOnly, "S", mode, request, 0, 0, "", "refused:" .. reason)
 end
 
@@ -198,6 +224,9 @@ function Sharing.Start(request, mode, sender, localOnly)
   end
   transfer = { request = request, mode = mode, sender = sender, pending = pending, payload = payload,
     chunks = Protocol.Chunks(payload, request), checksum = Protocol.Checksum(payload), sent = 0, localOnly = localOnly }
+  Host.Log("Curator collection %s for %s: %d findings, %d stamps, %d notes, %d bytes in %d parts%s", tostring(request),
+    tostring(sender), Count(snapshot.records), Count(snapshot.confirms), Count(snapshot.notes), #payload, #transfer.chunks,
+    localOnly and " (on this client)" or "")
   SendFor(localOnly, "S", mode, request, #transfer.chunks, #payload, transfer.checksum,
     ("records:%d,confirms:%d,notes:%d"):format(Count(snapshot.records), Count(snapshot.confirms), Count(snapshot.notes)))
   for seq = 1, #transfer.chunks do SendChunk(seq) end
@@ -227,6 +256,7 @@ function Sharing.OnRequest(msg)
     Refuse(request, msg.mode, state, localOnly)
     return
   end
+  Host.Log("Curator collection %s requested by %s (%s)", tostring(request), tostring(msg.sender), state)
   if state == "ask" then
     prompt = { request = request, mode = msg.mode, sender = msg.sender, override = override, at = GetServerTime(),
       localOnly = localOnly }
@@ -262,7 +292,11 @@ end
 
 function Sharing.OnAcknowledge(msg)
   if not FromAuthor(msg) or not transfer or msg.fields[1] ~= transfer.request then return end
-  if msg.fields[2] ~= transfer.checksum then return end
+  if msg.fields[2] ~= transfer.checksum then
+    Host.Log("Curator acknowledgement for %s ignored: its checksum doesn't match", tostring(transfer.request))
+    return
+  end
+  Host.Log("Curator collection %s acknowledged: the author has it", tostring(transfer.request))
   Curator.Store.Acknowledged(transfer.request, transfer.pending)
   Curator.Notes.Acknowledged(transfer.request, transfer.pending.notes)
   local mode = transfer.mode
@@ -276,6 +310,7 @@ end
 function Sharing.OnSaved(msg)
   if not FromAuthor(msg) or msg.to == Protocol.ALL then return end
   local db = Curator.Store.DB()
+  Host.Log("Curator saved report from %s: saved %s; lost %s", tostring(msg.sender), tostring(msg.fields[1]), tostring(msg.fields[2]))
   for _, request in ipairs(Protocol.ParseList(msg.fields[1])) do
     if db.awaiting[request] then Curator.Store.Saved(request) end
     Curator.Notes.Saved(request)
@@ -363,11 +398,11 @@ if EventRegistry and EventRegistry.RegisterCallback then
 end
 
 -- The channel watch (Transport.CheckChannel): a curator, or the author,
--- whose character is in the community but no longer in its channel hears
--- it once when it goes missing, and once when it is back
-Sharing.CHANNEL_MISSING = "Recollect curator mode can't send or receive on this character: the Recollect Curators "
-  .. "channel isn't in your chat channels. Type /rec curator channel to add it."
-Sharing.CHANNEL_BACK = "Recollect: the Recollect Curators channel is back; curator mode can send and receive again."
+-- whose character is in the community but couldn't join the hidden channel
+-- hears it once, and once when it is back
+Sharing.CHANNEL_MISSING = "Recollect curator mode couldn't join its hidden channel on this character, so the author "
+  .. "can't reach it. Every chat channel slot may be in use: leave one, then type /rec curator channel."
+Sharing.CHANNEL_BACK = "Recollect: the hidden curator channel is joined; curator mode can send and receive again."
 
 local wasMissing = false
 function Sharing.OnChannelChanged(state)

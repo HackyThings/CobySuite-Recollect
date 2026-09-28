@@ -126,19 +126,77 @@ end
 function Provider.AddChannel()
   local index, why = Curator.Transport.AddChannel()
   if index then
-    Host.Print(("The Recollect Curators channel is in your chat channels (/%d)."):format(index))
+    Host.Print(("Recollect's hidden curator channel is joined (/%d)."):format(index))
   elseif why == "member" then
     Host.Print("This character isn't in the Recollect Curators community: /rec curator join")
   elseif why == "slot" then
     Host.Print("Every chat channel slot is in use: leave one channel, then type /rec curator channel again.")
   else
-    Host.Print("The Recollect Curators channel couldn't be added; try again in a moment.")
+    Host.Print("Joining Recollect's hidden curator channel; it takes a moment.")
   end
   return index
 end
 
+local function CountsText(tbl)
+  local keys, parts = {}, {}
+  for k in pairs(tbl or {}) do keys[#keys + 1] = k end
+  table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+  for _, k in ipairs(keys) do parts[#parts + 1] = tostring(k) .. " " .. tostring(tbl[k]) end
+  return #parts > 0 and table.concat(parts, ", ") or "none"
+end
+
+local function Ago(at)
+  if type(at) ~= "number" then return "never" end
+  local seconds = math.max(0, GetServerTime() - at)
+  if seconds < 60 then return seconds .. " seconds ago" end
+  if seconds < 3600 then return math.floor(seconds / 60) .. " minutes ago" end
+  return math.floor(seconds / 3600) .. " hours ago"
+end
+
+-- Diagnose(): the lines /rec curator diag prints, for a curator whose client
+-- doesn't answer the author (Cobanyte, 2026-09-28): what this client sees of
+-- curator mode, the community, its channel, its members' roles, the curator
+-- messages it got, and why the last one from the author went unanswered
+function Provider.Diagnose()
+  local main, T, M, S = Curator.Main, Curator.Transport, Curator.Membership, Curator.Sharing
+  local versions = Host.Versions()
+  local out = { ("Recollect curator check: addon %s, database %s%s"):format(tostring(versions.addon), tostring(versions.data),
+    versions.ok and "" or " (the data files failed their check)") }
+  out[#out + 1] = ("Curator mode: %s; answering as %s; curator ID %s"):format(main.IsEnabled() and "on" or "off",
+    S and S.State() or "?", tostring(main.CuratorID()))
+  local community = T.Community()
+  out[#out + 1] = community and ("Community: found (club %s); hidden channel %s; whispers to the author go to %s"):format(
+    tostring(community.clubId), T.ChannelIndex() and ("/" .. T.ChannelIndex()) or "not joined (type /rec curator channel)",
+    T.RouteOf(Curator.Protocol.AUTHOR) or "nobody yet (until the author's first message)")
+    or "Community: this character isn't in the Recollect Curators community"
+  local authors, members = {}, 0
+  for _, entry in ipairs(M.Roster()) do
+    members = members + 1
+    if entry.role == M.ROLE.OWNER or entry.role == M.ROLE.LEADER then
+      authors[#authors + 1] = ("%s (%s, %s)"):format(entry.name, M.ROLE_NAMES[entry.role], entry.nameFrom or "?")
+    end
+  end
+  out[#out + 1] = ("Members read %s: %d named%s; who may collect: %s"):format(Ago(M.ReadAt()), members,
+    (M.unnamed or 0) > 0 and (", " .. M.unnamed .. " with no readable name") or "",
+    #authors > 0 and table.concat(authors, ", ") or "nobody (so every collection request is ignored)")
+  out[#out + 1] = "This character: " .. tostring(T.Self())
+  local counts = T.Counts()
+  out[#out + 1] = ("Curator messages this session: got %s; with the prefix by chat type %s; sent %s"):format(
+    CountsText(counts.got), CountsText(counts.raw), CountsText(counts.sent))
+  if S and S.lastHello then
+    out[#out + 1] = ("Last presence check answered: from %s, %s"):format(S.lastHello.sender, Ago(S.lastHello.at))
+  end
+  local dropped = S and S.lastDropped
+  out[#out + 1] = dropped and ("Last message not answered: %s from %s, %s: %s"):format(dropped.kind, tostring(dropped.sender),
+    Ago(dropped.at), dropped.why) or "Last message not answered: none"
+  if Curator.Ping then
+    for _, line in ipairs(Curator.Ping.Lines()) do out[#out + 1] = line end
+  end
+  return out
+end
+
 -- /rec curator: the transfer window while a collection runs or waits for an
--- answer, else the status line; join, channel, cancel, and console
+-- answer, else the status line; join, channel, cancel, diag, and console
 -- (development)
 function Provider.Slash(rest)
   local word = rest and rest:match("^%s*(%S+)") or ""
@@ -148,6 +206,17 @@ function Provider.Slash(rest)
     Provider.PrintJoinLink()
   elseif word == "channel" then
     Provider.AddChannel()
+  elseif word == "ping" and Curator.Ping then
+    Curator.Ping.Start()
+  elseif word == "pong" and Curator.Ping then
+    if not Curator.Ping.Listen("asked with /rec curator pong") then Host.Print("Recollect: already listening for curator tests.") end
+    Host.Print("Recollect: answering curator tests (the answers are automatic; this only joins the test channel).")
+  elseif word == "diag" then
+    for _, line in ipairs(Provider.Diagnose()) do
+      Host.Print(line)
+      Host.Log("Curator diag: %s", line)
+    end
+    Host.Print("The same lines are in the debug log: /rec debug, then Copy All.")
   elseif word == "cancel" then
     if not (Sharing and Sharing.Cancel()) then Host.Print("No curator collection is running.") end
   elseif word == "console" and Curator.Console and Curator.Console.Open then

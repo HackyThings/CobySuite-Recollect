@@ -48,6 +48,7 @@ Recipe.seams = {
   BaseProfession = function() return C_TradeSkillUI.GetBaseProfessionInfo() end,
   RecipeIDs = function() return C_TradeSkillUI.GetAllRecipeIDs() end,
   Schematic = function(recipeID) return C_TradeSkillUI.GetRecipeSchematic(recipeID, false) end,
+  RecipeInfo = function(recipeID) return C_TradeSkillUI.GetRecipeInfo(recipeID) end,
   TierOf = function(recipeID) return (C_TradeSkillUI.GetTradeSkillLineForRecipe(recipeID)) end,
   After = function(delay, fn) C_Timer.After(delay, fn) end,
 }
@@ -81,6 +82,20 @@ function Recipe.ReadSchematic(recipeID)
     end
   end
   return out
+end
+
+-- Whether a recipe the shipped data lacks may be recorded as an addition:
+-- not a dummy recipe or a salvage recipe (TradeSkillRecipeInfo's
+-- isDummyRecipe and isSalvageRecipe). A salvage recipe's schematic names a
+-- placeholder product and none of its inputs, which are read apart (the
+-- 2026-09-28 pull: Milling, 382994, "5 Milling" from nothing). An info that
+-- can't be read records nothing. The recipes the profession API lists but
+-- nobody can learn look like any other here; /recollect-data drops those
+-- AllTheThings files under Never Implemented (never_recipe_drop).
+function Recipe.MayAdd(recipeID)
+  local ok, info = pcall(Recipe.seams.RecipeInfo, recipeID)
+  if not ok or type(info) ~= "table" or (issecrettable and issecrettable(info)) then return false end
+  return info.isDummyRecipe ~= true and info.isSalvageRecipe ~= true
 end
 
 -- The tier (child skill line) of a recipe, or nil when it can't be read
@@ -139,7 +154,8 @@ local function Step(scan, from)
     local tier = Tier(recipeID, scan.skillLine)
     if tier then scan.tiers[tier] = true end
     local schematic = Recipe.ReadSchematic(recipeID)
-    if schematic and Curator.Compare.Recipe(recipeID, schematic, ctx) == "confirmed" then
+    local mayAdd = Host.Recipe(recipeID) ~= nil or Recipe.MayAdd(recipeID)
+    if schematic and Curator.Compare.Recipe(recipeID, schematic, ctx, mayAdd) == "confirmed" then
       scan.confirmed[recipeID] = true
     end
   end

@@ -2,9 +2,16 @@
 -- Curator.Membership: who is in the community, with what role (curator
 -- spec, "Roles and the community")
 --
--- The role map is keyed by "Name-NormalizedRealm", built from each member's
--- GUID through GetPlayerInfoByGUID (ClubMemberInfo.name may be a Kstring and
--- is never trusted). It is read only when the roster is ready
+-- The role map is keyed by "Name-NormalizedRealm", the form chat gives a
+-- sender. Each member's name comes from their GUID through
+-- GetPlayerInfoByGUID, which answers nothing for a player this client has
+-- never cached (its docs: MayReturnNothing); then from the roster's own
+-- ClubMemberInfo.name when that is a plain string (it may be a Kstring,
+-- which is never used). Either way the realm is normalized as chat
+-- normalizes it (no spaces or hyphens). Seen in game 2026-09-28: a friend's
+-- client had no name for the author, so every presence check went
+-- unanswered. A message from a sender the map doesn't know asks for a fresh
+-- read (RefreshSoon), since the GUID may be cached by then. It is read only when the roster is ready
 -- (C_Club.FocusMembers, then C_Club.AreMembersReady) and outside the Chat
 -- restriction (the roster reads go secret then); the last good map stays in
 -- use meanwhile, and a refresh is redone when the restriction lifts. It is
@@ -48,13 +55,39 @@ local function Secret(value)
   return Host.IsSecret(value) or (issecrettable and type(value) == "table" and issecrettable(value))
 end
 
--- A member's canonical name from their GUID, or nil
+-- A realm as chat carries it in a sender's name: no spaces or hyphens
+-- ("Area 52" is "Area52", "Azjol-Nerub" is "AzjolNerub")
+function Membership.NormalRealm(realm)
+  return (tostring(realm):gsub("[%s%-]", ""))
+end
+
+-- "Name" or "Name-Realm" (a realm as any source writes it) in the map's form
+local function Normalized(name, realm)
+  if realm == nil or realm == "" then return Transport.Canonical(name) end
+  return name .. "-" .. Membership.NormalRealm(realm)
+end
+
+-- The roster's own name for a member when it is a plain string: never a
+-- Kstring or anything with an escape in it, never secret
+local function RosterName(info)
+  local name = info.name
+  if type(name) ~= "string" or Secret(name) or name == "" or name:find("|", 1, true) then return nil end
+  local base, realm = name:match("^([^%-]+)%-(.+)$")
+  if base then return Normalized(base, realm) end
+  return Transport.Canonical(name)
+end
+
+-- A member's canonical name, and where it came from ("guid" or "roster"), or nil
 local function MemberName(info)
-  if type(info.guid) ~= "string" or Secret(info.guid) then return nil end
-  local ok, name, realm = pcall(Membership.seams.PlayerInfo, info.guid)
-  if not ok or type(name) ~= "string" or Secret(name) or name == "" then return nil end
-  if type(realm) ~= "string" or Secret(realm) or realm == "" then return Transport.Canonical(name) end
-  return name .. "-" .. realm
+  if type(info.guid) == "string" and not Secret(info.guid) then
+    local ok, name, realm = pcall(Membership.seams.PlayerInfo, info.guid)
+    if ok and type(name) == "string" and not Secret(name) and name ~= "" and not Secret(realm) then
+      return Normalized(name, type(realm) == "string" and realm or ""), "guid"
+    end
+  end
+  local name = RosterName(info)
+  if name then return name, "roster" end
+  return nil
 end
 
 -- Reads the whole roster now; false when it can't be read (not ready,
@@ -63,24 +96,43 @@ function Membership.Read()
   local found = Transport.Community()
   if not found then
     roster, rosterAt = {}, nil
+    Host.Log("Curator members: not read, this character isn't in the community")
     return false
   end
   local okReady, ready = pcall(Membership.seams.Ready, found.clubId)
   if not okReady or ready ~= true then return false end
   local ok, members = pcall(Membership.seams.Members, found.clubId)
-  if not ok or type(members) ~= "table" or Secret(members) then return false end
-  local map = {}
+  if not ok or type(members) ~= "table" or Secret(members) then
+    Host.Log("Curator members: the member list can't be read now (%s)", ok and "secret or empty" or "error")
+    return false
+  end
+  local map, unnamed = {}, 0
   for _, memberId in ipairs(members) do
     local okInfo, info = pcall(Membership.seams.MemberInfo, found.clubId, memberId)
-    if not okInfo or type(info) ~= "table" or Secret(info) then return false end
-    local name = MemberName(info)
+    if not okInfo or type(info) ~= "table" or Secret(info) then
+      Host.Log("Curator members: a member's info can't be read now (%s)", okInfo and "secret or missing" or "error")
+      return false
+    end
+    local name, from = MemberName(info)
+    if not name then unnamed = unnamed + 1 end
     if name and not Secret(info.role) then
-      map[name] = { name = name, role = info.role, presence = Membership.PRESENCE[info.presence] or "unknown",
+      map[name] = { name = name, role = info.role, presence = Membership.PRESENCE[info.presence] or "unknown", nameFrom = from,
         zone = not Secret(info.zone) and info.zone or nil, level = not Secret(info.level) and info.level or nil,
         classID = not Secret(info.classID) and info.classID or nil, isSelf = info.isSelf == true, guid = info.guid }
     end
   end
-  roster, rosterAt = map, GetServerTime()
+  roster, rosterAt, Membership.unnamed = map, GetServerTime(), unnamed
+  local authors, count = {}, 0
+  for _, entry in pairs(map) do
+    count = count + 1
+    if entry.role == Membership.ROLE.OWNER or entry.role == Membership.ROLE.LEADER then
+      authors[#authors + 1] = ("%s (%s, name from %s, %s)"):format(entry.name, Membership.ROLE_NAMES[entry.role],
+        tostring(entry.nameFrom), entry.presence)
+    end
+  end
+  table.sort(authors)
+  Host.Log("Curator members read: %d named, %d with no readable name; who may collect: %s", count, unnamed,
+    #authors > 0 and table.concat(authors, "; ") or "nobody")
   return true
 end
 
@@ -93,13 +145,18 @@ function Membership.Refresh()
     roster, rosterAt = {}, nil
     return
   end
-  if Transport.Activity() == "lockdown" then return end
+  if Transport.Activity() == "lockdown" then
+    Host.Log("Curator members: not read during the addon chat restriction; read again when it lifts")
+    return
+  end
   refreshing = true
   pcall(Membership.seams.Focus, found.clubId)
   local tries = 0
   local function Try()
     tries = tries + 1
-    if Membership.Read() or tries >= READY_TRIES then
+    local read = Membership.Read()
+    if read or tries >= READY_TRIES then
+      if not read then Host.Log("Curator members: the list wasn't ready after %d tries; the last good one stays", tries) end
       refreshing = false
       if Membership.OnChanged then pcall(Membership.OnChanged) end
       return
@@ -151,6 +208,12 @@ function Membership.Swap(map, at)
 end
 
 local refresh = CobySuite_Recollect.Utilities.Coalesce(0.5, function() Membership.Refresh() end)
+
+-- RefreshSoon(): a fresh read in a moment (a message from a sender the map
+-- doesn't know: their name may be readable now)
+function Membership.RefreshSoon()
+  refresh:Call()
+end
 
 local events = {
   PLAYER_ENTERING_WORLD = true, CLUB_ADDED = true, CLUB_REMOVED = true, CLUB_MEMBER_ADDED = true,
