@@ -1,0 +1,164 @@
+## Interface: 120100
+## Title: Recollect
+## Version: 0.0.1
+## Author: Cobanyte
+## Notes: Shows what each item in your bags, bank and warband bank is for, and whether you still need it.
+## IconTexture: Interface\Icons\achievement_faction_goldenlotus
+## AddonCompartmentFunc: Recollect_OnAddonCompartmentClick
+## AddonCompartmentFuncOnEnter: Recollect_OnAddonCompartmentEnter
+## AddonCompartmentFuncOnLeave: Recollect_OnAddonCompartmentLeave
+## SavedVariables: RECOLLECT_CONFIG, RECOLLECT_WINDOW_STATE, RECOLLECT_DEBUG_LOG, RECOLLECT_DB, RECOLLECT_CURATOR_DB, RECOLLECT_CURATOR_CONFIG
+
+# Embedded CobySuite Library
+Libs\CobySuite\Source\Core.lua
+Libs\CobySuite\Build.lua
+Libs\CobySuite\Source\EventBus.lua
+Libs\CobySuite\Source\Utilities\Main.lua
+Libs\CobySuite\Source\Utilities\ItemLoad.lua
+Libs\CobySuite\Source\Chat\Main.lua
+Libs\CobySuite\Source\Slash\Main.lua
+Libs\CobySuite\Source\Config\Main.lua
+Libs\CobySuite\Source\UI\Factories.lua
+Libs\CobySuite\Source\UI\Window.lua
+Libs\CobySuite\Source\UI\FilterMenu.lua
+Libs\CobySuite\Source\UI\SettingsWindow.lua
+Libs\CobySuite\Source\UI\TableHeader.lua
+Libs\CobySuite\Source\UI\Launcher.lua
+Libs\CobySuite\Source\UI\Guide.lua
+Libs\CobySuite\Source\Debug\Logger.lua
+Libs\CobySuite\Source\Debug\Window.lua
+
+# Core
+Source\Core.lua
+Source\EventBus.lua
+
+# Debug
+Source\Debug\Logger.lua
+Source\Debug\Window.lua
+
+# Utilities
+Source\Utilities\Main.lua
+
+# Config
+Source\Config\Main.lua
+
+# Data
+Source\Data\Uses.lua
+Source\Data\Relations.lua
+Source\Data\Vendors.lua
+Source\Data\Notes.lua
+Source\Data\Hints.lua
+Source\Data\Changelog.lua
+
+# Inventory
+Source\Inventory\Locations.lua
+Source\Inventory\Reader.lua
+Source\Inventory\Snapshots.lua
+
+# Facts
+Source\Facts\DataVersion.lua
+Source\Facts\Item.lua
+Source\Facts\Ready.lua
+Source\Facts\Tooltip.lua
+Source\Facts\QuestLog.lua
+Source\Facts\Journals.lua
+Source\Facts\Recipes.lua
+Source\Facts\Relations.lua
+Source\Facts\QuestInfo.lua
+Source\Facts\Achievements.lua
+Source\Facts\Vendors.lua
+Source\Facts\Buys.lua
+Source\Facts\Chains.lua
+Source\Facts\Requirements.lua
+Source\Facts\Endeavors.lua
+Source\Facts\Notes.lua
+
+# Purposes
+Source\Purposes\Registry.lua
+Source\Purposes\KnownUse.lua
+Source\Purposes\Currency.lua
+Source\Purposes\BuysDecor.lua
+Source\Purposes\Buys.lua
+Source\Purposes\Opens.lua
+Source\Purposes\Endeavor.lua
+Source\Purposes\Container.lua
+Source\Purposes\Toy.lua
+Source\Purposes\Mount.lua
+Source\Purposes\Pet.lua
+Source\Purposes\Transmog.lua
+Source\Purposes\QuestStarter.lua
+Source\Purposes\QuestObjective.lua
+Source\Purposes\Criterion.lua
+Source\Purposes\Linked.lua
+Source\Purposes\Legacy.lua
+Source\Purposes\QuestItem.lua
+Source\Purposes\Recipe.lua
+Source\Purposes\Gear.lua
+Source\Purposes\ProfessionGear.lua
+Source\Purposes\Bag.lua
+Source\Purposes\Decor.lua
+Source\Purposes\Enhancement.lua
+Source\Purposes\Glyph.lua
+Source\Purposes\Consumable.lua
+Source\Purposes\UseItem.lua
+Source\Purposes\Keystone.lua
+Source\Purposes\Gem.lua
+Source\Purposes\Combine.lua
+Source\Purposes\Parts.lua
+Source\Purposes\Season.lua
+Source\Purposes\Reagent.lua
+Source\Purposes\Junk.lua
+
+# Verdicts
+Source\Verdicts\Main.lua
+Source\Verdicts\Rows.lua
+
+# UI
+Source\UI\ListColumns.lua
+Source\UI\ListWindow.lua
+Source\UI\UsedFor.lua
+Source\UI\Waypoint.lua
+Source\UI\AuditPanel.lua
+Source\UI\Tooltip.lua
+Source\UI\DetailData.lua
+Source\UI\DataTable.lua
+Source\UI\DetailWindow.lua
+Source\UI\Guide.lua
+Source\UI\WhatsNew.lua
+Source\Config\Window.lua
+Source\UI\Minimap.lua
+
+# Curator
+Source\Curator\Host.lua
+Source\Curator\Config.lua
+Source\Curator\Main.lua
+Source\Curator\Provider.lua
+Source\Curator\Store.lua
+Source\Curator\Context.lua
+Source\Curator\Notes.lua
+Source\Curator\Compare.lua
+Source\Curator\CompareItems.lua
+Source\Curator\CompareQuest.lua
+Source\Curator\Recorders\Bags.lua
+Source\Curator\Recorders\NpcPosition.lua
+Source\Curator\Recorders\Vendor.lua
+Source\Curator\Recorders\Combine.lua
+Source\Curator\Recorders\Loot.lua
+Source\Curator\Recorders\Quest.lua
+Source\Curator\Recorders\Recipe.lua
+Source\Curator\Recorders\QuestItemUse.lua
+Source\Curator\Recorders\Grants.lua
+Source\Curator\Recorders\BlackMarket.lua
+Source\Curator\Recorders\TradingPost.lua
+Source\Curator\Recorders\EncounterLoot.lua
+Source\Curator\Recorders\QuestLoot.lua
+Source\Curator\Recorders\ContainerUse.lua
+Source\Curator\Recorders\Vignettes.lua
+Source\Curator\Protocol.lua
+Source\Curator\Transport.lua
+Source\Curator\Membership.lua
+Source\Curator\Sharing.lua
+Source\Curator\Errors.lua
+Source\Curator\UI\TransferWindow.lua
+Source\Curator\UI\OptOutDialog.lua
+Source\Curator\UI\NoteDialogs.lua

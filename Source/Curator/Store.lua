@@ -1,0 +1,437 @@
+-------------------------------------------------------------------------------
+-- Curator.Store: the curator's findings in RECOLLECT_CURATOR_DB (curator
+-- spec: the recorder contract rule 7, Confirmation, Saving before
+-- deleting, the 1 MB cap)
+--
+-- A record is one fact with one observed value at one game build, under a
+-- curator-local record ID made when it is created:
+--   records[id] = { id, fact, kind, value, shipped, build, touched, ctx = { [ctxIndex]
+--                   = count }, variants, rev, first, last }
+--   kind: "addition", "conflict" or "notseen"; fact names the fact
+--   ("v:<npc>:i:<item>:price"); value is the observed value as text (a
+--   different value is a different record, and so is a later game build);
+--   shipped is what the data said.
+--   variants = { [key] = { ctx, quests, reaction, cast, n } }: for records
+--   whose observations carry more than their context (a position conflict's
+--   quest state, a price conflict's reaction, a drop's cast just before),
+--   how many observations had each combination; a field that couldn't be
+--   read is "?", so every observation is counted in one variant.
+-- A repeat observation adds to its context's count (and its variant) and
+-- bumps rev. Eviction and a later sighting make a new ID.
+--
+-- A confirmation stamp is one source seen at one game build:
+--   confirms[source .. "@" .. build] = { source, build, first, last, rev,
+--     total, matched = "<numbers, comma separated>", ctx = { [ctxIndex] = count } }
+--   matched lists, merged over visits, the positions in a shipped index of
+--   the facts that were seen matching (vendors, a profession's recipes,
+--   combines), or for sources with no index the matched IDs themselves
+--   (loot, quests, what an item teaches, grants). A fact is confirmed only
+--   when a stamp's matched set names it. A stamp's rev comes from one
+--   counter for the whole store (nextRev), so a stamp evicted and made again
+--   never repeats a revision an old acknowledgement names.
+--
+-- Delivery: delivered[id or key] = rev when that revision was acknowledged
+-- (K); it goes in the next pull while its rev differs. awaiting[requestID] =
+-- { at, recs = { [id] = rev }, confirms = { [key] = rev } } until a V says
+-- the author's copy was saved (then the unchanged ones are deleted) or lost
+-- (then they are pending again); dropped after AWAITING_DAYS.
+--
+-- bytes estimates every recorder field: records (with their variants),
+-- stamps, delivered marks, awaiting requests, context blocks and quest
+-- entries (Context adds and removes its own through AddBytes). Past
+-- CAP_BYTES the oldest records and stamps go first (D17), then the context
+-- blocks and quest deltas nothing names any more (Context.Prune). Store.Swap
+-- puts a scratch table in place for tests.
+-------------------------------------------------------------------------------
+local Curator = Recollect.Curator
+local Host = Curator.Host
+
+local Store = {}
+Curator.Store = Store
+
+local DAY = 86400
+local MARK_BYTES = 16
+
+Store.seams = {
+  Build = function() return select(2, GetBuildInfo()) end,
+}
+
+-- The game build ("69933"), which every record and stamp carries
+local function GameBuild()
+  local ok, build = pcall(Store.seams.Build)
+  return ok and build or "?"
+end
+local sandbox
+local lookup, lookupFor   -- [fact] = { [value .. "@" .. build] = id }, built per records
+                          -- table in memory (a clear puts a new one in place)
+
+-------------------------------------------------------------------------------
+-- The table
+-------------------------------------------------------------------------------
+local FIELDS = { "records", "confirms", "delivered", "awaiting", "contexts", "quests" }
+
+local function Normalize(db)
+  for _, field in ipairs(FIELDS) do
+    if type(db[field]) ~= "table" then db[field] = {} end
+  end
+  if type(db.bytes) ~= "number" then db.bytes = 0 end
+  if type(db.nextID) ~= "number" then db.nextID = 1 end
+  if type(db.nextRev) ~= "number" then db.nextRev = 1 end
+  return db
+end
+
+function Store.DB()
+  if sandbox then return Normalize(sandbox) end
+  return Normalize(Curator.Main.DB())
+end
+
+-- Swap(tbl): uses tbl instead of the saved table until Swap(nil); returns
+-- the table that was in use (tests put a scratch table in place this way).
+-- Work scheduled against the other table is dropped (the epoch).
+function Store.Swap(tbl)
+  local previous = sandbox
+  sandbox = tbl
+  lookup, lookupFor = nil, nil
+  Curator.Main.BumpEpoch()
+  return previous
+end
+
+-- Tests: whether the in-memory lookup is built for the table in use, and its
+-- bucket for one fact (read only; the suites check a deletion leaves none)
+Store._test = {
+  Bucket = function(fact)
+    local db = Store.DB()
+    if lookupFor ~= db.records or not lookup then return false, nil end
+    return true, lookup[fact]
+  end,
+}
+
+local function LookupKey(value, build)
+  return value .. "@" .. tostring(build)
+end
+
+local function Lookup(db)
+  if lookupFor == db.records and lookup then return lookup end
+  lookup, lookupFor = {}, db.records
+  for id, record in pairs(db.records) do
+    lookup[record.fact] = lookup[record.fact] or {}
+    lookup[record.fact][LookupKey(record.value, record.build)] = id
+  end
+  return lookup
+end
+
+-------------------------------------------------------------------------------
+-- Size
+-------------------------------------------------------------------------------
+local function Count(tbl)
+  return CobySuite_Recollect.Utilities.TableCount(tbl or {})
+end
+
+local function RecordBytes(record)
+  return 48 + #record.fact + #record.value + #(record.shipped or "") + Count(record.ctx) * 8
+    + Count(record.variants) * 40
+end
+
+local function StampBytes(stamp)
+  return 48 + #stamp.source + #(stamp.matched or "") + Count(stamp.ctx) * 8
+end
+
+local function AwaitingBytes(entry)
+  return 32 + (Count(entry.recs) + Count(entry.confirms)) * MARK_BYTES
+end
+
+function Store.ContextBytes(block)
+  return 64 + #tostring(block.profs or "")
+end
+
+function Store.QuestBytes(entry)
+  return 32 + #tostring(entry.data or "")
+end
+
+-- AddBytes(n): Context's blocks and quest entries, as they come and go
+function Store.AddBytes(n)
+  local db = Store.DB()
+  db.bytes = db.bytes + n
+end
+
+function Store.Recount()
+  local db = Store.DB()
+  local bytes = 0
+  for _, record in pairs(db.records) do bytes = bytes + RecordBytes(record) end
+  for _, stamp in pairs(db.confirms) do bytes = bytes + StampBytes(stamp) end
+  bytes = bytes + Count(db.delivered) * MARK_BYTES
+  for _, entry in pairs(db.awaiting) do bytes = bytes + AwaitingBytes(entry) end
+  for _, block in pairs(db.contexts) do bytes = bytes + Store.ContextBytes(block) end
+  for _, entry in pairs(db.quests) do bytes = bytes + Store.QuestBytes(entry) end
+  db.bytes = bytes
+  return bytes
+end
+
+local function Unmark(db, key)
+  if db.delivered[key] ~= nil then
+    db.delivered[key] = nil
+    db.bytes = db.bytes - MARK_BYTES
+  end
+end
+
+local function RemoveRecord(db, id)
+  local record = db.records[id]
+  if not record then return end
+  db.records[id] = nil
+  Unmark(db, id)
+  local bucket = lookupFor == db.records and lookup and lookup[record.fact]
+  if bucket then
+    bucket[LookupKey(record.value, record.build)] = nil
+    if next(bucket) == nil then lookup[record.fact] = nil end
+  end
+  db.bytes = db.bytes - RecordBytes(record)
+end
+
+local function RemoveStamp(db, key)
+  local stamp = db.confirms[key]
+  if not stamp then return end
+  db.confirms[key] = nil
+  Unmark(db, key)
+  db.bytes = db.bytes - StampBytes(stamp)
+end
+
+-- Oldest first: by the server time of the last write, then by the write
+-- order (touched, from the store's counter) for writes in the same second
+local function Oldest(db)
+  local list = {}
+  for id, record in pairs(db.records) do
+    list[#list + 1] = { kind = "record", key = id, last = record.last or 0, touched = record.touched or 0 }
+  end
+  for key, stamp in pairs(db.confirms) do
+    list[#list + 1] = { kind = "stamp", key = key, last = stamp.last or 0, touched = stamp.rev or 0 }
+  end
+  table.sort(list, function(a, b)
+    if a.last ~= b.last then return a.last < b.last end
+    return a.touched < b.touched
+  end)
+  return list
+end
+
+-- Keeps the recorder fields under the cap: the oldest records and stamps go
+-- first (whatever their kind, D17) with their delivered marks, then what
+-- only they named (Context.Prune). A write calls this after inserting, so
+-- the context and quest entry it names are already referenced.
+function Store.Trim()
+  local db = Store.DB()
+  local cap = Curator.Const.CAP_BYTES
+  if db.bytes <= cap then return 0 end
+  local target, dropped = math.floor(cap * 0.9), 0
+  for _, entry in ipairs(Oldest(db)) do
+    if db.bytes <= target then break end
+    if entry.kind == "record" then RemoveRecord(db, entry.key) else RemoveStamp(db, entry.key) end
+    dropped = dropped + 1
+  end
+  if dropped > 0 then
+    if Curator.Context and Curator.Context.Prune then Curator.Context.Prune() end
+    Host.Log("Curator store over the cap: %d oldest findings dropped", dropped)
+  end
+  return dropped
+end
+
+-------------------------------------------------------------------------------
+-- Recording
+-------------------------------------------------------------------------------
+local function NextRev(db)
+  local rev = db.nextRev
+  db.nextRev = rev + 1
+  return rev
+end
+
+local function Field(value)
+  if value == nil then return "?" end
+  return value
+end
+
+-- One observation's variant (extra = { quests, reaction, cast }), or nil
+local function AddVariant(record, ctxIndex, extra)
+  if type(extra) ~= "table" then return end
+  local quests, reaction, cast = Field(extra.quests), Field(extra.reaction), Field(extra.cast)
+  local key = table.concat({ tostring(ctxIndex), tostring(quests), tostring(reaction), tostring(cast) }, "|")
+  record.variants = record.variants or {}
+  local variant = record.variants[key]
+  if not variant then
+    variant = { ctx = ctxIndex, quests = quests, reaction = reaction, cast = cast, n = 0 }
+    record.variants[key] = variant
+  end
+  variant.n = variant.n + 1
+end
+
+-- Record(kind, fact, value, shipped, ctxIndex, extra): adds one observation
+-- and returns its record. value and shipped are text; extra, when given,
+-- the observation's { quests, reaction, cast } (see variants above).
+function Store.Record(kind, fact, value, shipped, ctxIndex, extra)
+  local db = Store.DB()
+  value = tostring(value or "")
+  local build = GameBuild()
+  local key = LookupKey(value, build)
+  local byValue = Lookup(db)[fact]
+  local id = byValue and byValue[key]
+  local record = id and db.records[id]
+  local now = GetServerTime()
+  if record then
+    db.bytes = db.bytes - RecordBytes(record)
+    record.ctx[ctxIndex] = (record.ctx[ctxIndex] or 0) + 1
+    record.rev = record.rev + 1
+    record.last = now
+  else
+    id = "r" .. db.nextID
+    db.nextID = db.nextID + 1
+    record = { id = id, fact = fact, kind = kind, value = value, shipped = shipped and tostring(shipped) or nil,
+      ctx = { [ctxIndex] = 1 }, rev = 1, first = now, last = now, build = build }
+    db.records[id] = record
+    byValue = Lookup(db)[fact] or {}
+    Lookup(db)[fact] = byValue
+    byValue[key] = id
+  end
+  AddVariant(record, ctxIndex, extra)
+  record.touched = NextRev(db)
+  db.bytes = db.bytes + RecordBytes(record)
+  Store.Trim()
+  return record
+end
+
+local function MergePositions(current, positions)
+  local set, list = {}, {}
+  for number in (current or ""):gmatch("%d+") do set[tonumber(number)] = true end
+  for _, position in ipairs(positions) do set[position] = true end
+  for position in pairs(set) do list[#list + 1] = position end
+  table.sort(list)
+  return table.concat(list, ",")
+end
+
+-- Confirm(source, positions, total, ctxIndex): a visit to a source where the
+-- facts at those positions (of total) were seen matching
+function Store.Confirm(source, positions, total, ctxIndex)
+  local db = Store.DB()
+  local build = GameBuild()
+  local key = source .. "@" .. tostring(build)
+  local stamp = db.confirms[key]
+  local now = GetServerTime()
+  if stamp then
+    db.bytes = db.bytes - StampBytes(stamp)
+  else
+    stamp = { source = source, build = build, first = now, ctx = {} }
+    db.confirms[key] = stamp
+  end
+  stamp.matched = MergePositions(stamp.matched, positions)
+  stamp.total = total
+  stamp.ctx[ctxIndex] = (stamp.ctx[ctxIndex] or 0) + 1
+  stamp.rev = NextRev(db)
+  stamp.last = now
+  db.bytes = db.bytes + StampBytes(stamp)
+  Store.Trim()
+  return stamp
+end
+
+-------------------------------------------------------------------------------
+-- Delivery
+-------------------------------------------------------------------------------
+-- Pending(): the records and stamps whose current revision was not
+-- acknowledged yet, as { recs = { [id] = rev }, confirms = { [key] = rev } }
+function Store.Pending()
+  local db = Store.DB()
+  local out = { recs = {}, confirms = {} }
+  for id, record in pairs(db.records) do
+    if db.delivered[id] ~= record.rev then out.recs[id] = record.rev end
+  end
+  for key, stamp in pairs(db.confirms) do
+    if db.delivered[key] ~= stamp.rev then out.confirms[key] = stamp.rev end
+  end
+  return out
+end
+
+local function Mark(db, key, rev)
+  if db.delivered[key] == nil then db.bytes = db.bytes + MARK_BYTES end
+  db.delivered[key] = rev
+end
+
+-- Acknowledged(requestID, snapshot): K arrived for a snapshot (Pending's
+-- shape); those revisions count as delivered and wait for V
+function Store.Acknowledged(requestID, snapshot)
+  local db = Store.DB()
+  for id, rev in pairs(snapshot.recs or {}) do Mark(db, id, rev) end
+  for key, rev in pairs(snapshot.confirms or {}) do Mark(db, key, rev) end
+  if db.awaiting[requestID] then db.bytes = db.bytes - AwaitingBytes(db.awaiting[requestID]) end
+  local entry = { at = GetServerTime(), recs = snapshot.recs or {}, confirms = snapshot.confirms or {} }
+  db.awaiting[requestID] = entry
+  db.bytes = db.bytes + AwaitingBytes(entry)
+end
+
+local function DropAwaiting(db, requestID)
+  local entry = db.awaiting[requestID]
+  if not entry then return nil end
+  db.awaiting[requestID] = nil
+  db.bytes = db.bytes - AwaitingBytes(entry)
+  return entry
+end
+
+-- Saved(requestID): V says the author's copy is saved; unchanged records and
+-- stamps of that request are deleted, changed ones stay pending
+function Store.Saved(requestID)
+  local db = Store.DB()
+  local entry = DropAwaiting(db, requestID)
+  if not entry then return false end
+  for id, rev in pairs(entry.recs) do
+    local record = db.records[id]
+    if record and record.rev == rev then RemoveRecord(db, id) end
+  end
+  for key, rev in pairs(entry.confirms) do
+    local stamp = db.confirms[key]
+    if stamp and stamp.rev == rev then RemoveStamp(db, key) end
+  end
+  if Curator.Context and Curator.Context.Prune then Curator.Context.Prune() end
+  return true
+end
+
+-- Lost(requestID): V says the author's copy was lost; its records are sent again
+function Store.Lost(requestID)
+  local db = Store.DB()
+  local entry = DropAwaiting(db, requestID)
+  if not entry then return false end
+  for id in pairs(entry.recs) do Unmark(db, id) end
+  for key in pairs(entry.confirms) do Unmark(db, key) end
+  return true
+end
+
+-- AwaitingIDs(): the request IDs still waiting for V (they go in R); ones
+-- older than AWAITING_DAYS are dropped first
+function Store.AwaitingIDs()
+  local db = Store.DB()
+  local cutoff = GetServerTime() - Curator.Const.AWAITING_DAYS * DAY
+  local out = {}
+  for requestID, entry in pairs(db.awaiting) do
+    if (entry.at or 0) < cutoff then DropAwaiting(db, requestID) else out[#out + 1] = requestID end
+  end
+  table.sort(out, function(a, b) return tostring(a) < tostring(b) end)
+  return out
+end
+
+-- Counts(): { records, pending, bytes, byKind = { [kind] = n }, stamps }
+-- Counts(): records, stamps, pending (records and stamps not yet
+-- delivered), bytes (the whole store, against the cap), pendingBytes (the
+-- pending ones as the store counts them, before packing and compression:
+-- what a pull would send, less the contexts it carries along), byKind
+function Store.Counts()
+  local db = Store.DB()
+  local out = { records = 0, pending = 0, pendingBytes = 0, stamps = 0, bytes = db.bytes, byKind = {} }
+  local pending = Store.Pending()
+  for _, record in pairs(db.records) do
+    out.records = out.records + 1
+    out.byKind[record.kind] = (out.byKind[record.kind] or 0) + 1
+  end
+  for _ in pairs(db.confirms) do out.stamps = out.stamps + 1 end
+  for id in pairs(pending.recs) do
+    out.pending = out.pending + 1
+    out.pendingBytes = out.pendingBytes + RecordBytes(db.records[id])
+  end
+  for key in pairs(pending.confirms) do
+    out.pending = out.pending + 1
+    out.pendingBytes = out.pendingBytes + StampBytes(db.confirms[key])
+  end
+  return out
+end

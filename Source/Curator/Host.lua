@@ -1,0 +1,382 @@
+-------------------------------------------------------------------------------
+-- Curator.Host: the curator's only doorway into Recollect (curator spec,
+-- "The separation boundary", D33)
+--
+-- Curator mode ships inside Recollect for now (D32) but is written as a
+-- guest. Every curator file other than this one reaches Recollect only
+-- through Host, whose functions take and return plain Lua values (IDs,
+-- numbers, strings, tables of those), never Recollect's own tables. If the
+-- curator becomes its own addon later, this file becomes Recollect's public
+-- CuratorAPI and nothing else in the curator changes. HOST_VERSION goes up
+-- whenever a function here changes shape.
+--
+-- This file also creates the curator's namespace, Recollect.Curator (the one
+-- place a curator file names Recollect besides that namespace).
+-------------------------------------------------------------------------------
+local Curator = {}
+Recollect.Curator = Curator
+
+local Host = {}
+Curator.Host = Host
+
+Host.HOST_VERSION = 2   -- 2: Versions fails closed, Hints is fact-keyed, PurchasesOf
+
+-------------------------------------------------------------------------------
+-- Versions (D13)
+-------------------------------------------------------------------------------
+-- { addon, data, format, ok, why }: Recollect's version, the shipped data's
+-- version and format, and whether the data files agree and are supported.
+-- A version check that is missing or fails reads as not ok: the curator
+-- then records nothing (Main.MayRecord).
+function Host.Versions()
+  local okMeta, addon = pcall(C_AddOns.GetAddOnMetadata, "Recollect", "Version")
+  local out = { addon = okMeta and addon or "?", data = "unstamped", format = 1, ok = false, why = "unreadable" }
+  local DataVersion = Recollect.Facts and Recollect.Facts.DataVersion
+  if DataVersion and DataVersion.Get then
+    local ok, info = pcall(DataVersion.Get)
+    if ok and type(info) == "table" then
+      out.data, out.format, out.ok, out.why = info.dataVersion, info.format, info.ok == true, info.why
+    end
+  end
+  return out
+end
+
+-- The addon's icon (a texture path) for the curator's window titles
+function Host.Icon()
+  return Recollect.ICON
+end
+
+-------------------------------------------------------------------------------
+-- Shipped data, as plain values
+-------------------------------------------------------------------------------
+-- The item IDs the shipped data says a vendor sells, in the index's order
+-- (the order confirmation bitmaps count in), or an empty list
+function Host.ItemsOf(npcID)
+  local Vendors = Recollect.Facts and Recollect.Facts.Vendors
+  if not (Vendors and Vendors.ItemsOf) then return {} end
+  local ok, list = pcall(Vendors.ItemsOf, npcID)
+  return ok and type(list) == "table" and list or {}
+end
+
+-- The recipe spell IDs the shipped data lists for a profession skill line
+function Host.RecipesOf(skillLine)
+  local Relations = Recollect.Facts and Recollect.Facts.Relations
+  if not (Relations and Relations.RecipesOf) then return {} end
+  local ok, list = pcall(Relations.RecipesOf, skillLine)
+  return ok and type(list) == "table" and list or {}
+end
+
+-- An item's shipped relation codes as one string ("" when it has none)
+function Host.Codes(itemID)
+  local Relations = Recollect.Facts and Recollect.Facts.Relations
+  if not (Relations and Relations.Codes) then return "" end
+  local ok, codes = pcall(Relations.Codes, itemID)
+  return ok and type(codes) == "string" and codes or ""
+end
+
+-- An item's shipped codes of one letter whose body is a number, as
+-- { { id, gone } }: CodesOf(item, "O") for the Black Market ({ { id = 1 } }),
+-- CodesOf(item, "U") for the Trading Post's months ({ { id = 202503 } }, 0
+-- for a month not known). gone is true when the code's route flags say it
+-- is no longer available ("|x"). Reads Host.Codes, so what it parses is
+-- the same string the rest of the curator sees.
+function Host.CodesOf(itemID, letter)
+  local out = {}
+  for code in Host.Codes(itemID):gmatch("[^;]+") do
+    local body, flags = code:match("^([^|]*)|?(.*)$")
+    local id = body and body:sub(1, #letter) == letter and tonumber(body:sub(#letter + 1):match("^%d+$") or "")
+    if id then out[#out + 1] = { id = id, gone = flags:find("x", 1, true) ~= nil } end
+  end
+  return out
+end
+
+-- The fact a shipped hint names: the shipped form is unseen[<letter>] =
+-- { [<source ID>] = "<item IDs, comma separated>" } (Data/Hints.lua); a
+-- vendor's is the Compare fact "v:<npc>:i:<item>:sold"
+local function HintFact(letter, source, item)
+  if letter == "v" then return ("v:%d:i:%d:sold"):format(source, item) end
+  return ("%s:%d:i:%d"):format(letter, source, item)
+end
+
+local hintsFor, hintsSet
+-- The curator hints shipped with the data (D30), as a fresh set of the
+-- facts they name: { unseen = { [fact] = true } }
+function Host.Hints()
+  local DataVersion = Recollect.Facts and Recollect.Facts.DataVersion
+  local ok, hints = false, nil
+  if DataVersion and DataVersion.Hints then ok, hints = pcall(DataVersion.Hints) end
+  local unseen = ok and type(hints) == "table" and type(hints.unseen) == "table" and hints.unseen or nil
+  if hintsFor == unseen and hintsSet then return { unseen = hintsSet } end
+  local set = {}
+  for letter, sources in pairs(unseen or {}) do
+    if type(letter) == "string" and type(sources) == "table" then
+      for source, items in pairs(sources) do
+        if type(source) == "number" and type(items) == "string" then
+          for item in items:gmatch("%d+") do set[HintFact(letter, source, tonumber(item))] = true end
+        end
+      end
+    end
+  end
+  hintsFor, hintsSet = unseen, set
+  return { unseen = set }
+end
+
+-- The shipped relations bucket strings the handshake challenge reads
+-- (the item buckets, keyed by item ID // 1024): the list of bucket indexes,
+-- and one bucket's string
+function Host.BucketIndexes()
+  local data = Recollect.Data and Recollect.Data.Relations
+  local out = {}
+  for index, bucket in pairs(data and data.B or {}) do
+    if type(bucket) == "string" then out[#out + 1] = index end
+  end
+  table.sort(out)
+  return out
+end
+
+function Host.Bucket(index)
+  local data = Recollect.Data and Recollect.Data.Relations
+  local bucket = data and data.B and data.B[index]
+  return type(bucket) == "string" and bucket or nil
+end
+
+local function Owner(context)
+  if type(context) ~= "table" then return nil end
+  return { faction = context.faction, classID = context.classID, raceID = context.raceID }
+end
+
+-- true, false or nil: whether a parsed route serves the context
+local function Serves(relation, context)
+  local Relations = Recollect.Facts.Relations
+  local ok, applies = pcall(Relations.Applies, relation, Owner(context))
+  if not ok then return nil end
+  if applies == true then return true end
+  if applies == "unavailable" or applies == "other" then return false end
+  return nil
+end
+
+local function CopyCosts(costs)
+  local out = {}
+  for i, cost in ipairs(costs or {}) do out[i] = { kind = cost.kind, id = cost.id, count = cost.count } end
+  return out
+end
+
+-- The item a purchase hands over: its own ID for a plain item, toy,
+-- heirloom or decor; the item that teaches a mount; the item behind a pet,
+-- ensemble, recipe or illusion (the data's T table, one representative
+-- item); nil for an achievement or anything that can't be resolved (never
+-- the raw thing ID, which is another kind of ID)
+local ITEM_LETTERS = { [""] = true, t = true, h = true, d = true }
+local function SoldItem(Relations, relation)
+  local thing = relation.thing or ""
+  if ITEM_LETTERS[thing] then return relation.id end
+  if thing == "m" then
+    local ok, item = pcall(Relations.MountItem, relation.id)
+    return ok and item or nil
+  end
+  if thing == "a" then return nil end
+  local ok, item = pcall(Relations.ThingItem, thing, relation.id)
+  return ok and item or nil
+end
+
+-- [costItemID] = { [soldItemID] = { relation, ... } }, the last few cost
+-- items looked up (one Mark of Honor holds about 8,700 purchases)
+local purchaseIndex, indexOrder, INDEX_KEPT = {}, {}, 4
+
+local function PurchaseIndex(Relations, costItemID)
+  local index = purchaseIndex[costItemID]
+  if index then return index end
+  index = {}
+  local ok, list = pcall(Relations.Of, costItemID, "buys")
+  for _, relation in ipairs(ok and list or {}) do
+    local item = SoldItem(Relations, relation)
+    if item then
+      index[item] = index[item] or {}
+      table.insert(index[item], relation)
+    end
+  end
+  purchaseIndex[costItemID] = index
+  indexOrder[#indexOrder + 1] = costItemID
+  if #indexOrder > INDEX_KEPT then purchaseIndex[table.remove(indexOrder, 1)] = nil end
+  return index
+end
+
+-- What an item buys when it is soldItemID, as plain entries: { item, thing,
+-- id, count, costs = { { kind, id, count } } (this item's own first),
+-- unlisted, vendors = { npcID }, mapID, serves (for context: true, false, nil) }
+function Host.PurchasesOf(costItemID, soldItemID, context)
+  local Relations = Recollect.Facts and Recollect.Facts.Relations
+  local out = {}
+  if not (Relations and Relations.Of) then return out end
+  for _, relation in ipairs(PurchaseIndex(Relations, costItemID)[soldItemID] or {}) do
+    local vendors = {}
+    for i, npc in ipairs(relation.vendors or {}) do vendors[i] = npc end
+    out[#out + 1] = { item = soldItemID, thing = relation.thing, id = relation.id, count = relation.count,
+      costs = CopyCosts(Relations.Costs(relation, costItemID)), unlisted = relation.unlisted,
+      vendors = vendors, mapID = relation.mapID, serves = Serves(relation, context) }
+  end
+  return out
+end
+
+-- The shipped relations of one kind for an item, sources or uses
+-- ("soldBy", "dropsFrom", "foundIn", "zoneDrop", "reward", "choice",
+-- "objective", "questItem", "starts", "usedAt", "teaches", "reagentOf",
+-- "currency" ...): { id, count, price, serves } (price: a gold-only
+-- seller's shipped price in copper, count its stack)
+function Host.Sources(itemID, kind, context)
+  local Relations = Recollect.Facts and Recollect.Facts.Relations
+  local out = {}
+  if not (Relations and Relations.Of) then return out end
+  local ok, list = pcall(Relations.Of, itemID, kind)
+  if not ok then return out end
+  for _, relation in ipairs(list) do
+    out[#out + 1] = { id = relation.id, count = relation.count, price = relation.price, serves = Serves(relation, context) }
+  end
+  return out
+end
+
+-- An NPC's shipped position: { mapID, x, y } or nil
+function Host.NpcPosition(npcID)
+  local Vendors = Recollect.Facts and Recollect.Facts.Vendors
+  if not (Vendors and Vendors.Position) then return nil end
+  local ok, position = pcall(Vendors.Position, npcID)
+  if not ok or type(position) ~= "table" then return nil end
+  return { mapID = position.mapID, x = position.x, y = position.y }
+end
+
+-- The Encounter Journal encounter the shipped data maps a boss NPC to (the
+-- data's J table: AllTheThings' Encounter nodes), or nil
+function Host.EncounterOf(npcID)
+  local Relations = Recollect.Facts and Recollect.Facts.Relations
+  if not (Relations and Relations.EncounterOf) then return nil end
+  local ok, encounterID = pcall(Relations.EncounterOf, npcID)
+  return ok and type(encounterID) == "number" and encounterID or nil
+end
+
+-- What the shipped data says combining an item makes: { count (how many of
+-- it one combine takes), product (item ID, or nil while unconfirmed), parts
+-- (true for a combine of several different parts) }, from its makes ("m",
+-- "mx") and part-of ("e") codes
+function Host.Combines(itemID)
+  local Relations = Recollect.Facts and Recollect.Facts.Relations
+  local out = {}
+  if not (Relations and Relations.Of) then return out end
+  local okMakes, makes = pcall(Relations.Of, itemID, "makes")
+  for _, relation in ipairs(okMakes and makes or {}) do
+    if relation.count then out[#out + 1] = { count = relation.count, product = relation.id } end
+  end
+  local okParts, parts = pcall(Relations.Of, itemID, "partOf")
+  for _, relation in ipairs(okParts and parts or {}) do
+    for _, part in ipairs(relation.parts or {}) do
+      if part.itemID == itemID then out[#out + 1] = { count = part.count, product = relation.id, parts = true } end
+    end
+  end
+  return out
+end
+
+-- The NPC the shipped data says gives a quest, or nil
+function Host.QuestGiver(questID)
+  local Relations = Recollect.Facts and Recollect.Facts.Relations
+  if not (Relations and Relations.QuestGiver) then return nil end
+  local ok, giver = pcall(Relations.QuestGiver, questID)
+  return ok and type(giver) == "table" and giver.npcID or nil
+end
+
+-- A quest's shipped frequency letters ("d" daily, "w" weekly, "y" yearly,
+-- "m" monthly, "q" world quest ...), or nil
+function Host.QuestFrequency(questID)
+  local Relations = Recollect.Facts and Recollect.Facts.Relations
+  if not (Relations and Relations.Frequency) then return nil end
+  local ok, flags = pcall(Relations.Frequency, questID)
+  return ok and type(flags) == "string" and flags or nil
+end
+
+-- A recipe's shipped schematic summary: { skillLine, product, quantity }, or nil
+function Host.Recipe(spellID)
+  local Relations = Recollect.Facts and Recollect.Facts.Relations
+  if not (Relations and Relations.Recipe) then return nil end
+  local ok, recipe = pcall(Relations.Recipe, spellID)
+  if not ok or type(recipe) ~= "table" then return nil end
+  return { skillLine = recipe.skillLine, product = recipe.product, quantity = recipe.quantity }
+end
+
+-- The bags' item counts ({ [itemID] = count }, bags 0 to 5), or nil when a
+-- bag can't be read completely
+function Host.BagTotals()
+  local Inventory = Recollect.Inventory
+  local reads = {}
+  for _, bagID in ipairs(Inventory.Locations.Bags()) do
+    local read = Inventory.Reader.ReadContainer(bagID)
+    if read.readable then
+      if not read.complete then return nil end
+      reads[#reads + 1] = read
+    end
+  end
+  return Recollect.Verdicts.Rows.Totals(reads)
+end
+
+-------------------------------------------------------------------------------
+-- Checks
+-------------------------------------------------------------------------------
+-- Whether a shipped code's route conditions (the flags after "|", such as
+-- "|f1" or "|c2.8") include a character context { faction (0 Horde,
+-- 1 Alliance, as Enum.PvPFaction and the shipped f0/f1), classID, raceID }:
+-- true, false, or nil when it can't be told. A route no longer in the game
+-- ("x") is false. Holiday routes ("h") are true: the data names no holiday,
+-- so the curator never calls one missing (D34).
+function Host.ConditionsInclude(code, itemID, context)
+  local Relations = Recollect.Facts and Recollect.Facts.Relations
+  if not (Relations and Relations.Applies and Relations.Parse) or type(context) ~= "table" then return nil end
+  local okParse, relation = pcall(Relations.Parse, code, itemID)
+  if not okParse or type(relation) ~= "table" then return nil end
+  local owner = { faction = context.faction, classID = context.classID, raceID = context.raceID }
+  local ok, applies = pcall(Relations.Applies, relation, owner)
+  if not ok then return nil end
+  if applies == true then return true end
+  if applies == "unavailable" or applies == "other" then return false end
+  return nil
+end
+
+-------------------------------------------------------------------------------
+-- Services
+-------------------------------------------------------------------------------
+function Host.Log(format, ...)
+  Recollect.Debug.Log("CURATOR", format, ...)
+end
+
+function Host.Print(text)
+  Recollect.Utilities.Message(text)
+end
+
+function Host.Warn(text)
+  Recollect.Utilities.Message.Warn(text)
+end
+
+-- Is a value secret (12.x)? The curator records nothing it can't read.
+function Host.IsSecret(value)
+  return Recollect.Utilities.IsSecret(value) and true or false
+end
+
+-- Registers the curator's provider for Recollect's hooks (the settings
+-- category, the guide section, /rec curator and /rec feedback, the details
+-- window's Curator Flag button)
+function Host.RegisterProvider(provider)
+  if Recollect.RegisterCuratorProvider then Recollect.RegisterCuratorProvider(provider) end
+end
+
+-- Tells Recollect a curator setting changed, so its settings window repaints
+-- that row (the window watches Recollect's ConfigChanged event)
+function Host.NotifyConfigChanged(key)
+  Recollect.EventBus:Fire(Recollect.Events.ConfigChanged, key)
+end
+
+-- Tells Recollect the curator's notes changed (a flag saved, sent or
+-- delivered), so the details window repaints its Curator Flag button
+function Host.NotesChanged()
+  Recollect.EventBus:Fire(Recollect.Events.CuratorNotesChanged)
+end
+
+-- Runs fn once Recollect's SavedVariables and config are loaded
+function Host.OnLoaded(fn)
+  EventUtil.ContinueOnAddOnLoaded("Recollect", fn)
+end
