@@ -146,12 +146,13 @@ local WHAT = { mount = "a mount", pet = "a pet", toy = "a toy", ensemble = "an e
   appearance = "an appearance", illusion = "a weapon illusion", heirloom = "an heirloom" }
 
 -- What the recipes of systems the index never reads make (data.covered holds
--- the indexed skill lines): { missing = { thing }, have, unavailable, unread,
--- loading, more } over distinct products, each read through
--- Facts.Buys.Product (a collectible only; a plain product counts nowhere)
+-- the indexed skill lines): { missing = { thing }, have, unread, loading,
+-- more } over distinct products, each read through Facts.Buys.Product (a
+-- collectible only; a plain product, or one this character can't collect,
+-- counts nowhere)
 local function ReadProducts(itemID, data, owner)
   local Relations, Recipes, Buys = Recollect.Facts.Relations, Recollect.Facts.Recipes, Recollect.Facts.Buys
-  local made = { missing = {}, have = 0, unavailable = 0, unread = 0, loading = 0, more = 0 }
+  local made = { missing = {}, have = 0, unread = 0, loading = 0, more = 0 }
   local seen, count, loads = {}, 0, 0
   for _, relation in ipairs(Relations.For(itemID)) do
     if relation.kind == "reagentOf" and not (relation.flags and relation.flags.unavailable) then
@@ -168,7 +169,7 @@ local function ReadProducts(itemID, data, owner)
           if thing then
             if thing.state == "missing" then made.missing[#made.missing + 1] = thing
             elseif thing.state == "have" then made.have = made.have + 1
-            elseif thing.state == "unavailable" then made.unavailable = made.unavailable + 1
+            elseif thing.state == "unavailable" then   -- not for this character: never counted as unread
             else made.unread = made.unread + 1 end
           elseif why == "loading" then
             -- nothing loads it there: ask here, a few per evaluation (Facts.Item

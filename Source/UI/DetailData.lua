@@ -507,7 +507,7 @@ end
 -- then each becomes a row.
 function Data.Build(itemID, stack, owner, onProgress)
   owner = owner or Recollect.Verdicts.Rows.Owner()
-  local job = { itemID = itemID, stack = stack, owner = owner, tabs = {}, seen = {}, done = 0, total = 0,
+  local job = { itemID = itemID, owner = owner, tabs = {}, seen = {}, done = 0, total = 0,
     finished = false }
   for _, tab in ipairs(Data.TABS) do job.tabs[tab.key] = {} end
   local relations = Relations().Parsed(itemID)
@@ -1667,8 +1667,8 @@ function Data.LinkColor(row)
 end
 
 -- Linkable(row): whether a row's name can be a link (a thing the game
--- links; a creature only when the Encounter Journal has its boss, and a
--- journal encounter when the journal gives its link)
+-- links; an NPC or a spot, as a link of Recollect's own; a journal
+-- encounter only when the journal gives its link)
 local LINKABLE = { item = true, toy = true, heirloom = true, decor = true, mount = true, pet = true, ensemble = true,
   illusion = true, recipe = true, achievement = true, currency = true, quest = true, endeavor = true }
 function Data.Linkable(row)
@@ -1709,7 +1709,6 @@ local function Less(a, b)
   if ta ~= tb then return ta == "number" end
   return a < b
 end
-Data.Less = Less
 
 -- -1, 0 or 1 for two sort keys, a missing key after any other
 local function Compare(a, b)
@@ -1718,12 +1717,12 @@ local function Compare(a, b)
   if Less(b, a) then return 1 end
   return 0
 end
-Data.Compare = Compare
 
--- Order(rows, keyOf, ascending, filter, onDone): the rows that pass filter,
--- sorted by keyOf(row), then by name (always A to Z), then in the rows' own
--- order (a stable merge sort), a slice at a time; a missing key goes last
--- either way. onDone(shown) gets the new list
+-- Order(key, rows, keyOf, ascending, filter, onDone): a job (Start's key)
+-- giving the rows that pass filter, sorted by keyOf(row), then by name
+-- (always A to Z), then in the rows' own order (a stable merge sort), a
+-- slice at a time; a missing key goes last either way. onDone(shown) gets
+-- the new list
 function Data.Order(key, rows, keyOf, ascending, filter, onDone)
   local shown, keys, names, n, i = {}, {}, {}, 0, 0
   local width, src, dst, merged = 1, nil, nil, 0

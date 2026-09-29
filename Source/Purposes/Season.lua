@@ -86,7 +86,7 @@ function Season.Current()
 end
 
 -- The item's season tag and where it stands:
--- { state, name, number, expansion, current } with state "older" (an older
+-- { state, name, number, current } with state "older" (an older
 -- expansion's season), "current", "past", "later" (a number above the
 -- season shown now), "disagree" (between the two numbers read) or "unread"
 -- (the current season can't be read); nil for no tag, an expansion name not
@@ -101,7 +101,7 @@ local function Read(ctx)
   for expansionID = 0, server do
     local okName, name = Try(client.GetExpansionName, expansionID)
     if okName and name == tip.seasonExpansion then
-      local tag = { name = name, number = tip.seasonNumber or 0, expansion = expansionID }
+      local tag = { name = name, number = tip.seasonNumber or 0 }
       if expansionID < server then
         tag.state = "older"
         return tag

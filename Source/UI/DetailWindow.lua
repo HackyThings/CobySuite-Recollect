@@ -5,10 +5,11 @@
 -- for a player who knows nothing of the game's websites (Cobanyte,
 -- 2026-09-24): what is it, what is it for and how many does that take, how
 -- do I get more and where, and what do I have. Its tabs:
---   Overview            the verdict (or what the item is for), its reason,
---                       recovery step and the panel's Tip (UI.Tooltip.Tip);
---                       the header's Still needed? box (Detail.Keep), a
---                       suggestion for an item held; WHAT IT'S FOR, opening
+--   Overview            the reason again only when the header's answer
+--                       band cut it, and the verdict note (the band,
+--                       Detail.Keep, a suggestion for an item held,
+--                       carries the verdict's why, the recovery step and
+--                       the Tip); WHAT IT'S FOR, opening
 --                       with what the item is (FOR.Explain; the game's own
 --                       filing of it only when it names an added patch),
 --                       then its groups of uses (with the endeavor's tasks
@@ -50,7 +51,8 @@
 --               room, Shift-right-click opens what the game opens for it
 --   Alt-click   (no item click of the game's uses Alt) opens that item here,
 --               Back and Forward walking the history
---   right-click a menu: open, link, waypoint, preview
+--   right-click a menu: open here, link, preview, Show Achievement, a
+--               waypoint, and copy its name or Wowhead link
 --   waypoint    the Map column's button, the world map's own pin (lit on
 --               hover, darker while pressed), and a plain click on the Map
 --               column around it, set a waypoint (UI.Waypoint.Set)
@@ -87,7 +89,6 @@ local WINDOW_NAME = "RecollectDetailWindow"
 local WIDTH, HEIGHT = 780, 580
 local PAD = 12
 local TOP = 30
-local ICON = 32
 local HEADER_GAP = 4         -- between the header and what's under it
 -- The header and its answer band: the item's icon, the header's height
 -- above the band, the band's icon, padding above and below its text, least
@@ -289,10 +290,10 @@ local function Plain(text, color)
   return { text = text, color = color or U.Colors.LIGHT_GRAY, plain = true }
 end
 
--- A group's title inside a section ("Buys: 3", "What it takes: 4"): painted
--- white with room above it, and the lines after it, up to the next group,
--- indented under it (Cobanyte, 2026-09-28: "like titles almost that the
--- bullets fall under")
+-- A group's title inside a section ("Buys: 3", "What using it takes: 4"):
+-- painted white with room above it, and the lines after it, up to the next
+-- group, indented under it (Cobanyte, 2026-09-28: "like titles almost that
+-- the bullets fall under")
 local function Group(text, color)
   local line = Plain(text, color or U.Colors.HIGHLIGHT_WHITE)
   line.group = true
@@ -824,7 +825,7 @@ end
 FOR.SPELLED = 2
 function FOR.Specific(j)
   local sentences, handled = {}, {}
-  local objects, npcs, parts = {}, {}, {}
+  local objects, npcs = {}, {}
   for _, row in ipairs(j.tabs.quests or {}) do
     if not row.restricted then
       if row.what == "object" then objects[#objects + 1] = row
@@ -869,7 +870,7 @@ function FOR.Specific(j)
   if #order > 0 and #order <= FOR.SPELLED then
     handled.takes = true
     for _, record in ipairs(order) do
-      parts = records[record]
+      local parts = records[record]
       if #parts > 1 then
         local names, missing, have = {}, 0, 0
         for i, row in ipairs(parts) do
@@ -1088,12 +1089,12 @@ FOR.TILES = {
     words = { "not done yet", "none done yet", "%d not done", "all done" }, open = "Not done yet", done = "Done",
     note = "Quests that use it and places or NPCs it's used at." },
   { key = "achievements", label = "Achievements", icon = "Interface\\Icons\\Achievement_General", title = "Achievements",
-    words = { "not earned yet", "none earned yet", "%d not earned", "all earned" }, open = "Not earned yet", done = "Earned",
-    note = "Achievements it counts toward." },
+    words = { "not done yet", "none done yet", "%d not done", "all done" }, open = "Not done yet", done = "Done or earned",
+    note = "Achievements it counts toward; done means earned, or this item's part of it done." },
   { key = "crafting", label = "Crafting", icon = "Interface\\Icons\\Trade_Engineering", title = "Crafting with it",
-    words = { "makes something you lack", "all make things you lack", "%d make things you lack", "you have all they make" },
-    open = "Make something you don't have", done = "Make what you already have",
-    note = "Recipes that use it. A recipe counts as open when what it makes is something you don't have yet." },
+    words = { "still to learn or collect", "all still to learn or collect", "%d still to learn or collect", "all known or collected" },
+    open = "Still to learn or collect", done = "Known or collected",
+    note = "Recipes that use it. One counts as done when you know it, or have what it makes when that is a collectible." },
   { key = "takes", label = "A use takes", icon = "Interface\\Icons\\INV_Misc_Bag_10", title = "What using it takes",
     words = { "still needed", "all still needed", "%d still needed", "all ready" }, open = "Still needed", done = "Ready",
     note = "The other parts a use of it needs." },
@@ -1659,9 +1660,9 @@ function Detail.Content(model, j)
   end
   sections[#sections + 1] = { lines = head }
   -- WHAT IT'S FOR opens with what the item is, spelled out (FOR.Explain,
-  -- with the game's own filing of it, WHAT IT IS, under it), then an older
-  -- system's line (it needs no rows), then the groups of uses
-  -- (section.lead: painted before its lines, kept apart from the uses)
+  -- with the game's own filing of it under it only when it names an added
+  -- patch), then an older system's line (it needs no rows), then the groups
+  -- of uses (section.lead: painted before its lines, kept apart from the uses)
   local lead = Safely(FOR.Explain, model, j, itemID)
   local explained = lead[1] and lead[1].explain and lead[1].text or nil
   local uses = Safely(LegacyLines, model)
@@ -2120,9 +2121,11 @@ local function PaintOverview()
         h, fs = Block(U.Fonts.BODY, line.color or U.Colors.HIGHLIGHT_WHITE, text, left, y, textWidth + INDENT)
         y = y - (mapped and math.max(h, LINE_MAP) or h) - LINE_GAP
       elseif line.tiles then
-        -- WHAT YOU HAVE's places as tiles (Cobanyte, 2026-09-28: "stylize that
-        -- more"): each with its icon, the count large and the place under it;
-        -- a place with none dimmed, so where the copies are shows at a glance
+        -- a section's tiles (Cobanyte, 2026-09-28: "stylize that more"):
+        -- WHAT YOU HAVE's places, WHAT IT'S FOR's kinds of use, HOW TO GET
+        -- MORE's kinds of way; each with its icon, the count large and its
+        -- label under it; a tile with none dimmed, so where the copies are
+        -- shows at a glance
         local x, T = left, LAYOUT
         local gray, white = U.Colors.LABEL_GRAY, U.Colors.HIGHLIGHT_WHITE
         local right = x0 + lineWidth
@@ -2284,8 +2287,8 @@ end
 local function Lower(text) return text and text:lower() or nil end
 
 -- A plain column, as in a spreadsheet (Cobanyte, 2026-09-26): its divider's
--- double-click fits the names; a window wider than the columns leaves room
--- at the right
+-- double-click fits the names; room the columns leave goes to the tab's
+-- last column (Last)
 local NAME = { key = "name", label = "Name", width = 240,
   text = function(row) return Data().DisplayName(row) end, color = NameColor,
   icon = function(row) return Data().Icon(row) end, sort = function(row) return Lower(Data().DisplayName(row)) end }
@@ -2749,10 +2752,14 @@ end
 -------------------------------------------------------------------------------
 -- The header strip
 -------------------------------------------------------------------------------
--- What the item is, in a few words, for the header of an item not held
--- (Cobanyte, 2026-09-28: "this item is used to gain a mount", "this item goes
--- on the ring slot"): a collection it teaches, the slot it's worn in, the
--- kind of item, else what it's used for; nil when nothing can be read.
+-- What the item is, in a few words, for the kind line under the header's
+-- name and the explanation that opens WHAT IT'S FOR (Cobanyte, 2026-09-28:
+-- "this item is used to gain a mount", "this item goes on the ring slot"):
+-- a collection it teaches, the slot it's worn in, the kind of item, else
+-- what it's used for; nil when nothing can be read. kindOnly (both callers
+-- here): what it is alone, never what it's used for, and nil rather than a
+-- kind that says nothing ("Miscellaneous: Other"), since the explanation
+-- counts the uses itself (FOR.Explain).
 -- Read from the game's own answers (Purposes.client), never the tooltip.
 local SLOT_WORDS = {
   INVTYPE_HEAD = "Worn in your head slot", INVTYPE_NECK = "Worn in your neck slot",
@@ -2839,9 +2846,6 @@ local function WeakKind(facts, R)
   return nil
 end
 
--- kindOnly: what it is alone, never what it's used for, and nil rather
--- than a kind that says nothing ("Miscellaneous: Other"): the explanation
--- that opens WHAT IT'S FOR counts the uses itself (FOR.Explain)
 -- PvpLevel(itemID): the item level PvP gear counts as in Arenas and
 -- Battlegrounds, from its own tooltip's line (the game's own string,
 -- PVP_ITEM_LEVEL_TOOLTIP, any language), or nil
@@ -2938,7 +2942,7 @@ function Detail.Keep(model)
     return { word = "Keep it", color = colors[verdict], icon = KEEP_ICONS.keep, why = whole or "It still has a use." }
   end
   if verdict == V.JUNK then
-    return { word = "Sell it", color = colors[V.JUNK], icon = KEEP_ICONS.sell, why = "Gray junk: any vendor buys it, and nothing uses it." }
+    return { word = "Sell it", color = colors[V.JUNK], icon = KEEP_ICONS.sell, why = "The game marks it as junk: a gray item any vendor buys." }
   end
   if verdict == V.DONE then
     if model.tip then
@@ -3596,7 +3600,7 @@ local function BuildToolbar()
         wipe(filters[tab])
         ApplyView(tab)
       end,
-      -- above the window's own layer (DIALOG), where its table rows would cover it
+      -- well above the window's own layer (MEDIUM), so its table rows never cover it
       menu = { name = "RecollectDetailFilter" .. tab, parent = window, strata = "FULLSCREEN_DIALOG" },
       tooltipIdle = "Show only what you still need, what you have, or one kind",
     })
@@ -3694,7 +3698,6 @@ local function AchievementButton(parent, size)
   end)
   return b
 end
-Detail.AchievementButton = AchievementButton
 
 local function AchievementButtonTooltip(owner)
   GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")

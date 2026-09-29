@@ -139,8 +139,8 @@ local window = UI.CreateSettingsWindow({
         }
         panel:Section("Keys while the audit panel shows")
         panel:Checkbox{
-          key = Opt.WAYPOINT_ENABLED, label = "Waypoint key: set a waypoint to the vendor the panel names",
-          tooltip = "While the audit panel names a vendor you have visited (one that takes the item or its currency), this key puts a waypoint on your map to it. Not bound in combat.",
+          key = Opt.WAYPOINT_ENABLED, label = "Waypoint key: set a waypoint to the place the panel names",
+          tooltip = "While the audit panel names a place Recollect knows (a vendor, a treasure or an NPC), this key puts a waypoint on your map to it. Not bound in combat.",
           enabledWhen = function(get) return get(Opt.SHOW_TOOLTIP) ~= false end,
         }
         panel:Keybind{

@@ -17,7 +17,6 @@ UI.WhatsNew = WhatsNew
 
 -- The shared helpers under the names the suites use
 WhatsNew.CompareVersions = U.CompareVersions
-WhatsNew.SectionKey = Shared.SectionKey
 WhatsNew.Line = Shared.Line
 WhatsNew.Decide = Shared.Decide
 function WhatsNew.Sections(log)
@@ -41,7 +40,5 @@ local changelog = CobySuite_Recollect.UI.CreateWhatsNewWindow({
 -- The window's instance, for the suites (its opts and built window)
 WhatsNew._test = { instance = changelog }
 
-function WhatsNew.Build() return changelog:Build() end
 function WhatsNew.Toggle() changelog:Toggle() end
-function WhatsNew.ShowVersions(keys) changelog:ShowVersions(keys) end
 function WhatsNew.OnLogin() changelog:OnLogin() end

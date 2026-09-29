@@ -6,15 +6,16 @@
 --   * No check that applies means Unknown ("no purpose check covers this
 --     item yet").
 --   * Needed beats Use now, which beats Useful, which beats Unknown, which
---     beats Junk, then Outdated, then Purpose done: an Unknown in any purpose
---     blocks Junk, Outdated and Purpose done.
---   * Junk, Outdated and Purpose done also need no sign of a use this build does
---     not check yet: a crafting reagent or a quest item with no check
---     covering it. Those make it Unknown, naming what was found and what is
---     not checked.
+--     beats Junk, then Outdated, then Lower level, then Purpose done: an
+--     Unknown in any purpose blocks Junk, Outdated, Lower level and Purpose
+--     done.
+--   * Junk, Outdated, Lower level and Purpose done also need no sign of a use
+--     this build does not check yet: a crafting reagent or a quest item with
+--     no check covering it. Those make it Unknown, naming what was found and
+--     what is not checked.
 --   * A check that errors counts as Unknown for its purpose.
 --   * A slot whose quest info couldn't be read (stack.questUnread) may be a
---     quest item: that blocks Outdated and Purpose done too (BA-02).
+--     quest item: that blocks them too (BA-02).
 --   * A result may carry supersedes = { [key] = true } (Season, for a season
 --     of this expansion that isn't the current one): those checks' Useful,
 --     Use now, and Unknowns that state a use's progress (with a headline:
@@ -25,8 +26,10 @@
 --     spell can't be read, and no other check deciding, is Unknown (Settle).
 -- An Unknown result carries the deciding check's category (G-04,
 -- Registry.CATEGORY), so the panel can name the one step that changes it.
--- Nothing is cached: collections, quests and recipes change without a bag
--- event, so each redraw evaluates again.
+-- No verdict is cached: collections, quests and recipes change without a
+-- bag event, so each redraw evaluates again; what a check keeps (Buys,
+-- Season, Reagent, through Facts.Buys.Stamp) lasts only until data changes
+-- or a few seconds pass (contract rule 9).
 -------------------------------------------------------------------------------
 local Verdicts = Recollect.Verdicts
 local R = Recollect.Purposes.Registry
@@ -181,16 +184,14 @@ end
 
 -- One check on ctx, its result added to purposes (an error counts as Unknown)
 function Verdicts.RunCheck(check, ctx, purposes)
-  do
-    local ok, result = pcall(check.Evaluate, ctx)
-    if not ok then
-      Recollect.Debug.Warn("PURPOSE", "%s check failed on item %s: %s", check.key, tostring(ctx.stack.itemID), tostring(result))
-      result = R.Unknown(check.label .. "; the check failed", nil, "unreadable")
-    end
-    if result then
-      result.key = check.key
-      result.label = check.label
-      purposes[#purposes + 1] = result
-    end
+  local ok, result = pcall(check.Evaluate, ctx)
+  if not ok then
+    Recollect.Debug.Warn("PURPOSE", "%s check failed on item %s: %s", check.key, tostring(ctx.stack.itemID), tostring(result))
+    result = R.Unknown(check.label .. "; the check failed", nil, "unreadable")
+  end
+  if result then
+    result.key = check.key
+    result.label = check.label
+    purposes[#purposes + 1] = result
   end
 end

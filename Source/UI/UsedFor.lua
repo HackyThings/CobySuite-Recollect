@@ -603,12 +603,6 @@ local function TagText(tags, inline)
   return table.concat(words, ", ")
 end
 
--- "Horde only", "Mage only", "Blood Elf only", "During a holiday or event":
--- whom and when a route serves (Tags' words)
-local function RestrictionText(relation, applies, owner)
-  return TagText(Tags(relation, applies, owner)) or OTHER_WORDS
-end
-
 -- A line with its route's tags: a route that doesn't serve the owner reads
 -- them in a closing parenthetical, gray and with the finished lines; an
 -- event route that serves it keeps its state last, so the panel still colors
@@ -983,14 +977,25 @@ end
 -- heard through the chains' namer while a line is built
 UsedFor.GoldWords = function(copper) return Recollect.Facts.Chains.GoldWords(copper) end
 
--- A gold-only trade's price after its seller (the data's V code): " for 25
--- gold", ", 5 for 1 gold 50 silver" for a stack; "" for a seller with none
+-- A priced trade's price after its seller (the data's V code): " for 25
+-- gold", ", 5 for 1 gold 50 silver" for a stack; a price in a currency
+-- (data format 8, 2026-09-29) " for 350 Honor", ", 5 for 350 Honor and 10
+-- gold", worded by Facts.Chains.PriceWords, which never words a price partly
+-- unknown as whole; with the stack unknown no "N for". "" for a seller with none
 function UsedFor.PriceWords(relation)
-  local price = relation and relation.price
-  if not CobySuite_Recollect.Utilities.IsFiniteNumber(price) or price < 0 then return "" end
+  if type(relation) ~= "table" then return "" end
+  local words
+  if relation.price ~= nil then
+    local price = relation.price
+    if not CobySuite_Recollect.Utilities.IsFiniteNumber(price) or price < 0 then return "" end
+    words = UsedFor.GoldWords(price)
+  else
+    words = Recollect.Facts.Chains.PriceWords(relation.costs)
+  end
+  if not words then return "" end
   local count = relation.count or 1
-  if count > 1 then return (", %d for %s"):format(count, UsedFor.GoldWords(price)) end
-  return " for " .. UsedFor.GoldWords(price)
+  if count > 1 then return (", %d for %s"):format(count, words) end
+  return " for " .. words
 end
 function UsedFor.CostWords(relation, itemID) return Recollect.Facts.Chains.CostWords(relation, itemID) end
 
@@ -1414,9 +1419,9 @@ local function RenownLine(relation, stateless)
   return { text = text, color = U.Colors.LIGHT_GRAY }
 end
 
--- "Drops from Sylvanas Windrunner in Sanctum of Domination (Encounter
--- Journal)", the boss's name a journal link when the journal gives one; nil
--- when the journal can't name the encounter
+-- "Drops from Sylvanas Windrunner in Sanctum of Domination, per the
+-- Encounter Journal", the boss's name a journal link when the journal gives
+-- one; nil when the journal can't name the encounter
 local function JournalLine(relation)
   local encounter = Recollect.Facts.Vendors.Encounter(relation.id)
   if not encounter then return nil end
@@ -2003,8 +2008,6 @@ function UsedFor.Lines(itemID, stack, owner, opts)
     local none = { left = 0 }
     for i = 1, math.min(#unavailable, FULL_LINES) do extra.unavailable[i] = Build(UnavailableLine, unavailable[i], none) end
     if #unavailable > FULL_LINES then extra.unavailable[#extra.unavailable + 1] = More(("and %d more"):format(#unavailable - FULL_LINES)) end
-  else
-    extra.unavailableCount = #unavailable
   end
   return uses, places[1], comesFrom, extra
 end
@@ -2037,7 +2040,7 @@ end
 -- NoteLines(itemID, owner): the item's guide notes as { text, details =
 -- { "How many: ...", "Where: ...", "Comes from: ..." }, state = { text,
 -- color, links } or nil, label ("Guide note; not confirmed in game
--- yet"), source, confirmed, note }, in Data/Notes.lua's order
+-- yet"), confirmed, note, color }, in Data/Notes.lua's order
 function UsedFor.NoteLines(itemID, owner)
   owner = owner or Recollect.Verdicts.Rows.Owner()
   local out = {}
@@ -2058,12 +2061,11 @@ end
 -- What the pinned view's tables share with these lines (UI.DetailData), so a
 -- row and a line never disagree about a state or its words
 UsedFor.parts = {
-  QuestState = QuestState, RestrictionText = RestrictionText, Tags = Tags, TagText = TagText, AnyShown = AnyShown,
-  EntryTier = EntryTier,
+  QuestState = QuestState, Tags = Tags, TagText = TagText, AnyShown = AnyShown,
   STATE_WORDS = STATE_WORDS,
   WHAT_LABEL = WHAT_LABEL, Currency = Currency, GrantedFaction = GrantedFaction, FactionName = FactionName,
   SourceSellers = SourceSellers, Owned = Owned, SkillLineName = SkillLineName, QUEST_KIND = QUEST_KIND,
-  RewardText = RewardText, MAX_FOLLOW = MAX_FOLLOW,
+  MAX_FOLLOW = MAX_FOLLOW,
   Renown = Renown, MonthWords = MonthWords, TradingPostText = TradingPostText, BLACK_MARKET_TEXT = BLACK_MARKET_TEXT,
   TIER_OPEN = TIER_OPEN, TIER_INFO = TIER_INFO, TIER_CLOSED = TIER_CLOSED,
   SpellName = function(spellID)

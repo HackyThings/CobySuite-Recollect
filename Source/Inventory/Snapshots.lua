@@ -3,10 +3,11 @@
 --
 -- RECOLLECT_DB = {
 --   schema = 1,
---   characters = { [playerGUID] = { name, realm, class, level, faction, race, build,
---                  seen, bankTabs, bankTabNames,
---                  locations = { [bagID] = { captured, build, read, changed } } } },
---   warband = { [bagID] = { captured, build, capturedBy, read, changed } },
+--   characters = { [playerGUID] = { name, realm, class, faction, race, build,
+--                  bankTabs, bankTabNames,
+--                  locations = { [bagID] = { captured, read, changed } },
+--                  recipes, professions (Facts.Recipes) } },
+--   warband = { [bagID] = { captured, capturedBy, read, changed } },
 --   warbandTabs, warbandTabNames,
 --   lab = { ... },   -- development builds only; never touched here
 -- }
@@ -66,7 +67,6 @@ local seams = {
       name = UnitName("player"),
       realm = GetRealmName(),
       class = UnitClassBase("player"),
-      level = UnitLevel("player"),
       faction = UnitFactionGroup("player"),
       race = select(3, UnitRace("player")),
     }
@@ -154,7 +154,6 @@ local function RefreshIdentity(char)
     end
   end
   char.build = Utilities.Build()
-  char.seen = seams.Now()
 end
 
 -- StoreRead(target, bagID, read, extra): stores a readable, complete read as
@@ -164,7 +163,7 @@ function Snapshots.StoreRead(target, bagID, read, extra)
   if type(target) ~= "table" or type(read) ~= "table" then return false, "nothing to store" end
   if not read.readable then return false, "unreadable" end
   if not read.complete then return false, "incomplete" end
-  local entry = { captured = seams.Now(), build = Utilities.Build(), read = read }
+  local entry = { captured = seams.Now(), read = read }
   if extra then
     for k, v in pairs(extra) do entry[k] = v end
   end

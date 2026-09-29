@@ -77,7 +77,7 @@ function Main.DB()
     if block then frozen[#frozen + 1] = block end
     RECOLLECT_CURATOR_DB = { schema = SCHEMA, id = type(keep.id) == "string" and keep.id or nil,
       intake = keep.intake, received = keep.received, notes = keep.notes, joinAsked = keep.joinAsked, noInfoNotice = keep.noInfoNotice, frozen = frozen,
-      history = keep.history, windows = keep.windows,
+      history = keep.history, windows = keep.windows, confirmed = keep.confirmed,
       dataVersion = keep.dataVersion, formatVersion = keep.formatVersion, addonVersion = keep.addonVersion }
     if block then
       Host.Log("Curator saved data of layout %s kept as a frozen block (%s), made under data %s", tostring(keep.schema),
@@ -174,7 +174,6 @@ function Main.ClearFindings()
   db.bytes = 0
   db.frozen = {}
   Main.BumpEpoch()
-  if Curator.OnFindingsCleared then Curator.OnFindingsCleared() end
 end
 
 function Main.CuratorID()
@@ -200,7 +199,6 @@ function Main.Freeze()
   for _, field in ipairs(RECORDER_FIELDS) do db[field] = {} end
   db.bytes = 0
   Main.BumpEpoch()
-  if Curator.OnFindingsCleared then Curator.OnFindingsCleared() end
   return true
 end
 
@@ -213,6 +211,14 @@ function Main.CheckDataVersion()
   local had = db.dataVersion
   if had ~= nil then
     local frozen = Main.Freeze()
+    if not frozen then
+      -- nothing to freeze, but what belongs to the old data version goes
+      -- still: the unknown items it reported may be unknown again, and work
+      -- begun under it is dropped (the epoch)
+      db.reported = {}
+      if Curator.Store and Curator.Store.Recount then pcall(Curator.Store.Recount) end
+      Main.BumpEpoch()
+    end
     if Curator.Notes then Curator.Notes.OnDataVersionChanged() end
     Host.Log("Data version %s (format %s) replaced %s (format %s): %s", tostring(versions.data), tostring(versions.format),
       tostring(had), tostring(db.formatVersion), frozen and "the findings made under it are kept as a frozen block" or "no findings to keep")

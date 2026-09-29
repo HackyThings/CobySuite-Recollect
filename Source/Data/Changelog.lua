@@ -14,6 +14,22 @@
 -------------------------------------------------------------------------------
 Recollect.Data.Changelog = {
   {
+    version = "0.0.2",
+    title = "Currency prices",
+    date = "2026-09-29",
+    new = {
+      "Currency prices: Sold by X for 350 Honor, on thousands of items",
+    },
+    changed = {
+      "Weapon oils and stones: an older expansion's now read Outdated",
+      "Curator mode: sends less, and skips what the author ruled out",
+    },
+    fixed = {
+      "Curators: far fewer false reports (discounts, places, loot)",
+      "Curator collections and the connection test: steadier",
+    },
+  },
+  {
     version = "0.0.1d",
     title = "Curator dashboard",
     date = "2026-09-28",

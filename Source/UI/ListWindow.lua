@@ -370,7 +370,6 @@ local function BuildHeader()
     measureColumn = function(_, key) return Columns.Measure(rows, key, window.MeasureText) end,
     onSort = function(key, dir)
       sortKey, sortAscending = key, dir == SortDir.ASC
-      SortRows()
       UI.RefreshList()
     end,
     onColumnResize = function()

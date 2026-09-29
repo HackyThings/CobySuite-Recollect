@@ -22,6 +22,12 @@
 -- code names this month. The shop is never complete for the data (ATT files
 -- past months too), so no not seen and no conflicts.
 --
+-- The account's frozen item (one kept from an earlier month) is in the same
+-- vendor item list as this month's offers, but it is offered to this
+-- account alone and not this month, so it is only seen (SawItem), never a
+-- tp:i fact. An item whose frozen state can't be read counts as frozen. A
+-- visit that read only such items makes no stamp.
+--
 -- A vendor item with no item ID (itemID 0: a mount, pet or ensemble the shop
 -- sells as itself) is skipped; mapping its mountID or speciesID to the item
 -- behind it is left for later.
@@ -49,6 +55,7 @@ TradingPost.seams = {
     local info = C_PerksProgram.GetVendorItemInfo(vendorItemID)
     return info and info.itemID
   end,
+  Frozen = function(vendorItemID) return C_PerksProgram.IsFrozenPerksVendorItem(vendorItemID) end,
   Date = function()
     local date = C_DateAndTime.GetCurrentCalendarTime()
     return date.year, date.month
@@ -56,7 +63,9 @@ TradingPost.seams = {
   InCombat = function() return InCombatLockdown() end,
 }
 
-local visit   -- the open shop's { epoch, month, items = { [itemID] = true } }, or nil
+-- the open shop's { epoch, month, items = { [itemID] = true }, others = { [itemID] = true } }
+-- (others: frozen items, seen only), or nil
+local visit
 
 local function Seam(name, ...)
   local ok, a, b = pcall(TradingPost.seams[name], ...)
@@ -83,9 +92,14 @@ local function ShippedText(codes)
   return #parts > 0 and table.concat(parts, ",") or nil
 end
 
--- Compare(month, items, ctx): items = { [itemID] = true }, one visit's
--- vendor items in that month
-function TradingPost.Compare(month, items, ctx)
+-- Compare(month, items, ctx, others): items = { [itemID] = true }, one
+-- visit's vendor items in that month; others (optional, the same shape) the
+-- items only seen there, such as the account's frozen item
+function TradingPost.Compare(month, items, ctx, others)
+  for itemID in pairs(others or {}) do
+    if not items[itemID] then Curator.Compare.SawItem(itemID, "tp", ctx) end
+  end
+  if next(items) == nil then return 0 end
   local matched = {}
   for itemID in pairs(items) do
     Curator.Compare.SawItem(itemID, "tp", ctx)
@@ -115,7 +129,11 @@ function TradingPost.Read()
     local vendorItemID = ids[index]
     local itemID = type(vendorItemID) == "number" and not Host.IsSecret(vendorItemID) and Seam("ItemID", vendorItemID)
     if type(itemID) == "number" and itemID > 0 then
-      visit.items[itemID] = true
+      if Seam("Frozen", vendorItemID) ~= false then
+        visit.others[itemID] = true
+      else
+        visit.items[itemID] = true
+      end
       found = found + 1
     end
   end
@@ -126,9 +144,10 @@ end
 function TradingPost.OnClosed()
   local closed = visit
   visit = nil
-  if not (closed and closed.month and next(closed.items) and Curator.Main.StillCurrent(closed.epoch)) then return end
+  if not (closed and closed.month and (next(closed.items) or next(closed.others))
+    and Curator.Main.StillCurrent(closed.epoch)) then return end
   Curator.Main.Defer(function()
-    local matched = TradingPost.Compare(closed.month, closed.items, Curator.Context.Current())
+    local matched = TradingPost.Compare(closed.month, closed.items, Curator.Context.Current(), closed.others)
     Host.Log("Trading Post %d: %d items had a shipped U code of the month", closed.month, matched)
   end)
 end
@@ -136,7 +155,7 @@ end
 -- PERKS_PROGRAM_OPEN: a new visit (one still open is committed first)
 function TradingPost.OnOpen()
   if visit then TradingPost.OnClosed() end
-  visit = { epoch = Curator.Main.Epoch(), items = {} }
+  visit = { epoch = Curator.Main.Epoch(), items = {}, others = {} }
   TradingPost.Read()
 end
 

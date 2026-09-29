@@ -133,7 +133,6 @@ function UI.CreateWindow(opts)
     solidBg:SetAllPoints()
     local c = opts.backgroundColor or U.Colors.WINDOW_BG
     solidBg:SetColorTexture(c[1], c[2], c[3], c[4])
-    f.SolidBackground = solidBg
   end
 
   if opts.title and f.TitleText then
@@ -241,8 +240,8 @@ end
 ---------------------------------------------------------------------------
 -- UI.RegisterSettingsCategory: an entry under Options > AddOns
 --
--- Suite addons keep their settings in their own window (CreateWindow +
--- CreateFormLayout). This registers a small canvas page in Blizzard's
+-- Suite addons keep their settings in their own window
+-- (CreateSettingsWindow). This registers a small canvas page in Blizzard's
 -- Options > AddOns list so the addon is found where players look first:
 -- the name in the brand colour, the version, a description and a button
 -- that closes the options panel and opens the addon's window. Returns the
@@ -323,6 +322,5 @@ function UI.RegisterSettingsCategory(opts)
 
   local category = Settings.RegisterCanvasLayoutCategory(canvas, opts.name)
   Settings.RegisterAddOnCategory(category)
-  canvas.Category = category
   return category, canvas
 end

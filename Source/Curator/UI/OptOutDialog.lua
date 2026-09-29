@@ -40,7 +40,7 @@ local function Finish(delete)
   Curator.Sharing.SendLeaving()
   if dialog then dialog:Hide() end
   Host.Print(delete and "Recollect: curator mode is off and your findings were deleted."
-    or "Recollect: curator mode is off. Your findings are kept until a new database arrives.")
+    or "Recollect: curator mode is off. Your findings are kept, through database updates too, until you delete them or turn it back on and they are collected.")
 end
 
 local function Build()
@@ -87,10 +87,6 @@ function OptOut.Show()
 end
 
 OptOut.Finish = Finish
-
-function OptOut.IsShown()
-  return dialog ~= nil and dialog:IsShown()
-end
 
 Host.OnLoaded(function() C_Timer.After(0, Build) end)
 local frame = CreateFrame("Frame")

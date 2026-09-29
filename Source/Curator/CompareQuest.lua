@@ -82,10 +82,15 @@ function Compare.QuestStarter(itemID, questID, ctx)
   return "addition"
 end
 
--- QuestGiver(questID, npc, ctx)
+-- QuestGiver(questID, npc, ctx): confirmed when the data lists the NPC among
+-- the quest's givers, any of them (2026-09-28: a Brewfest quest has a giver
+-- in each faction's camp, and the second was recorded on every offer while
+-- the data kept only the first), else an addition naming the first
 function Compare.QuestGiver(questID, npc, ctx)
-  local shipped = Host.QuestGiver(questID)
-  if shipped == npc then
+  local shipped, givers = Host.QuestGiver(questID)
+  local listed = shipped == npc
+  for _, giver in ipairs(type(givers) == "table" and givers or {}) do listed = listed or giver == npc end
+  if listed then
     Curator.Store.Confirm("G:" .. questID, { 1 }, 1, ctx)
     return "confirmed"
   end

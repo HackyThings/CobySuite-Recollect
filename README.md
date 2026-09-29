@@ -21,7 +21,7 @@ Recollect shows what each item in your bags, bank and warband bank is for, and w
 - **Useful**: it still has a use for you, such as something it buys that you don't have.
 - **Can't tell**: Recollect can't confirm yet, and says why (and what to do, where it can).
 - **Junk**: a gray item with a vendor price, the game's own junk label.
-- **Outdated**: it has been replaced (older gear, an old-season reagent and the like).
+- **Outdated**: it has been replaced (older gear, an older expansion's potions, flasks, food, weapon oils and sharpening stones, an old-season reagent and the like).
 - **Lower level**: gear below what you wear, not shown to be from an older season.
 - **Purpose done**: every use Recollect checks is finished.
 
@@ -64,11 +64,12 @@ Waypoints go to TomTom when it's installed, else to the game's map pin; a settin
 
 Optional and off by default: turn it on under `/rec settings`, Curator, or with the **Want to be a curator?** button in the item details window. While it's on, Recollect notes where the game disagrees with its database or shows something it lacks: a vendor's prices, a drop, a quest reward, where an NPC stands. It also notes items its database knows nothing about, wherever you meet them, bags and banks included, so the author can find out what they're for.
 
-It records only game IDs and positions, with your character's class, race, level, faction, professions, zone, War Mode and Chromie Time and, where it matters, quest progress. It never records names, chat, gold, currencies, how many of anything you have, or anything else you carry. Curators who opted in before bags and banks were included see a one-time chat line first.
+It records only game IDs and positions, with your character's class, race, level, faction, professions, zone, War Mode, Chromie Time and instance difficulty and, where it matters, quest progress. It never records names, chat, gold, currencies, how many of anything you have, or anything else you carry. Curators who opted in before bags and banks were included see a one-time chat line first.
 
 - **Curator Flag** on the details window reports a problem with an item, with your own words if you like. On an item Recollect knows nothing about it reads **Request info**.
 - `/rec feedback` sends a note to the author. Recollect's own errors are sent too. Only the author reads these.
 - The author collects findings through the "Recollect Curators" community (`/rec curator join` prints the invite). Members can see each other's character names and zones. Collections travel as hidden whispers, on any realm; they never show in your chat and take no chat channel slot.
+- Once enough curators have confirmed that a place matches the database, Recollect stops sending matches for it; differences are always sent. Findings the author has already ruled out aren't recorded.
 - Findings not collected yet survive updates. Turning curator mode off offers to delete them.
 
 `/rec curator` opens the curator dashboard:
@@ -81,7 +82,7 @@ It records only game IDs and positions, with your character's class, race, level
 
 - `/rec` or `/recollect`: the Recollect Audit
 - `/rec settings`, `/rec guide`, `/rec changelog`, `/rec debug`
-- `/rec curator`: the curator dashboard; `status`, `join`, `cancel`, `diag` (what your game sees, for a bug report), `transport Name-Realm` (a five-minute connection test with that player)
+- `/rec curator`: the curator dashboard; `status`, `join`, `cancel`, `diag` (what your game sees, for a bug report), `transport Name-Realm` or `ping` (a five-minute connection test with that player)
 - `/rec feedback` (or `/rec bug`): write feedback for the author
 - `/rec version`, `/rec help`
 

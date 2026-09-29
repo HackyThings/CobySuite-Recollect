@@ -114,7 +114,6 @@ History.Bytes = Bytes
 
 local FINISHED = { saved = true, lost = true, cancelled = true, refused = true, replaced = true, interrupted = true,
   expired = true }
-History.FINISHED = FINISHED
 
 -- Keeps the caps: the oldest finished entries go first, then the oldest
 function History.Trim()

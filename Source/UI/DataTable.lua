@@ -28,8 +28,9 @@
 --       barColor = { r, g, b, a },
 --       icon = function(row) -> fileID or atlas, true,    (first column)
 --       button = { shown = function(row), onClick = function(row, button),
---         onEnter = function(button, row), alt = function(row) } } }   (the
---         row's button, centered; alt true shows the alternate button there)
+--         onEnter = function(button, row), alt = function(row),
+--         onAltEnter = function(altButton, row) } } }   (the row's button,
+--         centered; alt true shows the alternate button there)
 --   t:ShowView(key)   t:SetRows(key, rows)   t:Refresh()   t:GetSort(key)
 -- Double-clicking a column's divider fits it to its title and its cells'
 -- text (the header's measureColumn: Table:MeasureColumn, the first
@@ -365,11 +366,6 @@ function Table:SetRows(key, rows)
   if not view then return end
   view.rows = rows or {}
   if self.active == key then self:Refresh() end
-end
-
-function Table:Rows(key)
-  local view = self.views[key or self.active]
-  return view and view.rows or {}
 end
 
 -- How many rows fit now (never more than the pool)

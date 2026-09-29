@@ -71,8 +71,8 @@ local function HasProfession(client, profession)
 end
 
 -- What is worn in the profession's slots of this kind: { lowest (the lowest
--- level, nil when none of that kind is worn), count, emptySlot (an accessory
--- slot of the profession is empty) }, or nil when a slot can't be read
+-- level, nil when none of that kind is worn), emptySlot (an accessory slot
+-- of the profession is empty) }, or nil when a slot can't be read
 local function Worn(client, profession, equipLoc)
   local ok, slots = Try(client.GetProfessionSlots, profession)
   -- No slots listed is a read that didn't answer, never an empty slot
@@ -88,7 +88,7 @@ local function Worn(client, profession, equipLoc)
       if not lowest or level < lowest then lowest = level end
     end
   end
-  return { lowest = lowest, count = count, emptySlot = equipLoc == ACCESSORY and count < #slots - 1 }
+  return { lowest = lowest, emptySlot = equipLoc == ACCESSORY and count < #slots - 1 }
 end
 
 -- How many stats above 0 the item adds (0 for none or an empty answer), or

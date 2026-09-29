@@ -38,6 +38,16 @@
 -- V deleted (the author has it), so it isn't recorded again under this data
 -- version (at most NOINFO_REPORTED_CAP marks; Main.Freeze empties it).
 --
+-- confirmed[source] = round: this account's confirmation of a source with a
+-- shipped listing (a stamp with a total) that a V saved, in that round (spec
+-- D36). One confirmation per account and round: no stamp is made for the
+-- source again until the data names a later round for it (Hints.lua's
+-- rounds, after a difference there), and a source the data names settled
+-- gets no stamp for a visit that matched in full. Differences are records
+-- and always sent. Kept across data versions and layouts, outside the cap,
+-- at most CONFIRMED_CAP sources; stamps with no total (loot and the like,
+-- counted for drop rates) are never limited.
+--
 -- Delivery: delivered[id or key] = rev when that revision was acknowledged
 -- (K); it goes in the next pull while its rev differs. awaiting[requestID] =
 -- { at, recs = { [id] = rev }, confirms = { [key] = rev } } until a V says
@@ -95,6 +105,7 @@ local function Normalize(db)
   if type(db.nextID) ~= "number" then db.nextID = 1 end
   if type(db.nextRev) ~= "number" then db.nextRev = 1 end
   if type(db.frozen) ~= "table" then db.frozen = {} end
+  if type(db.confirmed) ~= "table" then db.confirmed = {} end
   return db
 end
 
@@ -249,11 +260,12 @@ local function Oldest(db)
   return list
 end
 
--- Keeps the recorder fields under the cap: the oldest records and stamps go
--- first (whatever their kind, D17) with their delivered marks, then what
--- only they named (Context.Prune). A write calls this after inserting, so
--- the context and quest entry it names are already referenced.
--- The frozen blocks' size together
+-- FrozenBytes(): the frozen blocks' size together.
+-- Trim(), below, keeps the recorder fields and the frozen blocks under the
+-- cap: the oldest frozen block goes whole first, then the oldest records
+-- and stamps (whatever their kind, D17) with their delivered marks, then
+-- what only they named (Context.Prune). A write calls it after inserting,
+-- so the context and quest entry it names are already referenced.
 function Store.FrozenBytes()
   local total = 0
   for _, block in ipairs(Store.DB().frozen) do total = total + (tonumber(block.bytes) or 0) end
@@ -318,12 +330,24 @@ local function InfoParts(info)
   return n
 end
 
+-- Quiet(fact, value): whether the author turned this finding down (Hints.lua's
+-- quiet, spec D38: a walking NPC, a salvage recipe's placeholder), so it is
+-- recorded no more
+function Store.Quiet(fact, value)
+  local quiet = (Host.Hints() or {}).quiet
+  local entry = type(quiet) == "table" and quiet[fact]
+  if entry == true then return true end
+  return type(entry) == "table" and entry[tostring(value or "")] == true
+end
+
 -- Record(kind, fact, value, shipped, ctxIndex, extra, info): adds one
--- observation and returns its record. value and shipped are text; extra,
--- when given, the observation's { quests, reaction, cast } (see variants
--- above); info, when given, what the item is (see info above): kept on a
--- new record, and on a repeat when it has more parts than the record's.
+-- observation and returns its record, or nil when the finding is quiet
+-- (Quiet). value and shipped are text; extra, when given, the observation's
+-- { quests, reaction, cast } (see variants above); info, when given, what
+-- the item is (see info above): kept on a new record, and on a repeat when
+-- it has more parts than the record's.
 function Store.Record(kind, fact, value, shipped, ctxIndex, extra, info)
+  if Store.Quiet(fact, value) then return nil end
   local db = Store.DB()
   value = tostring(value or "")
   local build = GameBuild()
@@ -364,9 +388,31 @@ local function MergePositions(current, positions)
   return table.concat(list, ",")
 end
 
+-- Round(source): the confirmation round the data names for a source (1
+-- unless a difference there started another) and whether it is settled
+function Store.Round(source)
+  local hints = Host.Hints() or {}
+  local settled = type(hints.settled) == "table" and tonumber(hints.settled[source]) or nil
+  local round = settled or (type(hints.rounds) == "table" and tonumber(hints.rounds[source])) or 1
+  return round, settled ~= nil
+end
+
+-- Wanted(source, positions, total): whether a visit's stamp is still wanted
+-- (spec D36): always for a source with no total; otherwise not once this
+-- account's confirmation of this round was saved, nor for a settled source
+-- that matched in full
+function Store.Wanted(source, positions, total)
+  if (tonumber(total) or 0) <= 0 then return true end
+  local round, settled = Store.Round(source)
+  if (Store.DB().confirmed[source] or 0) >= round then return false end
+  return not (settled and #positions >= total)
+end
+
 -- Confirm(source, positions, total, ctxIndex): a visit to a source where the
--- facts at those positions (of total) were seen matching
+-- facts at those positions (of total) were seen matching; nil when no stamp
+-- is wanted (Wanted)
 function Store.Confirm(source, positions, total, ctxIndex)
+  if not Store.Wanted(source, positions, total) then return nil end
   local db = Store.DB()
   local build = GameBuild()
   local key = source .. "@" .. tostring(build)
@@ -380,6 +426,9 @@ function Store.Confirm(source, positions, total, ctxIndex)
   end
   stamp.matched = MergePositions(stamp.matched, positions)
   stamp.total = total
+  -- the round it confirms, so a stamp saved after a database update named a
+  -- later round marks its own (MarkConfirmed)
+  stamp.round = (tonumber(total) or 0) > 0 and (Store.Round(source)) or nil
   stamp.ctx[ctxIndex] = (stamp.ctx[ctxIndex] or 0) + 1
   stamp.rev = NextRev(db)
   stamp.last = now
@@ -453,10 +502,31 @@ function Store.Saved(requestID)
   end
   for key, rev in pairs(entry.confirms) do
     local stamp = db.confirms[key]
-    if stamp and stamp.rev == rev then RemoveStamp(db, key) end
+    if stamp and stamp.rev == rev then
+      Store.MarkConfirmed(stamp)
+      RemoveStamp(db, key)
+    end
   end
   if Curator.Context and Curator.Context.Prune then Curator.Context.Prune() end
   return true
+end
+
+-- MarkConfirmed(stamp, frozen): the author saved this account's
+-- confirmation of a source with a shipped listing, in the round the stamp was
+-- made in (spec D36). A live stamp with no round is from this data version,
+-- whose round the data names now; a frozen one with none (made before stamps
+-- kept their round) marks nothing, since the data it was made under may have
+-- named an earlier round
+function Store.MarkConfirmed(stamp, frozen)
+  if type(stamp) ~= "table" or type(stamp.source) ~= "string" or (tonumber(stamp.total) or 0) <= 0 then return end
+  local db = Store.DB()
+  local round = tonumber(stamp.round)
+  if not round then
+    if frozen then return end
+    round = Store.Round(stamp.source)
+  end
+  if db.confirmed[stamp.source] == nil and Count(db.confirmed) >= Curator.Const.CONFIRMED_CAP then return end
+  if (db.confirmed[stamp.source] or 0) < round then db.confirmed[stamp.source] = round end
 end
 
 -- Lost(requestID): V says the author's copy was lost; its records are sent again
@@ -480,6 +550,7 @@ function Store.FrozenSaved(requestID)
   local db = Store.DB()
   for i, block in ipairs(db.frozen) do
     if block.awaiting == requestID then
+      for _, stamp in pairs(type(block.confirms) == "table" and block.confirms or {}) do Store.MarkConfirmed(stamp, true) end
       table.remove(db.frozen, i)
       return true
     end
@@ -511,9 +582,13 @@ function Store.AwaitingIDs()
   local db = Store.DB()
   local cutoff = GetServerTime() - Curator.Const.AWAITING_DAYS * DAY
   local out = {}
+  local expired = {}
   for requestID, entry in pairs(db.awaiting) do
-    if (entry.at or 0) < cutoff then DropAwaiting(db, requestID) else out[#out + 1] = requestID end
+    if (entry.at or 0) < cutoff then expired[#expired + 1] = requestID else out[#out + 1] = requestID end
   end
+  -- expired as a lost request is: its findings are sent again (dropping it
+  -- alone left them marked sent for good)
+  for _, requestID in ipairs(expired) do Store.Lost(requestID) end
   for _, block in ipairs(db.frozen) do
     if block.awaiting and (block.awaitingAt or 0) < cutoff then block.awaiting, block.awaitingAt = nil, nil end
     if block.awaiting then out[#out + 1] = block.awaiting end

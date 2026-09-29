@@ -104,14 +104,10 @@ R.Register({
     local ok, exact, possible, complete = pcall(QuestLog.Matches, ctx.stack.itemID, ctx.facts.name)
     if not ok then return R.Unknown("Quest item; your quest log couldn't be read") end
     if #exact > 0 then
-      local result = R.Result(V.NEEDED, "Needed for " .. Titles(exact) .. ", in your quest log")
-      result.quests = exact
-      return result
+      return R.Result(V.NEEDED, "Needed for " .. Titles(exact) .. ", in your quest log")
     end
     if #possible > 0 then
-      local result = R.Unknown("Quest item; possibly for " .. Titles(possible) .. " (its name appears in an objective)")
-      result.quests = possible
-      return result
+      return R.Unknown("Quest item; possibly for " .. Titles(possible) .. " (its name appears in an objective)")
     end
     if not complete then return R.Unknown("Quest item; your quest log couldn't be fully read") end
     local rewards = RewardWords(ctx.stack.itemID, ctx.owner or { faction = ctx.playerFaction })
@@ -128,7 +124,6 @@ R.Register({
         .. "; no quest in your quest log names it (it may be a token or a key)")
       if described and described.headline then result.headline = described.headline end
     end
-    result.notInLog = true
     return result
   end,
 })

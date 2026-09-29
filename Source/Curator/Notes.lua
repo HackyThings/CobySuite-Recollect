@@ -171,7 +171,7 @@ function Notes.Flag(itemID)
   return { entries = Copies(entries), pending = pending, atLimit = atLimit }
 end
 
--- Check(reason, text): the cleaned text, or nil and why the note can't be saved
+-- CheckFlag(reason, text): the cleaned text, or nil and why the note can't be saved
 function Notes.CheckFlag(reason, text)
   if not Notes.REASON_LABELS[reason] then return nil, "Choose a reason." end
   local clean = Notes.CleanText(text, Notes.LIMITS.FLAG_TEXT)

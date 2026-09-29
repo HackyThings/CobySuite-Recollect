@@ -14,8 +14,8 @@
 -- isAccount (an account quest: Done reads the account's completion), onQuest,
 -- repeatable, rewards and choices ({ itemID, count }) through the quest-log
 -- reward getters that take a quest ID (Blizzard's Journeys UI reads them for
--- a quest never in the log), and reward currencies. Every read goes through
--- seams and Utilities.Try; a failed read is nil, never a guess.
+-- a quest never in the log). Every read goes through seams and
+-- Utilities.Try; a failed read is nil, never a guess.
 -------------------------------------------------------------------------------
 local QuestInfo = {}
 Recollect.Facts.QuestInfo = QuestInfo
@@ -38,7 +38,6 @@ local seams = {
   RewardInfo = function(index, questID) return GetQuestLogRewardInfo(index, questID) end,
   NumChoices = function(questID) return GetNumQuestLogChoices(questID, true) end,
   ChoiceInfo = function(index, questID) return GetQuestLogChoiceInfo(index, questID) end,
-  RewardCurrencies = function(questID) return C_QuestInfoSystem.GetQuestRewardCurrencies(questID) end,
   Now = function() return GetTime() end,
 }
 
@@ -87,13 +86,6 @@ function QuestInfo.Get(questID, budget)
     return nil, "loading"
   end
   local numRewards, numChoices = Value(seams.NumRewards, questID), Value(seams.NumChoices, questID)
-  local currencies = {}
-  local okC, list = Try(seams.RewardCurrencies, questID)
-  for _, c in ipairs(okC and type(list) == "table" and list or {}) do
-    if type(c) == "table" and IsPositiveID(c.currencyID) then
-      currencies[#currencies + 1] = { currencyID = c.currencyID, amount = c.totalRewardAmount }
-    end
-  end
   local title = Value(seams.Title, questID)
   return {
     questID = questID,
@@ -105,7 +97,6 @@ function QuestInfo.Get(questID, budget)
     repeatable = Value(seams.Repeatable, questID),
     rewards = Items(questID, type(numRewards) == "number" and numRewards or 0, seams.RewardInfo),
     choices = Items(questID, type(numChoices) == "number" and numChoices or 0, seams.ChoiceInfo),
-    currencies = currencies,
   }
 end
 

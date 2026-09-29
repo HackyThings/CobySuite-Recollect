@@ -76,7 +76,7 @@ local function AddObjectives(built, quest)
       built.itemObjectives[#built.itemObjectives + 1] = {
         questID = quest.questID, title = quest.title, text = objective.text,
         name = QuestLog.ObjectiveItemName(objective.text),
-        fulfilled = objective.numFulfilled, required = objective.numRequired, finished = objective.finished,
+        fulfilled = objective.numFulfilled, required = objective.numRequired,
       }
     end
   end

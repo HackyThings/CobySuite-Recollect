@@ -1,7 +1,14 @@
 -------------------------------------------------------------------------------
 -- Curator recorder: quest rewards that arrive with no quest window
--- (QUEST_LOOT_RECEIVED: world quests, bonus objectives and invasions, which
--- the game's own toasts show from this event)
+-- (QUEST_LOOT_RECEIVED: bonus objectives and invasions, which the game's
+-- own toasts show from this event)
+--
+-- World quests are left out: the event fires for them too, but a world
+-- quest's reward changes from one time it is up to the next, so an item it
+-- gave once is no fixed reward of the quest. A quest is a world quest when
+-- the shipped data's frequency for it holds "q" (Host.QuestFrequency) or
+-- C_QuestLog.IsWorldQuest says so; a read of the latter that fails or is
+-- secret records nothing.
 --
 -- QUEST_LOOT_RECEIVED (questID, itemLink, quantity) gives the quest and one
 -- reward item; only the quest ID, the item ID parsed from the link and the
@@ -19,8 +26,8 @@
 -- A quest whose reward window (QUEST_COMPLETE) was read in the last
 -- WINDOW_SECONDS is left to the quest recorder, which already compared its
 -- rewards: whether QUEST_LOOT_RECEIVED also fires for such a turn-in is
--- unmeasured. Recorded in combat too (world quests end in combat; read in
--- the event). Only while curator mode may record, and never while a test
+-- unmeasured. Recorded in combat too (bonus objectives end in combat; read
+-- in the event). Only while curator mode may record, and never while a test
 -- run scripts the client. Client reads go through QuestLoot.seams.
 -------------------------------------------------------------------------------
 local Curator = Recollect.Curator
@@ -35,6 +42,7 @@ QuestLoot.WINDOW_SECONDS = 60   -- a quest window's turn-in this recent is the q
 
 QuestLoot.seams = {
   QuestID = function() return GetQuestID() end,
+  IsWorldQuest = function(questID) return C_QuestLog.IsWorldQuest(questID) end,
   Clock = function() return GetTime() end,
   After = function(delay, fn) C_Timer.After(delay, fn) end,
 }
@@ -69,9 +77,18 @@ function QuestLoot.Commit(questID, visit)
   Curator.Main.Defer(function() QuestLoot.Compare(questID, visit.rewards, Curator.Context.Current()) end)
 end
 
+-- Whether a quest may be a world quest: the data says so, the game says
+-- so, or the game's answer can't be read
+function QuestLoot.MaybeWorldQuest(questID)
+  if (Host.QuestFrequency(questID) or ""):find("q", 1, true) then return true end
+  local ok, value = pcall(QuestLoot.seams.IsWorldQuest, questID)
+  return not ok or Host.IsSecret(value) or value ~= false
+end
+
 -- QUEST_LOOT_RECEIVED (questID, itemLink, quantity): true when kept
 function QuestLoot.OnLoot(questID, itemLink, quantity)
   if not Curator.Main.MayRecord() or not Bags.PositiveID(questID) then return false end
+  if QuestLoot.MaybeWorldQuest(questID) then return false end
   if Host.IsSecret(itemLink) or type(itemLink) ~= "string" or Host.IsSecret(quantity) then return false end
   local itemID = tonumber(itemLink:match("item:(%d+)"))
   if not Bags.PositiveID(itemID) then return false end

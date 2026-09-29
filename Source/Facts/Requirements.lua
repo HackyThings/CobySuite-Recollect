@@ -8,7 +8,8 @@
 --     "makes"); never one whose product is unconfirmed (an "mx<n>" code)
 --   * a combine of several different parts the data names (Facts.Relations
 --     "partOf"): every part, with how many of each
--- For(itemID, owner) returns { { title, kind, reward, done, parts, steps } }:
+-- For(itemID, owner, relations) returns { { title, kind, reward, done,
+-- parts } } (a combine's record: { kind = "combine", product, parts }):
 --   parts  { { itemID, need, bags, bank, warband, have, missing, uncertain,
 --          others = { { name, count, bags, bank, asOf } } } }
 --          bags     with this character (the bags-only count, worn copies
@@ -210,8 +211,9 @@ function Requirements.Title(record, nameOf)
   return title
 end
 
--- Lines(records, nameOf): { { text, color } } for the view; nameOf(itemID)
--- gives an item's name
+-- Lines(records, nameOf, owner): { { text, color, header } } for the view;
+-- nameOf(itemID) gives an item's name, and owner (Rows.Owner) adds a first
+-- line when the copy is another character's
 function Requirements.Lines(records, nameOf, owner)
   local lines = {}
   if #records > 0 and type(owner) == "table" and owner.isViewer == false then

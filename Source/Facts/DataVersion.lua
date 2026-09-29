@@ -20,7 +20,7 @@
 -- read, telling the player the first time it may not. Refresh() takes the
 -- answer again (the data build loads this file after the files it wrote).
 -- Hints() is the curator hints (Data/Hints.lua: unseen, the verified-unseen
--- facts), empty while the data is off.
+-- facts; settled, rounds and quiet), { unseen = {} } while the data is off.
 -------------------------------------------------------------------------------
 local DataVersion = {}
 Recollect.Facts.DataVersion = DataVersion
@@ -31,10 +31,16 @@ Recollect.Facts.DataVersion = DataVersion
 -- Journal loot), N (a renown reward), O (the Black Market) and U (the
 -- Trading Post; 5: the meta achievement tables H and I, Relations.MetasOf and
 -- ChildrenOf, and the display-only route conditions N (a renown level) and A
--- (an achievement earned), with E and Q, on purchases from AllTheThings). Each
--- adds codes or tables the one before lacks, so an older file still reads, a
--- missing table as none)
-DataVersion.SUPPORTED_FORMATS = { [2] = true, [3] = true, [4] = true, [5] = true }
+-- (an achievement earned), with E and Q, on purchases from AllTheThings; 6:
+-- Hints.lua's settled sources and confirmation rounds, which only curator
+-- mode reads; 7: every place of an NPC in Vendors.lua's P, every giver of a
+-- quest in Relations' G, the boss loot chests (Relations' L) and a
+-- treasure's spawn objects (Vendors.lua's S), 2026-09-28; 8: a V code's
+-- price in currencies, with the stack "?" when it isn't known, 2026-09-29).
+-- Each adds codes or tables the one before lacks, so an older file still
+-- reads, a missing table as none (a format 6 record of one place or one
+-- giver reads as a list of one; a format 7 file has no currency V)
+DataVersion.SUPPORTED_FORMATS = { [2] = true, [3] = true, [4] = true, [5] = true, [6] = true, [7] = true, [8] = true }
 
 local UNSTAMPED = "unstamped"
 local FILES = { "Relations", "Vendors", "Hints" }

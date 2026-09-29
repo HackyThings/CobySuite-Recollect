@@ -116,10 +116,6 @@ function Leave.Look()
   return true
 end
 
-function Leave.IsShown()
-  return dialog ~= nil and dialog:IsShown()
-end
-
 -- Tests: the window, to read its button's macro
 Leave._test = { Window = function() return dialog end, Build = Build }
 

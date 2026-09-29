@@ -42,15 +42,14 @@
 --      only by a whole requirement: "Wax" must not be read out of
 --      "Home-Grown Wax".
 -- UsesOf(itemID) returns { { title, taskName, done, progressText, taskID,
--- endeavorID, inProgress, repeatable, timesCompleted, how } } or nil and
--- why: "no active endeavor", "not loaded" (unloaded, or an answer that
--- can't be read: the third return then says "can't be read"), or "not
--- named" (the third return says "name loading" while the item's name is
--- still coming, "not English" when only a link could have named it, "tasks
--- unread" when some task could not be read). done is true, false, or nil
--- when that task's state can't be read. progressText is the game's own
--- requirement line when a requirement named the item ("3/10 Home-Grown
--- Wax"), else the task's state.
+-- how } } or nil and why: "no active endeavor", "not loaded" (unloaded, or
+-- an answer that can't be read: the third return then says "can't be
+-- read"), or "not named" (the third return says "name loading" while the
+-- item's name is still coming, "not English" when only a link could have
+-- named it, "tasks unread" when some task could not be read). done is true,
+-- false, or nil when that task's state can't be read. progressText is the
+-- game's own requirement line when a requirement named the item ("3/10
+-- Home-Grown Wax"), else the task's state.
 --
 -- Kept for MEMO_SECONDS or until an endeavor event or InventoryChanged, the
 -- Achievements pattern (a panel redraws five times a second). A secret value
@@ -149,7 +148,8 @@ local function LinkedItems(text, set)
   return set
 end
 
--- One entry of a list the client gave (requirementsList, criteriaList), or nil
+-- A list the client gave (requirementsList, criteriaList, tasks), {} when it
+-- is absent, or nil when it can't be read
 local function Entries(t, key)
   local list, ok = Field(t, key)
   if not ok or (list ~= nil and type(list) ~= "table") then return nil end
@@ -348,8 +348,7 @@ local function Uses(itemID)
       local progressText = requirement and Display(requirement.text) or ""
       if progressText == "" then progressText = TaskState(task) end
       list[#list + 1] = { title = endeavor.title, taskName = task.name, done = task.done, progressText = progressText,
-        taskID = task.id, endeavorID = endeavor.id, inProgress = task.inProgress, repeatable = task.repeatable,
-        timesCompleted = task.timesCompleted, how = how }
+        taskID = task.id, how = how }
     end
   end
   if #list > 0 then return list end

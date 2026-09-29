@@ -5,9 +5,10 @@
 -- lockdown) with Cancel, or the author's request with Allow and Decline
 -- when "Ask me before each collection" is on. The request opens the window
 -- when the curator is resting and out of combat; otherwise a chat line
--- carries a [Review request] link that opens it. /rec curator opens it while
--- something is running. Closing it never cancels. Built at login, out of
--- combat, like every window.
+-- carries a [Review request] link that opens it, and so does the dashboard's
+-- Review button; /rec curator opens it while something is running only when
+-- the dashboard can't open (in combat before it was built). Closing it never
+-- cancels. Built at login, out of combat, like every window.
 -------------------------------------------------------------------------------
 local Curator = Recollect.Curator
 local Host = Curator.Host

@@ -189,7 +189,7 @@ function UseEffect.GainCount(text, name)
   return count
 end
 
--- Gains(ctx): { { currencyID, name, count, quantity, max, reputation } },
+-- Gains(ctx): { { name, count, quantity, max, reputation } },
 -- only currencies whose count is known; an empty list when none is
 function UseEffect.Gains(ctx)
   local out = {}
@@ -211,7 +211,7 @@ function UseEffect.Gains(ctx)
         end
         if count then
           local okFaction, factionID = Try(client.GetFactionGrantedByCurrency, relation.id)
-          out[#out + 1] = { currencyID = relation.id, name = info.name, count = count,
+          out[#out + 1] = { name = info.name, count = count,
             quantity = IsFiniteNumber(info.quantity) and info.quantity or nil,
             max = IsFiniteNumber(info.maxQuantity) and info.maxQuantity > 0 and info.maxQuantity or nil,
             reputation = okFaction and Recollect.Utilities.IsPositiveID(factionID) or false }
@@ -239,10 +239,10 @@ end
 
 local MAX_GAINS = 3
 
--- Describe(ctx): { text, headline, gains, prep, place } or nil when nothing is
--- known. text is for a reason, after its first clause ("; using it gives 48
--- Cataloged Research (you have 0); it works only in Korthia"); headline is
--- set when it gives something
+-- Describe(ctx): { text, headline } or nil when nothing is known. text is for
+-- a reason, after its first clause ("; using it gives 48 Cataloged Research
+-- (you have 0); it works only in Korthia"); headline is set when it gives
+-- something
 function UseEffect.Describe(ctx)
   local gains = UseEffect.Gains(ctx)
   local tip = ctx.Tooltip()
@@ -261,7 +261,7 @@ function UseEffect.Describe(ctx)
     headline = "Using it gives " .. table.concat(heads, " and ")
   end
   if place then text = ("%s; it works only %s %s"):format(text, prep, place) end
-  return { text = text, headline = headline, gains = gains, prep = prep, place = place }
+  return { text = text, headline = headline }
 end
 
 -- An informing result: reason, what the Use does (Describe's result, or

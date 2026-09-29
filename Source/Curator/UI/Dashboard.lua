@@ -45,7 +45,6 @@ Window.TABS = TABS
 -- The window's state: frames, pools, the tab, filters, the rows built
 local W = { tab = "overview", filters = { kind = {}, group = {}, state = {} }, search = "", sort = { key = "last",
   ascending = false }, historySort = { key = "at", ascending = false } }
-Window._state = W
 
 -- The saved place of the dashboard: { tab, sections = { [key] = open } }.
 -- The first layout's keys (2026-09-28 morning: its open sections and column
@@ -85,7 +84,6 @@ local function ShowTip(owner, tip)
   end
   GameTooltip:Show()
 end
-Window.ShowTip = ShowTip
 
 -------------------------------------------------------------------------------
 -- The Overview's pools
@@ -447,7 +445,6 @@ local function FilterDefs()
   defs[#defs + 1] = { key = "older", label = "From an older database", tooltip = "Findings kept from before the database changed" }
   return defs
 end
-Window.FilterDefs = FilterDefs
 
 local function FilterChecked(key)
   if key == "older" then return W.filters.older == true end
@@ -757,7 +754,6 @@ local function Build()
   end)
   window:Hide()
 end
-Window.Build = Build
 
 -- Toggle(): shows or hides the dashboard; false when it can't open (in
 -- combat before it was built)
@@ -786,10 +782,6 @@ end
 
 function Window.Close()
   if W.window then W.window:Hide() end
-end
-
-function Window.IsShown()
-  return W.window ~= nil and W.window:IsShown()
 end
 
 -- A collection moved: repaint (chained after the transfer window's)

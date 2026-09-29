@@ -26,8 +26,14 @@
 -- One stamp per visit, source "e:<encounter>", total 0: the item IDs the
 -- shipped data knows there. A D code the journal can't map (no answer, or
 -- a secret one) leaves the item unjudged: no addition, no stamp. A c code
--- whose boss isn't mapped is simply no match. Loot is chance: no not seen,
--- no conflicts.
+-- whose boss isn't mapped is simply no match. An item the data ships as a
+-- world drop (Compare.WorldDrop, a live z0) that no code of this encounter
+-- names is no addition either: a boss's copy of it says nothing about
+-- where to farm it. Loot is chance: no not seen, no conflicts.
+-- A Mythic+ keystone run's end-of-run loot carries the last encounter's ID
+-- but comes from the whole dungeon's pool; it records like any kill, its
+-- context block carrying the difficulty (8), and /recollect-data sets the
+-- pool apart item by item (2026-09-28).
 --
 -- Recorded in combat too (read in the event, compared later). Only while
 -- curator mode may record, and never while a test run scripts the client.
@@ -102,7 +108,7 @@ function EncounterLoot.Compare(encounterID, items, ctx)
     local known, shipped = EncounterLoot.Known(itemID, encounterID)
     if known then
       matched[#matched + 1] = itemID
-    elseif known == false then
+    elseif known == false and not Curator.Compare.WorldDrop(itemID) then
       Store.Record("addition", ("e:%d:i:%d"):format(encounterID, itemID), "1", shipped, ctx)
     end
   end

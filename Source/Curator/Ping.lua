@@ -34,10 +34,10 @@
 -- The routes (Ping.ROUTES): the community channel by number, number as
 -- text, name, and the logged send; the custom channel by number, name, and
 -- the logged send; a whisper to each online member, plain and logged; the
--- party; Battle.net game data to friends in the community. Test messages
--- ride the curator prefix, always "RCT~<tag>~<route>~...", which the curator
--- protocol ignores; no data, no IDs, nothing about the player. Client calls
--- go through Ping.seams.
+-- party; Battle.net game data to friends in the community; the guild, plain
+-- and logged. Test messages ride the curator prefix, always
+-- "RCT~<tag>~<route>~...", which the curator protocol ignores; no data, no
+-- IDs, nothing about the player. Client calls go through Ping.seams.
 -------------------------------------------------------------------------------
 local Curator = Recollect.Curator
 local Host = Curator.Host
@@ -57,20 +57,23 @@ Ping.QUIET = 4
 Ping.LISTEN_FOR = 1800
 Ping.MAX_TARGETS = 10
 
+-- arrives: the chat type a route's message is received as (the receiver
+-- adds " logged" for a logged send); a message claiming another route is
+-- never answered
 Ping.ROUTES = {
-  { key = "comm", label = "community channel, number" },
-  { key = "commText", label = "community channel, number as text" },
-  { key = "commName", label = "community channel, by name" },
-  { key = "commLogged", label = "community channel, logged send" },
-  { key = "custom", label = "custom channel, number" },
-  { key = "customName", label = "custom channel, by name" },
-  { key = "customLogged", label = "custom channel, logged send" },
-  { key = "whisper", label = "whisper", targeted = true },
-  { key = "whisperLogged", label = "whisper, logged send", targeted = true },
-  { key = "party", label = "party" },
-  { key = "bnet", label = "Battle.net game data", targeted = true },
-  { key = "guild", label = "guild" },
-  { key = "guildLogged", label = "guild, logged send" },
+  { key = "comm", label = "community channel, number", arrives = "CHANNEL" },
+  { key = "commText", label = "community channel, number as text", arrives = "CHANNEL" },
+  { key = "commName", label = "community channel, by name", arrives = "CHANNEL" },
+  { key = "commLogged", label = "community channel, logged send", arrives = "CHANNEL logged" },
+  { key = "custom", label = "custom channel, number", arrives = "CHANNEL" },
+  { key = "customName", label = "custom channel, by name", arrives = "CHANNEL" },
+  { key = "customLogged", label = "custom channel, logged send", arrives = "CHANNEL logged" },
+  { key = "whisper", label = "whisper", targeted = true, arrives = "WHISPER" },
+  { key = "whisperLogged", label = "whisper, logged send", targeted = true, arrives = "WHISPER logged" },
+  { key = "party", label = "party", arrives = "PARTY" },
+  { key = "bnet", label = "Battle.net game data", targeted = true, arrives = "BNET" },
+  { key = "guild", label = "guild", arrives = "GUILD" },
+  { key = "guildLogged", label = "guild, logged send", arrives = "GUILD logged" },
 }
 -- The order a real transport would prefer them in
 Ping.PREFERENCE = { 1, 5, 8, 11, 12, 10, 2, 3, 4, 6, 7, 9, 13 }
@@ -118,7 +121,7 @@ local state
 function Ping.Reset()
   local listening = state and state.listening
   state = {
-    running = false, listening = listening, finished = false,
+    running = false, listening = listening,
     sent = {},       -- [route] = { [result] = n }
     heard = {},      -- [route] = { [sender] = { pings, pongs, via } }
     own = {},        -- [route] = n: own messages back
@@ -128,8 +131,7 @@ function Ping.Reset()
     contents = {},   -- [route] = { [n] = { sent, got, ok } }
     bursts = {},     -- [route] = { [phase] = { sent = {}, back = {} } }
     incoming = {},   -- tallies of bursts from others
-    working = nil, best = nil,
-    env = {},
+    working = nil,
   }
 end
 Ping.Reset()
@@ -150,8 +152,8 @@ end
 local function Now() return Seam("Clock") or 0 end
 local startedAt
 
--- Every test line carries the seconds since the test started (or "idle"
--- on the answering side)
+-- Every test line carries the seconds since the test started (or
+-- "[answering]" on the answering side)
 local function Log(fmt, ...)
   local stamp = startedAt and ("[t+%.2f] "):format(Now() - startedAt) or "[answering] "
   Host.Log(stamp .. fmt, ...)
@@ -539,7 +541,7 @@ local function BestSteps(route)
 end
 
 local function Finish()
-  state.running, state.finished = false, true
+  state.running = false
   for _, line in ipairs(Ping.Environment()) do Log("Curator test environment (end): %s", line) end
   local lines = Ping.Lines()
   Host.Print("Recollect curator test finished. Summary:")
@@ -565,7 +567,7 @@ local function Decide()
       end
     end
   end
-  state.working, state.best = working, working[1]
+  state.working = working
   if #working == 0 then
     Log("Curator test: no route brought a pong back")
     return Finish()
@@ -623,17 +625,19 @@ function Ping.Start(target)
   return true
 end
 
--- Listen(): join the custom test channel (automatic for the author, and on
--- the first test message any client gets)
+-- Listen(why): join the custom test channel (by itself only on a client
+-- that may collect, after login and on the first test message it gets;
+-- /rec curator pong asks for it by hand)
 function Ping.Listen(why)
   if CustomIndex() then return false end
   state.listening = true
   Seam("Join", Ping.CHANNEL)
   Log("Curator test: joined %s to answer tests (%s)", Ping.CHANNEL, tostring(why or "asked"))
-  -- Stops answering after LISTEN_FOR, but never leaves the channel from
-  -- here: LeaveChannelByName from a timer is a blocked action (a curator's
-  -- error report, 2026-09-28, ADDON_ACTION_BLOCKED). The test channel is a
-  -- temporary one, dropped at logout
+  -- After LISTEN_FOR the listen is only marked over (state.listening, which
+  -- no answer checks: test messages are still answered), and the channel is
+  -- never left from here: LeaveChannelByName from a timer is a blocked
+  -- action (a curator's error report, 2026-09-28, ADDON_ACTION_BLOCKED). The
+  -- test channel is a temporary one, dropped at logout
   Ping.seams.After(Ping.LISTEN_FOR, function()
     if state.running then return end
     state.listening = false
@@ -646,7 +650,7 @@ end
 -- Answering (every client)
 -------------------------------------------------------------------------------
 -- The way back: the route it came by, to its sender when targeted
-local function Reply(route, from, replyTarget, text)
+local function Reply(route, replyTarget, text)
   local result = Ping.SendRoute(route, text, Ping.ROUTES[route].targeted and replyTarget or nil)
   return result
 end
@@ -660,7 +664,7 @@ local function SendBack(key)
   end
   entry.backSent = true
   local seconds = math.max(0, entry.last - entry.first)
-  local result = Reply(entry.route, entry.from, entry.replyTarget,
+  local result = Reply(entry.route, entry.replyTarget,
     Message("BACK", entry.route, entry.phase, entry.got, entry.total, entry.bytes, ("%.1f"):format(seconds)))
   Log("Curator test route %d %s burst from %s: got %d of %d (%d bytes over %.1f s); tally sent back: %s", entry.route,
     entry.phase, entry.from, entry.got, entry.total or 0, entry.bytes, seconds, result)
@@ -681,17 +685,30 @@ local function Tally(route, phase, from, replyTarget, total, bytes, via)
   return entry
 end
 
+-- One reverse burst per sender at a time
 local function ReverseBurst(route, from, replyTarget, count)
+  local bursting = state.bursting or {}
+  state.bursting = bursting
+  if bursting[from] then
+    Log("Curator test route %d: %s asked for another reverse burst while one is still going; ignored", route, from)
+    return
+  end
+  bursting[from] = true
   local pad = string.rep("r", Ping.PAYLOAD)
   local counter, seq = {}, 0
   local function Next()
     seq = seq + 1
-    Bump(counter, Reply(route, from, replyTarget, Message("RBURST", route, "reverse", seq, count, pad)))
+    Bump(counter, Reply(route, replyTarget, Message("RBURST", route, "reverse", seq, count, pad)))
     if seq < count then Ping.seams.After(0, Next) else
+      bursting[from] = nil
       Log("Curator test route %d: reverse burst of %d sent to %s, results %s", route, count, from, Results(counter))
     end
   end
-  Next()
+  local ok, err = pcall(Next)
+  if not ok then
+    bursting[from] = nil
+    error(err, 0)
+  end
 end
 
 local handlers = {}
@@ -701,7 +718,7 @@ handlers.PING = function(route, fields, from, replyTarget, via)
   local entry = state.heard[route][from] or { pings = 0, pongs = 0 }
   entry.pings, entry.via = entry.pings + 1, via
   state.heard[route][from] = entry
-  local result = Reply(route, from, replyTarget, Message("PONG", route, fields[1] or "?"))
+  local result = Reply(route, replyTarget, Message("PONG", route, fields[1] or "?"))
   Log("Curator test route %d (%s) ping round %s from %s by %s; pong sent: %s", route, Ping.ROUTES[route].label,
     tostring(fields[1]), from, via, result)
 end
@@ -722,7 +739,7 @@ handlers.PONG = function(route, fields, from, _, via)
 end
 
 handlers.SIZE = function(route, fields, from, replyTarget, via, text)
-  local result = Reply(route, from, replyTarget, Message("SIZEACK", route, fields[1] or "?", #text))
+  local result = Reply(route, replyTarget, Message("SIZEACK", route, fields[1] or "?", #text))
   Log("Curator test route %d size %s from %s: arrived with %d characters by %s; answered: %s", route, tostring(fields[1]),
     from, #text, via, result)
 end
@@ -737,7 +754,7 @@ end
 handlers.BYTES = function(route, fields, from, replyTarget, via, text)
   local n = tonumber(fields[1])
   local body = text:match("^RCT~BYTES~%d+~%d+~(.*)$") or ""
-  local result = Reply(route, from, replyTarget, Message("BYTESACK", route, n or "?", #body, Checksum(body)))
+  local result = Reply(route, replyTarget, Message("BYTESACK", route, n or "?", #body, Checksum(body)))
   Log("Curator test route %d content %s from %s: %d bytes, checksum %s, by %s; answered: %s", route, tostring(n), from,
     #body, Checksum(body), via, result)
 end
@@ -793,6 +810,20 @@ function Ping.Received(text, chatType, sender, channelName, replyTarget)
   if from == Curator.Transport.Self() then
     state.own[route] = (state.own[route] or 0) + 1
     if tag == "PING" then Log("Curator test route %d: own ping came back by %s", route, via) end
+    return true
+  end
+  -- answered only for a community member, and only on the route it really
+  -- came by: an addon whisper can come from anyone, naming any route
+  if not Curator.Membership.RoleOf(from) then
+    local unread = #Curator.Membership.Roster() == 0
+    Log("Curator test %s from %s ignored: %s", tostring(tag), from,
+      unread and "the member list isn't read yet (asked for it)" or "not a member of the curator community")
+    if unread then Curator.Membership.RefreshSoon() end
+    return true
+  end
+  if chatType ~= Ping.ROUTES[route].arrives then
+    Log("Curator test %s from %s ignored: it names route %d (%s) but came by %s", tostring(tag), from, route,
+      Ping.ROUTES[route].label, via)
     return true
   end
   -- only a client that may collect joins the test channel by itself: another

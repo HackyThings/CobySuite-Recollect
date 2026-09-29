@@ -139,8 +139,8 @@ end
 -------------------------------------------------------------------------------
 -- The debug log (CURATOR, /rec debug): every step of the conversation, so a
 -- curator can copy it for the author (Cobanyte, 2026-09-28). Only plain
--- values are logged; a data part's payload never is, and only the first,
--- every 50th and last part of a transfer are.
+-- values are logged; a data part's payload never is, and only the first and
+-- every 50th part of a transfer are.
 -------------------------------------------------------------------------------
 local DATA_EVERY = 50
 
@@ -302,7 +302,6 @@ end
 function Transport.Interval()
   local activity = Transport.Activity()
   local budget = Transport.BUDGET[activity] or Transport.BUDGET.idle
-  if activity == "resting" then budget = Transport.BUDGET.idle end
   if Seam("Clock") and Seam("Clock") >= recoverAt then scale = 1 end
   return 1 / (Transport.FULL_RATE * budget * scale)
 end
@@ -419,15 +418,23 @@ local function Items(text, tag, onSent)
   return items
 end
 
--- Enqueue(text, tag, onSent, first): queues one message; tag names what it
--- belongs to (a request ID) so Drop can take a cancelled transfer's messages
--- out; first puts it at the front (replies). A message nobody online can be
+-- Enqueue(text, tag, onSent, first, target): queues one message; tag names
+-- what it belongs to (a request ID) so Drop can take a cancelled transfer's
+-- messages out; first puts it at the front (replies); target, when given, is
+-- the character it goes to whatever the routes say by the time it is sent (a
+-- collection goes to the author who asked for it, never a second author who
+-- spoke since), unless it is this character. A message nobody online can be
 -- whispered still reaches this client's own handlers (the author answering
 -- their own presence check), and onSent(nil) runs a frame later.
-function Transport.Enqueue(text, tag, onSent, first)
+function Transport.Enqueue(text, tag, onSent, first, target)
   if type(text) ~= "string" then return false end
   local kind = text:sub(1, 1)
-  local items = Items(text, tag, onSent)
+  local items
+  if target ~= nil and target ~= Transport.Self() and Transport.Whisperable(target) then
+    items = { { text = text, tag = tag, onSent = onSent, target = target } }
+  else
+    items = Items(text, tag, onSent)
+  end
   if #items == 0 then
     tally.unreachable = tally.unreachable + 1
     Host.Log("Curator %s not sent: nobody online to whisper it to", kind)
@@ -453,19 +460,6 @@ end
 function Transport.Send(kind, mode, to, ...)
   local text = Protocol.Encode(kind, mode, to, ...)
   return Transport.Enqueue(text, nil, nil, kind ~= "D")
-end
-
--- SendTo(name, onSent, kind, mode, to, ...): a message whispered to one
--- character whatever the routes say; a refused whisper goes once more
--- after BACKOFF, as any whisper does
-function Transport.SendTo(name, onSent, kind, mode, to, ...)
-  local text = Protocol.Encode(kind, mode, to, ...)
-  if type(text) ~= "string" or not Transport.Whisperable(name) then return false end
-  local item = { text = text, onSent = onSent, target = name }
-  queue[#queue + 1] = item
-  Host.Log("Curator queued %s for %s (%d characters); %d waiting", kind, name, #text, #queue)
-  if not pumping and not paused then Schedule(Transport.Wait()) end
-  return true
 end
 
 -- EnqueueLocal(text, onSent): hands a message to this client's own
@@ -512,11 +506,6 @@ function Transport.Queued(tag)
     if tag == nil or item.tag == tag then n = n + 1 end
   end
   return n
-end
-
--- Resume(): starts the queue again when messages wait
-function Transport.Resume()
-  if #queue > 0 and not pumping and not paused then Schedule(Transport.Wait()) end
 end
 
 function Transport.IsPaused()
@@ -643,7 +632,6 @@ pcall(Transport.seams.Register, Curator.Const.PREFIX)
 local function Changed()
   Transport.Forget()
 end
-Transport.Joined = Changed
 
 local events = {
   CHAT_MSG_ADDON = function(...) Transport.Receive(...) end,

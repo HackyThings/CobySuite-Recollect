@@ -9,8 +9,13 @@
 --     complete = false when any occupied slot came back without its item ID
 --                or link, a call failed, or a value was secret,
 --     occupied, errors,
+--     failed = { [slot] = true } for the slots whose read failed or came back
+--              secret (their last-known copies stand in, PI-10), else nil,
+--     reason = why the read is not readable (the slot count call failed, or
+--              it showed no slots), else nil,
 --     slots = { [slot] = { itemID, link, name, count, quality, isBound,
 --                          hasLoot, hasNoValue,
+--                          pending = true when its item ID or link is missing,
 --                          quest = { isQuestItem, questID, isActive } or nil,
 --                          questUnread = true when the quest-info read failed
 --                            (BA-02: then whether it is a quest item is
@@ -37,6 +42,8 @@ local seams = {
 }
 Reader._test = { seams = seams }
 
+-- The fields whose secret value makes the slot unread (isReadable is not
+-- kept, but a secret one still counts)
 local ITEM_FIELDS = { "itemID", "hyperlink", "itemName", "stackCount", "quality", "isBound", "hasLoot", "hasNoValue", "isReadable" }
 
 -- A container-info table with any secret field is not a fact
@@ -81,7 +88,6 @@ local function ReadSlot(read, bagID, slot, opts)
     quality = info.quality,
     isBound = info.isBound == true,
     hasLoot = info.hasLoot == true,
-    isReadable = info.isReadable == true,
   }
   -- Non-nilable in 12.1; a read without it stays nil, so Junk goes by the
   -- item's own sell price rather than a made-up "has a value" (V-03)

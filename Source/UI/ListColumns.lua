@@ -23,7 +23,7 @@ Columns.DEFS = {
   { key = "purposeText", label = "Checks", width = 100,
     tooltip = "The checks that answered for it, such as Toy, Reagent, Gear, Buys or Season. The item details window's Checks section gives each one's answer." },
   { key = "usedForText", label = "Used for", width = 130,
-    tooltip = "What the game's own data links the item to. The audit panel beside a hovered row (hold Alt, or the key chosen in the settings) shows each one with its state." },
+    tooltip = "What the game's own data links the item to. The audit panel beside a hovered row (hold Alt, or the key chosen in the settings) sums it up; click the row for the full list, each with its state." },
   { key = "verdictRank", label = "Verdict", width = 90,
     tooltip = "Whether you still need it. Sorted by what to act on first: Needed, Use now, Useful, Can't tell, Junk, Outdated, Lower level, then Purpose done." },
   { key = "asOf", label = "Last read", width = 80,
@@ -32,7 +32,8 @@ Columns.DEFS = {
     tooltip = "Why: the facts behind the verdict. The audit panel and the details window say more." },
 }
 
--- One color per verdict, for the list, the tooltip hint and the audit panel
+-- One color per verdict, for the list, the audit panel, the details window
+-- and the feature guide
 local VERDICT_COLORS = {
   [V.NEEDED] = U.Colors.STATUS_GOLD,
   [V.USE] = U.Colors.SUCCESS_GREEN,

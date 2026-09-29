@@ -8,22 +8,20 @@
 -- Use line when tip is given, else the item's spell description
 -- (C_Item.GetItemSpell's 2nd return, C_Spell.GetSpellDescription, which is
 -- empty until the spell's data loads; both in Blizzard's generated docs,
--- 12.1.0). It returns { key, name, what, expansion, still (true, false, or
--- nil when not known), stillWords, power (a memory's power name), learn (the
--- item teaches something the tooltip marks "Already known") } or nil: no
--- system, another language, or the text not loaded yet.
+-- 12.1.0). It returns { key, name, what, still (true, false, or nil when
+-- not known), stillWords, power (a memory's power name), learn (the item
+-- teaches something the tooltip marks "Already known") } or nil: no system,
+-- another language, or the text not loaded yet.
 --
--- still comes from pages the site rules allow, cited in stillWords:
+-- still comes from pages the site rules allow (recorded in the repo's research
+-- notes, never in a shipped file):
 --   memory      Shadowlands legendary powers still work, but only in
---               Shadowlands content (Blizzard Watch, 2022-10-19, "What's
---               happening to tier sets bonuses and Legendaries in the
---               Dragonflight pre-patch?")
+--               Shadowlands content (2022-10-19)
 --   essence     where the Heart of Azeroth still works is not settled by a
 --               page read (nil)
---   corruption  the Corruption system went away in patch 9.0 (Blizzard
---               Watch, 2020-10-12), but the cloak's Use line also names
---               Sanity Drain, and whether it serves Horrific Visions now isn't
---               known (nil)
+--   corruption  the Corruption system went away in patch 9.0 (2020-10-12),
+--               but the cloak's Use line also names Sanity Drain, and whether
+--               it serves Horrific Visions now isn't known (nil)
 --
 -- No C_LegendaryCrafting call maps an item to its power (RuneforgePower has
 -- no item field; GetRuneforgePowerInfo takes a power ID, 12.1.0 docs), so
@@ -59,29 +57,29 @@ local seams = {
   SpellDescription = function(spellID) return C_Spell.GetSpellDescription(spellID) end,
 }
 
--- Each system: its Use text's opening words (English, colors stripped), the
--- expansion it belongs to, what it was, and whether it still does anything
+-- Each system: its Use text's opening words (English, colors stripped), what
+-- it was, and whether it still does anything
 local SYSTEMS = {
   {
-    key = "memory", opening = "Restore the following memory to the Runecarver", expansion = 8, learn = true,
+    key = "memory", opening = "Restore the following memory to the Runecarver", learn = true,
     name = "Runecarving memory",
     what = "a Shadowlands legendary memory: restoring it lets the Runecarver in Torghast put its power on Shadowlands legendary gear",
     still = true,
-    stillWords = "Shadowlands legendary powers still work, but only in Shadowlands content (Blizzard Watch, 2022-10-19)",
+    stillWords = "Shadowlands legendary powers still work, but only in Shadowlands content",
   },
   {
-    key = "essence", opening = "Infuse your Heart of Azeroth with", expansion = 7, learn = true,
+    key = "essence", opening = "Infuse your Heart of Azeroth with", learn = true,
     name = "Heart of Azeroth essence",
     what = "a Battle for Azeroth essence: it adds a power to the Heart of Azeroth necklace",
     still = nil,
     stillWords = "where the Heart of Azeroth still works isn't checked",
   },
   {
-    key = "corruption", opening = "Empower Ashjra'kamas", expansion = 7, learn = false,
+    key = "corruption", opening = "Empower Ashjra'kamas", learn = false,
     name = "Ashjra'kamas upgrade",
     what = "a Battle for Azeroth upgrade for the cloak Ashjra'kamas, Shroud of Resolve, against Sanity Drain and Corruption",
     still = nil,
-    stillWords = "Corruption was removed in patch 9.0 (Blizzard Watch, 2020-10-12); whether it still serves Horrific Visions isn't checked",
+    stillWords = "Corruption was removed in patch 9.0; whether it still serves Horrific Visions isn't checked",
   },
 }
 

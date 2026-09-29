@@ -1,10 +1,11 @@
 -------------------------------------------------------------------------------
 -- Data.Residual: items that stay in the bags after their purpose is done and
 -- serve no further use (Cobanyte, 2026-09-28). Research per item, recorded in
--- the repo's research notes; each note is in our own words. Read only by
--- the item details window's "Still needed?" box (UI.DetailWindow Detail.Keep),
--- and only once every use Recollect knows for the item is done; never by a
--- check, a verdict or the Tip. Only entries our own data or an in-game check backs ship
+-- the repo's research notes; each note is in our own words. Read by the
+-- item details window's "Still needed?" box (UI.DetailWindow Detail.Keep),
+-- only once every use Recollect knows for the item is done, and by curator
+-- mode's test for items the data says nothing about (Curator.Host Knows);
+-- never by a check, a verdict or the Tip. Only entries our own data or an in-game check backs ship
 -- (2026-09-28: five candidates wait for a check; see the research notes).
 --   [itemID] = { note = "why it lingers, our words", checked = "2026-09-28" }
 -------------------------------------------------------------------------------

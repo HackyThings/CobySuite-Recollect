@@ -220,7 +220,9 @@ local function Named(name, ref)
   return Decode.Name(name, ref.kind, ref.id)
 end
 
--- "i32572x4+c1813x25+g250000" or "g<copper>x<stack>" in words
+-- "i32572x4+c1813x25+g250000" or "g<copper>x<stack>" in words; a price in
+-- a currency may end in its stack, "c1813x25+s5" (Compare.PriceText,
+-- 2026-09-29), worded as a gold stack is: "25 Name for 5"
 function Decode.Cost(text, name)
   text = tostring(text or "")
   local copper, stack = text:match("^g(%d+)x(%d+)$")
@@ -229,16 +231,22 @@ function Decode.Cost(text, name)
     return tonumber(stack) and tonumber(stack) > 1 and ("%s for %s"):format(money, stack) or money
   end
   local parts = {}
+  stack = nil
   for part in text:gmatch("[^+]+") do
     local letter, id, count = part:match("^([ic])(%d+)x(%d+)$")
+    local each = part:match("^s(%d+)$")
     if letter then
       parts[#parts + 1] = ("%s %s"):format(count, Decode.Name(name, letter == "i" and "item" or "currency", tonumber(id)))
+    elseif each then
+      stack = tonumber(each)
     else
       local gold = part:match("^g(%d+)$")
       parts[#parts + 1] = gold and CobySuite_Recollect.Utilities.FormatMoneyText(tonumber(gold)) or part
     end
   end
-  return #parts > 0 and table.concat(parts, " + ") or "?"
+  if #parts == 0 then return "?" end
+  local words = table.concat(parts, " + ")
+  return stack and stack > 1 and ("%s for %d"):format(words, stack) or words
 end
 
 -- "<map>:<x>,<y>" in words: "Zone (50.0, 42.1)"

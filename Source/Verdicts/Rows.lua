@@ -18,12 +18,13 @@
 -- junk), their tooltip comes from the item's link, and their faction from the
 -- snapshot (none when it names neither Horde nor Alliance). Their counts
 -- can't be checked against the live bank (it counts this character only),
--- and a per-character check that can't run there might disagree, so an
--- Outdated verdict reads Unknown ("checked fully only on <name>"), and so
--- does Use now (whether that character can use the item was read on this
--- one: its tooltip's red lines, its mount flags); Purpose done stays only
--- when a collection check decided it. A downgraded row's note carries the
--- reason, so the audit panel leads with it rather than one check's words.
+-- and a per-character check that can't run there might disagree, so a
+-- Junk, Outdated or Lower level verdict reads Unknown ("checked fully only
+-- on <name>"), and so does Use now (whether that character can use the item
+-- was read on this one: its tooltip's red lines, its mount flags); Purpose
+-- done stays only when a collection check decided it. A downgraded row's
+-- note carries the reason, so the audit panel leads with it rather than one
+-- check's words.
 --
 -- Snapshot rows are verified per item before they are believed. With the
 -- bank closed its slots cannot be read, but C_Item.GetItemCount with the bank
@@ -135,8 +136,8 @@ local function OtherTooltip(stack, facts)
 end
 
 -- ContextFor(stack, kind, bagID, slot, live, other): the ctx a purpose check
--- reads; other = { guid, name, faction, class } for another character's
--- stored copy
+-- reads; other = { guid, name, faction, class, race } for another
+-- character's stored copy
 function Rows.ContextFor(stack, kind, bagID, slot, live, other)
   local facts, why = Recollect.Facts.Item.Get(stack.itemID)
   -- Another character's faction is the snapshot's alone: one that names

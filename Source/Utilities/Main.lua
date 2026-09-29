@@ -38,12 +38,12 @@ function Utilities.Try(fn, ...)
 end
 
 ---------------------------------------------------------------------------
--- IsPositiveID(value): a finite number above zero (item, quest and species
--- IDs; 0 and nil mean "none" in several APIs)
----------------------------------------------------------------------------
 -- BucketRecord(tbl, key): the record for key in a bucketed string table, the
 -- shipped data's form (tbl[key // 1024] is one string of "\30<key>\31<record>"
--- entries: thousands of records cost a few strings, not a string each), or nil
+-- entries: thousands of records cost a few strings, not a string each), or nil.
+-- IsPositiveID(value), after it: a finite number above zero (item, quest and
+-- species IDs; 0 and nil mean "none" in several APIs)
+---------------------------------------------------------------------------
 local BUCKET = 1024
 function Utilities.BucketRecord(tbl, key)
   local bucket = tbl and tbl[math.floor(key / BUCKET)]

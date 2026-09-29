@@ -64,7 +64,6 @@ NoInfo.NOTICE_TEXT = "Curator mode now also notes items Recollect's database kno
 
 -- Sightings that say where the item is, not where it came from
 local HELD = { bag = true, bank = true, wb = true }
-NoInfo.HELD = HELD
 local GEAR = { [2] = true, [4] = true }   -- weapons and armor
 
 NoInfo.seams = {

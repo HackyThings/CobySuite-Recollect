@@ -1116,7 +1116,6 @@ function UI.CreateSettingsWindow(opts)
     contentArea:SetPoint("TOPLEFT", 8, -CONTENT_TOP)
   end
   contentArea:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -8, FOOTER_H)
-  window.ContentArea = contentArea
   local contentWidth = width - 16 - (withSidebar and (SIDEBAR_W + 4) or 0)
 
   -- The bottom bar first: RefreshState reads its buttons

@@ -51,7 +51,7 @@ local seams = {
 
 local enteredWorldAt = nil
 
--- Gates already open this session, by name (toys, pets, mounts, quests)
+-- Gates already open this session, by name (toys, pets, mounts, heirlooms, quests)
 local latched = {}
 
 local function ResetLatches()

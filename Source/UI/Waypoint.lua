@@ -1,9 +1,11 @@
 -------------------------------------------------------------------------------
--- UI.Waypoint: a key that sets a map waypoint to the vendor the audit panel
+-- UI.Waypoint: a key that sets a map waypoint to the place the audit panel
 -- names (Alt+W by default; the settings window changes or turns it off)
 --
--- While the panel shows an item with a known vendor (UI.UsedFor's first
--- vendor: a currency it names, or a vendor that takes or sells it), the key
+-- While the panel shows an item with a known place (UI.UsedFor's first: a
+-- key's treasure or an NPC it is used at, a currency's vendor, a vendor that
+-- takes it or that it buys from, then a source such as a seller, a creature
+-- or a spot), the key
 -- is bound to a hidden button with SetOverrideBindingClick, and the binding
 -- is cleared when the panel hides: CobySniper's pattern
 -- (CobySniper/Source/Buy/Main.lua). Binding calls are blocked in combat, so

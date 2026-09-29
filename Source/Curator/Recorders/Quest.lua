@@ -14,7 +14,10 @@
 -- The giver and the turn-in NPC are only ever the quest frame's own NPC
 -- (the "questnpc" unit), never a nearby gossip NPC, and an offer an item
 -- started names no giver at all; their positions are recorded too (with
--- unshipped NPCs added). Rewards are filtered by class (U14), so a quest is
+-- unshipped NPCs added, unless the NPC is one of the quest's givers and
+-- stands where the data says the quest starts, Host.QuestPlace). A giver is
+-- confirmed when the data lists it among the quest's givers, any of them.
+-- Rewards are filtered by class (U14), so a quest is
 -- never complete: CompareQuest records additions, conflicts and stamps,
 -- never "not seen".
 --
@@ -98,7 +101,7 @@ function Quest.OnDetail(startItemID)
     if daily then Curator.Compare.QuestFrequency(questID, "d", ctx) end
     if weekly then Curator.Compare.QuestFrequency(questID, "w", ctx) end
   end)
-  NpcPosition.Commit(place, true)
+  NpcPosition.Commit(place, true, place and Host.QuestPlace(questID))
   return true
 end
 
@@ -123,7 +126,7 @@ function Quest.OnComplete()
     Curator.Compare.QuestRewards(visit, ctx)
     if taker then Curator.Compare.QuestTurnIn(questID, taker, ctx) end
   end)
-  NpcPosition.Commit(place, true)
+  NpcPosition.Commit(place, true, place and Host.QuestPlace(questID))
   return true
 end
 

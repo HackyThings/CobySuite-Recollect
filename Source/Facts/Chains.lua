@@ -10,14 +10,14 @@
 -- Leads(itemID) follows a plain item through its own relations, at most
 -- MAX_DEPTH items deep (the item, then a plain item it buys or makes), and
 -- returns the ends it reaches: { thing (a relation Facts.Buys reads), via =
--- { steps } }, a step being { kind = "quest", questID, relation } (a quest
--- it is used in, an objective of, or starts; the quest's rewards are the
--- ends), { kind = "makes", itemID, count, relation } or { kind = "buys",
--- itemID, count, plus, relation }. At most MAX_RELATIONS of an item's
--- relations are looked at and MAX_ENDS ends kept (partial = true when
--- either cut something); an item already on the path is never followed
--- again. The structure is the data's alone and kept per item (bounded at
--- KEEP items); states are read at every call.
+-- { steps } }, a step being { kind = "quest", questID, of } (of is the item
+-- followed; the quest is one it is used in, is an objective of, or starts,
+-- and the quest's rewards are the ends), { kind = "makes", itemID,
+-- relation } or { kind = "buys", itemID, count, relation }. At most
+-- MAX_RELATIONS of an item's relations are looked at and MAX_ENDS ends
+-- kept; an item already on the path is never followed again. The structure
+-- is the data's alone and kept per item (bounded at KEEP items); states are
+-- read at every call.
 --
 -- State(entry, owner, budget) reads one end now: "open" (every link serves
 -- the owner, a quest on the way is not done, on it, repeatable or recurs,
@@ -28,13 +28,15 @@
 -- the end can't be read yet, or is another character's to read), and the
 -- thing as Facts.Buys resolved it. Summary(itemID, owner, budget) tallies
 -- the ends and names the first open one (else the first unread, else any).
--- Words(entry, state, thing) and ThingWords(thing) word them for a line.
+-- Words(entry, owner, thing, quests) and ThingWords(thing) word them for a
+-- line.
 -- SetNamer(fn) lets the panel hear each name the words use (fn(kind, id,
 -- name, quality): an item, a quest's title, a thing, a currency), so it can
 -- color them as the game colors their links; it returns the namer it replaced.
 -- CostWords(relation, itemID) words what a purchase costs besides the item
--- ("plus 4 Apexis Crystal and 25 gold"), and GoldWords(copper) a gold price:
--- the one wording the checks' reasons and the panel share (review F15).
+-- ("plus 4 Apexis Crystal and 25 gold"), PriceWords(costs) a seller's whole
+-- price ("350 Honor and 10 gold"), and GoldWords(copper) a gold price: the
+-- one wording the checks' reasons and the panel share (review F15).
 -------------------------------------------------------------------------------
 local Chains = {}
 Recollect.Facts.Chains = Chains
@@ -104,23 +106,19 @@ local Follow
 Follow = function(itemID, depth, via, visited, out)
   visited[itemID] = true
   local relations = Relations().For(itemID)
-  if #relations > MAX_RELATIONS then out.partial = true end
   for i = 1, math.min(#relations, MAX_RELATIONS) do
-    if #out.ends >= MAX_ENDS then
-      out.partial = true
-      return
-    end
+    if #out.ends >= MAX_ENDS then return end
     local relation = relations[i]
     local kind = relation.kind
     if QUEST_LINKS[kind] and IsPositiveID(relation.id) then
-      local step = { kind = "quest", questID = relation.id, relation = relation, of = itemID }
+      local step = { kind = "quest", questID = relation.id, of = itemID }
       for _, reward in ipairs(Chains.Rewards(relation.id)) do
         if #out.ends < MAX_ENDS then
           out.ends[#out.ends + 1] = { thing = reward.relation, choice = reward.choice, via = Copy(via, step) }
         end
       end
     elseif (kind == "makes" or kind == "partOf") and IsPositiveID(relation.id) and not visited[relation.id] then
-      local step = { kind = "makes", itemID = relation.id, count = relation.count, relation = relation, of = itemID }
+      local step = { kind = "makes", itemID = relation.id, relation = relation }
       local letter, id = Relations().ItemThing(relation.id)
       if id then
         out.ends[#out.ends + 1] = { thing = ThingRelation(letter, id), via = Copy(via, step) }
@@ -131,8 +129,7 @@ Follow = function(itemID, depth, via, visited, out)
       if relation.thing ~= "" then
         out.ends[#out.ends + 1] = { thing = relation, via = via }
       elseif depth < MAX_DEPTH and not visited[relation.id] then
-        local step = { kind = "buys", itemID = relation.id, count = relation.count, plus = relation.plus, relation = relation,
-          of = itemID }
+        local step = { kind = "buys", itemID = relation.id, count = relation.count, relation = relation }
         Follow(relation.id, depth + 1, Copy(via, step), visited, out)
       end
     end
@@ -152,7 +149,7 @@ Current = function()
   end
 end
 
--- Leads(itemID): { ends, partial } for a plain item (see the header)
+-- Leads(itemID): { ends } for a plain item (see the header)
 function Chains.Leads(itemID, from)
   if not IsPositiveID(itemID) then return { ends = {} } end
   Current()
@@ -230,12 +227,12 @@ function Chains.State(entry, owner, budget)
 end
 
 -- Summary(itemID, owner, budget): { open, done, other, unread, plain,
--- total, partial, best = { entry, state, thing, quests } } or nil when the
--- item leads nowhere the data names
+-- total, best = { entry, state, thing, quests } } or nil when the item
+-- leads nowhere the data names
 function Chains.Summary(itemID, owner, budget, from)
   local structure = Chains.Leads(itemID, from)
   if #structure.ends == 0 then return nil end
-  local out = { open = 0, done = 0, other = 0, unread = 0, plain = 0, total = #structure.ends, partial = structure.partial }
+  local out = { open = 0, done = 0, other = 0, unread = 0, plain = 0, total = #structure.ends }
   local rank = { open = 1, unread = 2, plain = 3, done = 4, other = 5 }
   for _, entry in ipairs(structure.ends) do
     local state, thing, quests = Chains.State(entry, owner, budget)
@@ -364,6 +361,41 @@ local function JoinAnd(list)
   return table.concat(list, ", ", 1, #list - 1) .. " and " .. list[#list]
 end
 
+-- One cost in words ("4 Apexis Crystal", "350 Honor", "25 gold"), each
+-- name heard as a link; nil for a cost that can't be worded
+local function CostPart(cost)
+  if cost.kind == "gold" and type(cost.count) == "number" then
+    return Chains.GoldWords(cost.count)
+  elseif cost.kind == "item" and cost.id then
+    local okName, name = pcall(Recollect.Facts.Item.Name, cost.id)
+    name = okName and type(name) == "string" and name or nil
+    return ("%d %s"):format(cost.count or 1, Named("item", cost.id, name) or ("item " .. cost.id))
+  elseif cost.kind == "currency" and cost.id then
+    local okInfo, info = Recollect.Utilities.Try(Recollect.Purposes.client.GetCurrencyInfo, cost.id)
+    local name = okInfo and type(info) == "table" and type(info.name) == "string" and info.name or nil
+    return ("%d %s"):format(cost.count or 1, name and Named("currency", cost.id, name, info.quality) or ("currency " .. cost.id))
+  end
+  return nil
+end
+
+-- A whole price in words, every cost of the list: "350 Honor", "350 Honor
+-- and 10 gold" (a V code's costs, data format 8, 2026-09-29). A list that
+-- says part of the price is unknown (costs.unlisted) ends with "other costs
+-- not listed" or "a gold price not recorded", so it never reads as whole
+-- (rule 50). nil when no cost can be worded
+function Chains.PriceWords(costs)
+  if type(costs) ~= "table" then return nil end
+  local parts = {}
+  for _, cost in ipairs(costs) do parts[#parts + 1] = CostPart(cost) end
+  if #parts == 0 then return nil end
+  if costs.unlisted == "costs" then
+    parts[#parts + 1] = "other costs not listed"
+  elseif costs.unlisted == "gold" then
+    parts[#parts + 1] = "a gold price not recorded"
+  end
+  return JoinAnd(parts)
+end
+
 -- What a purchase costs besides this item, worded (item 9): " plus 4 Apexis
 -- Crystal and 25 gold", each name heard as a link; "plus other costs" when
 -- the data says there are some but not which, and "not listed" / "a gold
@@ -375,20 +407,7 @@ function Chains.CostWords(relation, itemID)
   local ok, costs = pcall(Relations().Costs, relation, itemID)
   local parts = {}
   for i, cost in ipairs(ok and type(costs) == "table" and costs or {}) do
-    if i > 1 then
-      if cost.kind == "gold" and type(cost.count) == "number" then
-        parts[#parts + 1] = Chains.GoldWords(cost.count)
-      elseif cost.kind == "item" and cost.id then
-        local okName, name = pcall(Recollect.Facts.Item.Name, cost.id)
-        name = okName and type(name) == "string" and name or nil
-        parts[#parts + 1] = ("%d %s"):format(cost.count or 1, Named("item", cost.id, name) or ("item " .. cost.id))
-      elseif cost.kind == "currency" and cost.id then
-        local okInfo, info = Recollect.Utilities.Try(Recollect.Purposes.client.GetCurrencyInfo, cost.id)
-        local name = okInfo and type(info) == "table" and type(info.name) == "string" and info.name or nil
-        parts[#parts + 1] = ("%d %s"):format(cost.count or 1,
-          name and Named("currency", cost.id, name, info.quality) or ("currency " .. cost.id))
-      end
-    end
+    if i > 1 then parts[#parts + 1] = CostPart(cost) end
   end
   if relation.unlisted == "costs" then
     parts[#parts + 1] = #parts > 0 and "other costs not listed" or "other costs"

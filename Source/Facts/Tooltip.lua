@@ -9,7 +9,7 @@
 -- character does not meet.
 --
 -- Parse(data) returns
---   { known, locked, beginsQuest, redLines, lineCount,
+--   { known, locked, beginsQuest, redLines,
 --     useText,                   -- the first "Use: ..." line (ITEM_SPELL_TRIGGER_ONUSE)
 --     seasonExpansion, seasonNumber,  -- a "<Expansion> Season <n>" tag line (English)
 --     appearanceMissing,         -- "You haven't collected this appearance"
@@ -159,7 +159,7 @@ end
 function Tooltip.Parse(data)
   if type(data) ~= "table" or type(data.lines) ~= "table" or #data.lines == 0 then return nil end
   local s = Strings()
-  local facts = { known = false, locked = false, beginsQuest = false, redLines = 0, lineCount = #data.lines, questLines = {},
+  local facts = { known = false, locked = false, beginsQuest = false, redLines = 0, questLines = {},
     appearanceMissing = false, appearanceOther = false, lineTypes = {},
     decorReadable = s.decorOwned ~= nil and s.decorBonus ~= nil }
   for _, line in ipairs(data.lines) do

@@ -3,9 +3,10 @@
 --
 -- The Pet Journal is account-wide. Use now only when the species is not in
 -- the journal at all and the tooltip has no red line (a requirement this
--- character does not meet); with at least one it is done ("Species collected,
--- n/limit"), since the purpose, having the pet, is met. Two sources must
--- agree: GetNumCollectedInfo and the tooltip's "Collected (n/m)" line.
+-- character does not meet); with at least one it is done ("You already have
+-- this pet (n/limit collected)"), since the purpose, having the pet, is met.
+-- Two sources must agree: GetNumCollectedInfo and the tooltip's "Collected
+-- (n/m)" line.
 -- Caged pets (battlepet links) are not checked yet.
 --
 -- GetPetInfoByItemID returns name, icon, petType, creatureID, sourceText,

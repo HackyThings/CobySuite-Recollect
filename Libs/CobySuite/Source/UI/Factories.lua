@@ -13,7 +13,8 @@ end
 ---------------------------------------------------------------------------
 -- Tooltip helpers
 --
--- Five flavors, all attach OnEnter/OnLeave scripts to `frame`:
+-- Five flavors attach OnEnter/OnLeave scripts to `frame`, and
+-- PopulateBrandedTooltip fills a tooltip it is handed:
 --
 --   AddTooltip(frame, text, anchor)
 --     Plain wrapped text.
@@ -22,8 +23,8 @@ end
 --     Blizzard item tooltip. itemIDOrFunc can be a number or a function
 --     that returns one (called per-hover, useful for reusable rows).
 --     opts.compareOnShift = true → calls GameTooltip_ShowCompareItem
---                                   (Blizzard gates the visible compare
---                                    panes on shift internally).
+--                                   while Shift is held (checked here;
+--                                    Blizzard's function does not check it).
 --     opts.cleanShopping  = true → also hides ShoppingTooltip1/2 on leave.
 --
 --   AddSpellTooltip(frame, spellIDOrFunc, anchor)
@@ -44,20 +45,19 @@ end
 --                                builder every frame for cursor-tracking
 --                                tooltips (e.g. chart hover read-outs).
 --
---   AddBrandedTooltip(frame, opts)
---     Tooltip for "addon entry" surfaces (minimap button, addon
---     compartment menu, splash). Provides a consistent look across
---     CobySuite addons:
+--   PopulateBrandedTooltip(tooltip, opts)
+--     Fills a tooltip it is handed (it attaches no scripts) for "addon
+--     entry" surfaces (minimap button, addon compartment menu, splash).
+--     Provides a consistent look across CobySuite addons:
 --       opts.brandColor  hex "FF8800" or {r,g,b} → title color
 --       opts.title       string
 --       opts.subtitle    string (smaller, gray)
 --       opts.body        { "line", ... } or function returning that
 --       opts.keys        { { key=, desc= }, ... } → keybind hints
 --                         (gold key, gray colon, white desc)
---       opts.anchor      "ANCHOR_RIGHT" (default)
---       opts.owner       a frame to own the tooltip instead of `frame`
---     PopulateBrandedTooltip(tooltip, opts) fills a tooltip it is handed;
---     with opts.owner it calls SetOwner itself.
+--       opts.owner       a frame; given, it calls
+--                         tooltip:SetOwner(opts.owner, opts.anchor) first
+--       opts.anchor      "ANCHOR_RIGHT" (default), used with opts.owner
 ---------------------------------------------------------------------------
 function UI.AddTooltip(frame, text, anchor)
   frame:SetScript("OnEnter", function(self)
@@ -281,19 +281,6 @@ function UI.PopulateBrandedTooltip(tooltip, opts)
   tooltip:Show()
 end
 
--- opts.owner, when given, owns the tooltip instead of the hovered frame
-function UI.AddBrandedTooltip(frame, opts)
-  opts = opts or {}
-  local anchor = opts.anchor or "ANCHOR_RIGHT"
-  frame:SetScript("OnEnter", function(self)
-    if not opts.owner then
-      GameTooltip:SetOwner(self, anchor)
-    end
-    UI.PopulateBrandedTooltip(GameTooltip, opts)
-  end)
-  frame:SetScript("OnLeave", function() GameTooltip:Hide() end)
-end
-
 ---------------------------------------------------------------------------
 -- CreateButton
 ---------------------------------------------------------------------------
@@ -355,7 +342,6 @@ function UI.CreateToolbar(parent, buttons, opts)
     prevBtn = btn
   end
 
-  toolbar._buttons = btnRefs
   return toolbar, btnRefs
 end
 
@@ -737,7 +723,7 @@ end
 ---------------------------------------------------------------------------
 -- Standalone widget factories
 --
--- Six widgets, all (parent, opts) -> widget. Designed to be usable both
+-- Seven widgets, all (parent, opts) -> widget. Designed to be usable both
 -- as freestanding controls (toolbars, in-row inputs, monitoring widgets)
 -- and as the building blocks of CreateFormLayout below.
 --
@@ -989,7 +975,6 @@ function UI.CreateNumberInput(parent, opts)
   eb:SetSize(opts.width or 80, opts.height or U.EditBoxHeight.INPUT)
   eb:SetAutoFocus(opts.autoFocus or false)
   if opts.maxLetters then eb:SetMaxLetters(opts.maxLetters) end
-  if opts.numeric ~= false then eb:SetNumeric(opts.numericInput or false) end
   ApplyPoint(eb, opts.point)
 
   WireEditBoxCommit(eb, opts)
@@ -1320,10 +1305,6 @@ function UI.CreateCopyField(parent, opts)
 
   function field:GetValue()
     return displayText, rawText
-  end
-
-  function field:ScrollToStart()
-    ScrollEditBoxToStart(self)
   end
 
   field:SetScript("OnEditFocusGained", function(self) self:HighlightText() end)

@@ -4,8 +4,14 @@
 -- 4c), against the shipped data through Host only
 --
 -- Facts (the store's fact names; values are text):
---   c:<npc>:i:<item>          dropped by a creature (shipped: dropsFrom)
---   ob:<object>:i:<item>      found in an object or node (shipped: foundIn)
+--   c:<npc>:i:<item>          dropped by a creature (shipped: dropsFrom, or
+--                             the loot of the encounter its boss is; an
+--                             item shipped as a world drop, or as a drop of
+--                             the zone it was looted in, is no finding)
+--   ob:<object>:i:<item>      found in an object or node (shipped: foundIn,
+--                             also under the container a spawn is filed
+--                             under, or the loot of the encounter whose
+--                             loot chest it is)
 --   f:<map>:i:<item>          fished in a zone (shipped: zoneDrop)
 --   x:<container>:i:<item>    found in a container item (no shipped code yet)
 --   de:<item>:i:<out>         disenchanting the item gave out (none yet)
@@ -56,7 +62,6 @@ local LOOT = {
   disenchant = { prefix = "de" },
   pickpocket = { prefix = "pp" },
 }
-Compare.LOOT = LOOT
 
 -- Whether the data ships an item as a world drop still in the game (a live
 -- z0: any enemy anywhere can drop it). One creature's copy of a world drop
@@ -69,19 +74,87 @@ function Compare.WorldDrop(itemID)
   return false
 end
 
+-- Whether the data ships an item as a drop of any enemy in one of the zones
+-- given (a live z<map>: zones = { [mapID] = true }, the loot window's map
+-- and the zone it lies in). One creature's copy of a zone drop, looted in
+-- that zone, says no more than the zone code does; in another zone it is a
+-- real difference, so only these maps count
+function Compare.ZoneDrop(itemID, zones)
+  if not zones then return false end
+  for _, code in ipairs(Host.CodesOf(itemID, "z")) do
+    if code.id ~= 0 and not code.gone and zones[code.id] then return true end
+  end
+  return false
+end
+
+-- Whether a live code of the item names it the loot of one of the journal
+-- encounters given (encounters = { [journalID] = true }): a D<encounter>,
+-- or a c<npc> of a boss the data maps (J, Host.EncounterOf) to one
+function Compare.BossLoot(itemID, encounters)
+  if not next(encounters) then return false end
+  for _, code in ipairs(Host.CodesOf(itemID, "D")) do
+    if not code.gone and encounters[code.id] then return true end
+  end
+  for _, code in ipairs(Host.CodesOf(itemID, "c")) do
+    local journal = not code.gone and Host.EncounterOf(code.id)
+    if journal and encounters[journal] then return true end
+  end
+  return false
+end
+
+-- What a source's shipped codes may name it as, besides its own ID: for an
+-- object, the treasure containers its spawn is filed under (Host.ObjectAlias)
+-- and the journal encounters whose loot chest it or one of them is
+-- (Host.EncounterOfObject); for a creature, the encounter of the boss it is
+-- (Host.EncounterOf, J). Returns aliases (a list) and encounters ({ [id] = true })
+local function Stands(source)
+  local aliases, encounters = {}, {}
+  if source.kind == "object" then
+    aliases = Host.ObjectAlias(source.id)
+    for _, object in ipairs({ source.id, unpack(aliases) }) do
+      for _, journal in ipairs(Host.EncounterOfObject(object)) do encounters[journal] = true end
+    end
+  elseif source.kind == "drop" then
+    local journal = Host.EncounterOf(source.id)
+    if journal then encounters[journal] = true end
+  end
+  return aliases, encounters
+end
+
+-- Whether an item's shipped codes already say it comes from the source:
+-- its own code (i<object>, c<npc> ...), an object's code under a container
+-- its spawn is filed under (2026-09-28: a relic looted from 652482 ships as
+-- found in 653064), or the loot of an encounter the source stands for: a
+-- boss's loot chest holds its boss's loot (20 findings in three chests,
+-- 2026-09-28), and a boss with several creature IDs drops what its first one
+-- is coded with (the pipeline's shipped_now reads all three the same way)
+local function Known(itemID, def, source, aliases, encounters)
+  if not def.kind then return false end
+  local shipped = Shipped(itemID, def.kind)
+  if shipped[source.id] then return true end
+  for _, alias in ipairs(aliases) do
+    if shipped[alias] then return true end
+  end
+  return Compare.BossLoot(itemID, encounters)
+end
+
 -- Loot(window, ctx): window = { sources = { [key] = { kind, id, items =
--- { [itemID] = true }, extra } } }, one source per corpse, object,
--- container or fishing catch. A creature's world drop records nothing.
+-- { [itemID] = true }, extra } }, zones }, one source per corpse, object,
+-- container or fishing catch. zones (optional): the maps a zone drop counts
+-- in (Loot.ZoneMaps). An item the data already has there (Known) goes in
+-- the source's stamp; a creature's world drop, or its zone drop in that
+-- zone, records nothing.
 function Compare.Loot(window, ctx)
   for _, source in pairs(window.sources) do
     local def = LOOT[source.kind]
+    local aliases, encounters = Stands(source)
     local matched = {}
     for itemID in pairs(source.items) do
       Compare.SawItem(itemID, def.prefix .. ":" .. source.id, ctx)
-      if def.kind and Shipped(itemID, def.kind)[source.id] then
+      if Known(itemID, def, source, aliases, encounters) then
         matched[#matched + 1] = itemID
-      elseif source.kind == "drop" and Compare.WorldDrop(itemID) then
-        -- a world drop: neither a finding nor a confirmation of a drop code
+      elseif source.kind == "drop" and (Compare.WorldDrop(itemID) or Compare.ZoneDrop(itemID, window.zones)) then
+        -- a world or zone drop: neither a finding nor a confirmation of a drop code
       else
         Record("addition", def.prefix .. ":" .. source.id .. ":i:" .. itemID, "1", nil, ctx, source.extra)
       end

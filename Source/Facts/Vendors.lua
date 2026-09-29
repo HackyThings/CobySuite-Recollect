@@ -4,6 +4,9 @@
 -- its facts name; IDs and positions only)
 --
 -- A vendor is { npcID, mapID, x, y } with x and y from 0 to 1 on that map.
+-- Position(npcID) is an NPC's first place (its waypoint), Places(npcID)
+-- every place the data gives it, first place first (data format 7: an NPC
+-- walking a path, with several spawns, or standing in several cities).
 -- ForCurrency(currencyID) and ForCostItem(itemID) list the vendors that take
 -- them; Selling(itemID) lists the vendors that sell it for items or
 -- currencies. The zone's name is read live (C_Map.GetMapInfo), and a
@@ -12,7 +15,10 @@
 -- miss is asked again after 2 seconds, any later one after 30); Describe(npc) words a vendor (or another
 -- NPC) for a panel line. Object(objectID) is an object a key opens:
 -- { objectID, mapID, x, y, questID, contents }, with no map when its
--- position isn't known. ItemsOf(npcID) is what a vendor sells, uncapped, in
+-- position isn't known. ObjectAliases(objectID) lists the container objects
+-- a treasure's spawn object is filed under (the S table, from AllTheThings;
+-- ObjectAlias the first), so loot from any spawn is the container's.
+-- ItemsOf(npcID) is what a vendor sells, uncapped, in
 -- the data's own order (the items table, for curator mode). Encounter(id)
 -- names an Encounter Journal encounter and its dungeon or raid, and
 -- Boss(npcID) a boss the data maps to one. Nothing is read
@@ -63,12 +69,33 @@ local function Placed(bucketed, plain, id)
   return Recollect.Utilities.BucketRecord(data[bucketed], id) or (data[plain] or {})[id]
 end
 
-function Vendors.Position(npcID)
-  local text = Placed("P", "npcs", npcID)
-  if type(text) ~= "string" then return nil end
+-- One "mapID,x,y" place of an NPC's record, or nil
+local function Place(npcID, text)
   local mapID, x, y = text:match("^(%d+),([%d%.]+),([%d%.]+)$")
   if not mapID then return nil end
   return { npcID = npcID, mapID = tonumber(mapID), x = tonumber(x), y = tonumber(y) }
+end
+
+-- An NPC's first place. A record holds every place, ";" between them, since
+-- data format 7 (2026-09-28); the first is read alone, so a record of one
+-- place (format 6) reads the same
+function Vendors.Position(npcID)
+  local text = Placed("P", "npcs", npcID)
+  if type(text) ~= "string" then return nil end
+  return Place(npcID, text:match("^[^;]*"))
+end
+
+-- Every place of an NPC, the first place first, a new list each call; empty
+-- when the data places it nowhere. A place that doesn't read is skipped
+function Vendors.Places(npcID)
+  local list = {}
+  local text = Placed("P", "npcs", npcID)
+  if type(text) ~= "string" then return list end
+  for part in text:gmatch("[^;]+") do
+    local place = Place(npcID, part)
+    if place then list[#list + 1] = place end
+  end
+  return list
 end
 
 local function List(field, id)
@@ -239,6 +266,24 @@ function Vendors.Object(objectID)
   local placed = mapID > 0
   return { objectID = objectID, mapID = placed and mapID or nil, x = placed and tonumber(x) or nil,
     y = placed and tonumber(y) or nil, questID = quest > 0 and quest or nil, contents = contents }
+end
+
+-- The container objects a treasure's spawn object is filed under (the S
+-- table, data format 7: AllTheThings lists each spawn of a treasure that
+-- appears under several object IDs beneath the container whose ID its loot
+-- is filed under; the Ossified Relic is found in 653064 and looted from
+-- 652482), ascending as shipped, a new list each call; empty when none
+function Vendors.ObjectAliases(objectID)
+  local list = {}
+  local text = Placed("S", "objectAliases", objectID)
+  if type(text) ~= "string" then return list end
+  for id in text:gmatch("%d+") do list[#list + 1] = tonumber(id) end
+  return list
+end
+
+-- The first container a spawn object is filed under, or nil
+function Vendors.ObjectAlias(objectID)
+  return Vendors.ObjectAliases(objectID)[1]
 end
 
 -- Every NPC with a position, in ID order (the Lab's name sample)

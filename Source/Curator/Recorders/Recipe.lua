@@ -23,6 +23,13 @@
 -- down by one whose own Use spell was cast just before (the bag observer),
 -- and NEW_RECIPE_LEARNED within the observer's window either side, is the
 -- item teaching that recipe; with two candidates, nothing is recorded.
+-- Only an item that may teach is a candidate: its Use spell is the generic
+-- learning spell recipe items share (LEARNING), it is of the Recipe item
+-- class, or the data already ships what it teaches. Food or a potion used
+-- while a trainer teaches a recipe is none of these, so it is never paired
+-- with that recipe (nor are most knowledge notebooks; a few old ones are of
+-- the Recipe class and still are); an item of another class that teaches
+-- through the learning spell still is.
 --
 -- Only while curator mode may record, and never while a test run scripts
 -- the client. Client reads go through Recipe.seams.
@@ -38,6 +45,11 @@ local SLICE = 20
 local TIER_SLICE = 100   -- unlisted shipped recipes whose tier is read in one frame
 local SETTLE = 1
 local BASIC = 1   -- Enum.CraftingReagentType.Basic
+local RECIPE_CLASS = 9   -- Enum.ItemClass.Recipe
+-- The Use spell ("Learning") of nearly every recipe item, and of the few
+-- that teach a recipe from another item class (a technique of class 0, a
+-- class 15 book), so those stay candidates too
+local LEARNING = 483
 
 Recipe.seams = {
   IsReady = function() return C_TradeSkillUI.IsTradeSkillReady() end,
@@ -50,6 +62,7 @@ Recipe.seams = {
   Schematic = function(recipeID) return C_TradeSkillUI.GetRecipeSchematic(recipeID, false) end,
   RecipeInfo = function(recipeID) return C_TradeSkillUI.GetRecipeInfo(recipeID) end,
   TierOf = function(recipeID) return (C_TradeSkillUI.GetTradeSkillLineForRecipe(recipeID)) end,
+  ItemClass = function(itemID) return (select(6, C_Item.GetItemInfoInstant(itemID))) end,
   After = function(delay, fn) C_Timer.After(delay, fn) end,
 }
 
@@ -98,7 +111,6 @@ function Recipe.MayAdd(recipeID)
   return info.isDummyRecipe ~= true and info.isSalvageRecipe ~= true
 end
 
--- The tier (child skill line) of a recipe, or nil when it can't be read
 -- A recipe's expansion tier (its child skill line), or nil. A recipe filed
 -- under the profession's own skill line has no tier: the Cooking window
 -- lists a few such recipes, and taking 185 as a tier made every shipped rank
@@ -196,12 +208,22 @@ local function Pair()
   candidate, learned = nil, nil
 end
 
--- A bag change: exactly one item gone down by one, its Use spell just cast
+-- Whether an item whose Use spell is spellID may teach a recipe: the
+-- learning spell, the Recipe class, or a shipped teaches. A class that
+-- can't be read counts only through the other two.
+function Recipe.MayTeach(itemID, spellID)
+  if spellID == LEARNING or Seam("ItemClass", itemID) == RECIPE_CLASS then return true end
+  return #Host.Sources(itemID, "teaches") > 0
+end
+
+-- A bag change: exactly one item that may teach gone down by one, its Use
+-- spell just cast
 function Recipe.OnBagsChanged(before, after)
   local down = Bags.Changes(before, after)
   local found
   for _, d in ipairs(down) do
-    if d.n == 1 and Bags.CastJustNow(d.id) then
+    local spellID = d.n == 1 and Bags.CastJustNow(d.id)
+    if spellID and Recipe.MayTeach(d.id, spellID) then
       if found then return end   -- two candidates: no answer
       found = d.id
     end

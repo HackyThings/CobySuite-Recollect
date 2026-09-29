@@ -59,12 +59,32 @@ Curator.Const = {
   CAP_BYTES = 1024 * 1024, -- the recorder fields of RECOLLECT_CURATOR_DB (D17)
   AWAITING_DAYS = 30,      -- acknowledged collections not confirmed saved are dropped after this
   RECEIVED_DAYS = 30,      -- the author's received list is pruned after this
-  -- Vendors that travel with a player, riding on a mount (the Grand Expedition
-  -- Yak's reagent vendor, 62822, seen in Silvermoon at two places, 2026-09-27):
-  -- their goods and positions are nobody's place to shop, so the vendor and
-  -- NPC position recorders skip them. /recollect-data drops archived findings
-  -- of the same IDs (curator_intake.TRAVELING_VENDORS); keep the two alike.
-  TRAVELING_VENDORS = { [62822] = true },
+  -- Vendors that travel with a player, on a mount, summoned or as a pet (the
+  -- Grand Expedition Yak's reagent vendor, 62822, seen in Silvermoon at two
+  -- places, 2026-09-27): their goods and positions are nobody's place to
+  -- shop, so the vendor and NPC position recorders skip them.
+  -- /recollect-data drops archived findings of the same IDs
+  -- (curator_intake.TRAVELING_VENDORS); keep the two alike.
+  -- The mounts' vendors, as AllTheThings' own list of NPCs to ignore names
+  -- them (2026-09-28: Merchant Maku, 142668, on another player's Brutosaur in
+  -- Stormwind): the Brutosaur's Merchant Maku and Collector Unta, the Grand
+  -- Expedition Yak's Mystic Birdhat and Cousin Slowhands, the Traveler's
+  -- Tundra Mammoth's Mojodishu and Drix Blackwrench. The IDs after them go
+  -- with a player as well; they are listed by ID because how the Controlled
+  -- seam (Recorders/NpcPosition.lua) answers for them is unmeasured until
+  -- the Lab's U23 runs (2026-09-28).
+  TRAVELING_VENDORS = { [142668] = true, [142666] = true, [62821] = true, [62822] = true, [32642] = true, [32641] = true,
+    -- a vendor carried on the Alliance Traveler's Tundra Mammoth, as
+    -- AllTheThings describes it; the data ships one item sold by it and no
+    -- place, so a visit would record a place wherever the mammoth stood
+    [32638] = true,
+    -- Jeeves, the vendor and repair bot an engineer summons
+    [35642] = true,
+    -- the Argent Squire and Argent Gruntling, companion pets that can open
+    -- a vendor window
+    [33238] = true,
+    [33239] = true,
+  },
   -- The mounts that carry vendors (spell IDs from AllTheThings' MountDB):
   -- while the player rides one, the vendor and NPC position recorders skip
   -- the visit, whichever vendor it is, since its passengers' IDs are not all
@@ -80,6 +100,10 @@ Curator.Const = {
   -- NOINFO_PENDING items waiting for their data at once, each for at most
   -- NOINFO_PENDING_SECONDS
   NOINFO_CAP = 1500,
+  -- Settled sources (spec D36): at most CONFIRMED_CAP sources this account
+  -- has sent its one confirmation of (Store.confirmed, outside the 1 MB cap);
+  -- past it, a new source's confirmations are sent as before
+  CONFIRMED_CAP = 20000,
   NOINFO_REPORTED_CAP = 4000,
   NOINFO_PLACES = 3,
   NOINFO_SLICE = 40,

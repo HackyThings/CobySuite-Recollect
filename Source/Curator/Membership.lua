@@ -47,7 +47,7 @@ Membership.seams = {
   After = function(delay, fn) C_Timer.After(delay, fn) end,
 }
 
-local roster = {}          -- [name] = { name, role, presence, zone, level, classID, isSelf, guid }
+local roster = {}          -- [name] = { name, role, presence, nameFrom, isSelf }
 local rosterAt = nil       -- when the map was last read whole
 local refreshing = false
 
@@ -117,8 +117,7 @@ function Membership.Read()
     if not name then unnamed = unnamed + 1 end
     if name and not Secret(info.role) then
       map[name] = { name = name, role = info.role, presence = Membership.PRESENCE[info.presence] or "unknown", nameFrom = from,
-        zone = not Secret(info.zone) and info.zone or nil, level = not Secret(info.level) and info.level or nil,
-        classID = not Secret(info.classID) and info.classID or nil, isSelf = info.isSelf == true, guid = info.guid }
+        isSelf = info.isSelf == true }
     end
   end
   roster, rosterAt, Membership.unnamed = map, GetServerTime(), unnamed

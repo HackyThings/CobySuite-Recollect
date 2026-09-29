@@ -263,6 +263,10 @@ local function SearchText(row)
     end
   end
   if row.map then parts[#parts + 1] = Dashboard.CheapName("map", row.map) or "" end
+  if row.source == "note" then
+    parts[#parts + 1] = row.item and tostring(row.item) or ""
+    parts[#parts + 1] = (row.item and Dashboard.CheapName("item", row.item)) or ""
+  end
   return table.concat(parts, " "):lower()
 end
 
@@ -302,8 +306,7 @@ local function NoteRow(key, kind, entry, itemID, current)
     state = NoteState(entry), older = entry.data, build = entry.build }
   -- an entry written under the database in use is not "older"
   if row.older == current then row.older = nil end
-  row.search = SearchText(row) .. " " .. (itemID and tostring(itemID) or "") .. " "
-    .. ((itemID and Dashboard.CheapName("item", itemID)) or ""):lower() .. " " .. tostring(entry.text or ""):lower()
+  row.search = SearchText(row)
   return row
 end
 
@@ -374,7 +377,11 @@ function Dashboard.Filter(rows, filters, search)
       if keep and type(set) == "table" and next(set) and not set[row[field]] then keep = false end
     end
     if keep and filters.older and not row.older then keep = false end
-    if keep and needle ~= "" and not (row.search or ""):find(needle, 1, true) then keep = false end
+    if keep and needle ~= "" then
+      -- built again: a name the game has loaded since counts
+      row.search = SearchText(row)
+      if not row.search:find(needle, 1, true) then keep = false end
+    end
     if keep then out[#out + 1] = row end
   end
   return out
@@ -455,7 +462,6 @@ local function StateWords(row)
   if row.older then text = text .. (" (recorded under the older database %s, sent whole with a collection of its own)"):format(row.older) end
   return text
 end
-Dashboard.StateWords = StateWords
 
 -- The Findings table's columns (text and sort read the row; color is RGB).
 -- Sized for the window at 940 pixels wide (a size a curator may have kept):
@@ -582,9 +588,9 @@ end
 -- HistoryRows(): one row per entry, newest first
 function Dashboard.HistoryRows()
   local out = {}
-  for i, entry in ipairs(Curator.History.Entries()) do
+  for _, entry in ipairs(Curator.History.Entries()) do
     local c = Contents(entry)
-    out[#out + 1] = { key = entry.request, order = i, entry = entry, at = entry.started or entry.asked or 0,
+    out[#out + 1] = { key = entry.request, entry = entry, at = entry.started or entry.asked or 0,
       by = entry.by, findings = c.findings or 0, stamps = c.stamps or 0, notes = c.notes or 0, bytes = c.bytes or 0 }
   end
   return out
@@ -674,8 +680,6 @@ function Dashboard.HistoryEmpty()
     began ~= "" and ("Kept since %s."):format(began) or nil,
   } }
 end
-
-Dashboard.KIND_LABEL, Dashboard.STATE_LABEL = KIND_LABEL, STATE_LABEL
 
 -- Tests: SwapAsked(set) puts a set in place of the items asked of the
 -- server this session and returns the one it replaced

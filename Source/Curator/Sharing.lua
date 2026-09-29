@@ -102,6 +102,14 @@ local function SendFor(localOnly, kind, mode, ...)
   return Send(kind, mode, ...)
 end
 
+-- SendTo(sender, localOnly, kind, mode, ...): a message of one collection, to
+-- the author character who asked for it (sender), never whoever spoke as the
+-- author since; test mode keeps its own route
+local function SendTo(sender, localOnly, kind, mode, ...)
+  if localOnly or mode == Protocol.TEST or type(sender) ~= "string" then return SendFor(localOnly, kind, mode, ...) end
+  return Transport.Enqueue(Protocol.Encode(kind, mode, Protocol.AUTHOR, ...), nil, nil, true, sender)
+end
+
 -------------------------------------------------------------------------------
 -- H and R
 -------------------------------------------------------------------------------
@@ -117,9 +125,20 @@ function Sharing.OnHello(msg)
   local counts = Curator.Store.Counts()
   Host.Log("Curator answering the presence check from %s: state %s, %d findings and %d notes pending, %s", msg.sender,
     state, counts.pending, Curator.Notes.Counts().pending, f[3] ~= "" and "with the installation check" or "presence only")
-  Send("R", msg.mode, f[1], CuratorID(), versions.addon, versions.data, versions.format, Protocol.VERSION,
-    checksum, state, Transport.Activity(), counts.pending + Curator.Notes.Counts().pending, counts.pendingBytes,
-    Protocol.List(Sharing.AwaitingIDs()))
+  local fields = { CuratorID(), versions.addon, versions.data, versions.format, Protocol.VERSION, checksum, state,
+    Transport.Activity(), counts.pending + Curator.Notes.Counts().pending, counts.pendingBytes }
+  -- the requests waiting for V, as many as fit the message (a dozen made
+  -- the R too long to send), in ID order; the rest ride the next R, once V
+  -- has settled these
+  local base = Protocol.Encode("R", msg.mode, f[1], unpack(fields, 1, 10))
+  local room = Protocol.MAX_MESSAGE - (base and #base or Protocol.MAX_MESSAGE) - #Protocol.SEP
+  local awaiting = Sharing.AwaitingIDs()
+  local list, n = Protocol.ListWithin(awaiting, math.max(0, room))
+  if n < #awaiting then
+    Host.Log("Curator presence answer names %d of %d requests waiting for V; the rest go in the next one", n, #awaiting)
+  end
+  fields[#fields + 1] = list
+  Send("R", msg.mode, f[1], unpack(fields, 1, 11))
 end
 
 -- The requests waiting for V: the store's and the notes' (which keep their
@@ -236,7 +255,7 @@ end
 local function Refuse(request, mode, reason, localOnly, sender)
   Host.Log("Curator collection %s refused: %s", tostring(request), tostring(reason))
   Remember("Refused", request, reason, sender, mode)
-  SendFor(localOnly, "S", mode, request, 0, 0, "", "refused:" .. reason)
+  SendTo(sender, localOnly, "S", mode, request, 0, 0, "", "refused:" .. reason)
 end
 
 local function SendChunk(seq)
@@ -252,7 +271,8 @@ local function SendChunk(seq)
   if current.localOnly then
     Transport.EnqueueLocal(text, OnSent)
   else
-    Transport.Enqueue(text, current.request, OnSent)
+    -- to the author who asked (NET-01); test mode keeps its own route
+    Transport.Enqueue(text, current.request, OnSent, false, current.mode ~= Protocol.TEST and current.sender or nil)
   end
 end
 
@@ -276,7 +296,7 @@ function Sharing.Start(request, mode, sender, localOnly)
   Host.Log("Curator collection %s for %s: %d findings, %d stamps, %d notes, %d bytes in %d parts%s", tostring(request),
     tostring(sender), Count(snapshot.records), Count(snapshot.confirms), Count(snapshot.notes), #payload, #transfer.chunks,
     localOnly and " (on this client)" or "")
-  SendFor(localOnly, "S", mode, request, #transfer.chunks, #payload, transfer.checksum,
+  SendTo(sender, localOnly, "S", mode, request, #transfer.chunks, #payload, transfer.checksum,
     ("records:%d,confirms:%d,notes:%d"):format(Count(snapshot.records), Count(snapshot.confirms), Count(snapshot.notes)))
   for seq = 1, #transfer.chunks do SendChunk(seq) end
   if mode == Protocol.LIVE and not localOnly then
@@ -288,7 +308,7 @@ function Sharing.Start(request, mode, sender, localOnly)
 end
 
 function Sharing.OnRequest(msg)
-  if not FromAuthor(msg) or msg.to == Protocol.ALL then return end
+  if not FromAuthor(msg) then return end
   local request, override = msg.fields[1], msg.fields[2]
   if request == "" then return end
   local localOnly = Transport.IsLocalPull(msg.mode, msg.sender)
@@ -364,7 +384,7 @@ end
 -- V: the requests the author's copy holds, and the ones it lost; any other
 -- request ID is ignored
 function Sharing.OnSaved(msg)
-  if not FromAuthor(msg) or msg.to == Protocol.ALL then return end
+  if not FromAuthor(msg) then return end
   local db = Curator.Store.DB()
   Host.Log("Curator saved report from %s: saved %s; lost %s", tostring(msg.sender), tostring(msg.fields[1]), tostring(msg.fields[2]))
   for _, request in ipairs(Protocol.ParseList(msg.fields[1])) do
@@ -401,7 +421,7 @@ end
 -- Cancel(): the curator stops the transfer (the transfer window, /rec curator cancel)
 function Sharing.Cancel()
   if not transfer then return false end
-  SendFor(transfer.localOnly, "X", transfer.mode, transfer.request, "cancelled")
+  SendTo(transfer.sender, transfer.localOnly, "X", transfer.mode, transfer.request, "cancelled")
   Stop(true, "you")
   return true
 end

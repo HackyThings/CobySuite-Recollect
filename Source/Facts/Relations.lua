@@ -52,10 +52,17 @@
 --   l<ach>.<crit>      AllTheThings links it to criterion <crit> of <ach>
 --   r<spell>           this recipe item teaches recipe <spell>
 --   v<npc>             vendor <npc> sells it
---   V<npc>x<n>+g<copper>  vendor <npc> sells n of it for gold alone (a
---                      gold-only trade, from curator findings): a seller like
---                      v (kind soldBy), with count (the stack) and price
---                      (copper); the data ships it in place of v for that vendor
+--   V<npc>x<n>+<cost>[+<cost>...]  vendor <npc> sells n of it at a price
+--                      with no item cost, each cost as a b code's ("+c1792x350",
+--                      "+g2500", "+?", "+g?"): a seller like v (kind soldBy),
+--                      with count (the stack; "x?" when it isn't known, count
+--                      nil) and costs (every cost, shared and read-only, with
+--                      costs.unlisted as a b code's); a gold-only one also has
+--                      price (copper), as before data format 8. The data ships it
+--                      in place of v for that vendor and conditions: gold-only
+--                      trades from curator findings (format 3), currency prices
+--                      from AllTheThings, the Lab's vendor recorder and curator
+--                      findings (format 8, 2026-09-29)
 --   c<npc>             creature <npc> drops it
 --   i<object>          it is found in <object> (a treasure; its place in
 --                      Data/Vendors.lua objects)
@@ -91,7 +98,7 @@
 -- whose only conditions are these has no flags, so it serves every character
 -- exactly as one with none.
 -- For(itemID) returns { { kind, id, criteria, count, level, thing, vendors, plus,
--- costs, unlisted, mapID, unresolved, parts, flags } }, uses first (objective, questItem, starts, opens,
+-- costs, costText, unlisted, mapID, seller, unresolved, parts, price, flags, shows } }, uses first (objective, questItem, starts, opens,
 -- usedAt, criterion, linked, buysDecor, buys, partOf, makes, reagentOf, currency,
 -- recipeFor, teaches), then where it comes from (Relations.SOURCE: madeFrom,
 -- craftedBy, taughtBy, reward, choice, achievementReward, soldBy,
@@ -102,7 +109,11 @@
 -- serves a character (SRC-01), and Conditions(relation, owner) which of its
 -- conditions the character misses, as tags for display only (D34: an event
 -- route is tagged but served as any other). QuestGiver(questID) says where a quest
--- starts (the data's G table: its giver and place, from AllTheThings).
+-- starts (the data's G table: its givers and place, from AllTheThings; every
+-- giver since data format 7, the one standing at that place first).
+-- EncountersOfObject(objectID) lists the Encounter Journal encounters whose
+-- loot comes out of a boss loot chest (the L table, format 7), and
+-- EncounterOfObject the first.
 -- QuestRewards(questID) says what a quest a use code names rewards (the W
 -- table: each thing typed as a purchase's is), and ItemThing(itemID) what a
 -- combine's product is when it is a collectible (the K table). RemovedIn(itemID)
@@ -395,12 +406,20 @@ local function ParseParts(body)
   return { kind = "partOf", id = tonumber(id), parts = parts }
 end
 
--- "V<npc>x<n>+g<copper>": a gold-only trade, read as a seller with its
--- stack and price
-local function ParseGold(body)
-  local npc, n, copper = body:match("^(%d+)x(%d+)%+g(%d+)$")
-  if not npc then return nil end
-  return { kind = "soldBy", id = tonumber(npc), count = tonumber(n), price = tonumber(copper) }
+-- "V<npc>x<n>+<cost>[+<cost>...]": a priced trade with no item cost, read as
+-- a seller with its stack and costs (OtherCosts' list, shared, read-only);
+-- "x?" when the stack isn't known (count nil). A gold-only one also gives
+-- price, in copper, exactly as before data format 8 (2026-09-29), so every
+-- reader of price reads only gold-only trades. A tail with no stated cost
+-- ("+?" alone) says no more than a plain v, and doesn't parse
+local function ParsePriced(body)
+  local npc, n, text = body:match("^(%d+)x([%d%?]+)(%+.*)$")
+  if not npc or (n ~= "?" and not n:match("^%d+$")) then return nil end
+  local costs = OtherCosts(text)
+  if not costs or #costs == 0 then return nil end
+  local relation = { kind = "soldBy", id = tonumber(npc), count = tonumber(n), costs = costs }
+  if #costs == 1 and costs[1].kind == "gold" and not costs.unlisted then relation.price = costs[1].count end
+  return relation
 end
 
 local function ParseBody(kind, body, itemID)
@@ -446,7 +465,7 @@ function Relations.Parse(code, itemID)
   local bar = body:find("|", 1, true)
   if bar then body, flags = body:sub(1, bar - 1), body:sub(bar + 1) end
   local relation
-  if letter == "V" then relation = ParseGold(body) else relation = ParseBody(kind, body, itemID) end
+  if letter == "V" then relation = ParsePriced(body) else relation = ParseBody(kind, body, itemID) end
   if relation and flags and flags ~= "" then
     local shows, plain = Shows(flags)
     relation.flags, relation.shows = Flags(plain), shows
@@ -699,17 +718,28 @@ function Relations.Recipe(spellID)
   return { skillLine = tonumber(skill), product = tonumber(product), quantity = tonumber(quantity) }
 end
 
--- Where a quest starts: { npcID (nil when no giver is known), mapID, x, y }
--- with x and y from 0 to 1, or nil when the data has no place for it
+-- Where a quest starts: { npcID, npcIDs, mapID, x, y } with x and y from 0
+-- to 1, or nil when the data has no place for it. npcID is the giver the
+-- place was taken with (nil when none is known), npcIDs every giver the data
+-- knows, npcID first (empty when none): a record lists them "npc/npc" since
+-- data format 7 (2026-09-28: a quest with a giver in each faction's camp, or
+-- one per capital), "0/npc" when only other givers are known, and a format 6
+-- record one alone
 function Relations.QuestGiver(questID)
   if not Recollect.Utilities.IsPositiveID(questID) then return nil end
   local data = Data()
   local text = Record(data and data.G, questID)
   if not text then return nil end
-  local npc, map, x, y = text:match("^(%d+),(%d+),(%d+),(%d+)$")
-  if not npc or tonumber(map) == 0 then return nil end
-  npc = tonumber(npc)
-  return { npcID = npc > 0 and npc or nil, mapID = tonumber(map), x = tonumber(x) / 1000, y = tonumber(y) / 1000 }
+  local npcs, map, x, y = text:match("^([%d/]+),(%d+),(%d+),(%d+)$")
+  if not npcs or tonumber(map) == 0 then return nil end
+  local ids, first = {}, nil
+  for npc in npcs:gmatch("%d+") do
+    npc = tonumber(npc)
+    first = first or npc
+    if npc > 0 then ids[#ids + 1] = npc end
+  end
+  return { npcID = first and first > 0 and first or nil, npcIDs = ids, mapID = tonumber(map), x = tonumber(x) / 1000,
+    y = tonumber(y) / 1000 }
 end
 
 -- The item behind a thing a purchase names, by its letter ("e" an ensemble
@@ -730,6 +760,24 @@ function Relations.EncounterOf(npcID)
   local text = Record(data and data.J, npcID)
   local encounterID = text and tonumber(text)
   return Recollect.Utilities.IsPositiveID(encounterID) and encounterID or nil
+end
+
+-- The Encounter Journal encounters whose loot comes out of a boss loot chest
+-- (the L table, data format 7, from AllTheThings' encounter providers:
+-- Ula'tek's Ruin, 673428, holds encounter 2895's loot), ascending as
+-- shipped, a new list each call; empty when the data names none
+function Relations.EncountersOfObject(objectID)
+  local list = {}
+  if not Recollect.Utilities.IsPositiveID(objectID) then return list end
+  local data = Data()
+  local text = Record(data and data.L, objectID)
+  for id in (text or ""):gmatch("%d+") do list[#list + 1] = tonumber(id) end
+  return list
+end
+
+-- The first encounter a boss loot chest holds the loot of, or nil
+function Relations.EncounterOfObject(objectID)
+  return Relations.EncountersOfObject(objectID)[1]
 end
 
 -- "p3389" or "193373": a typed thing, as a purchase's (thing letter, ID)

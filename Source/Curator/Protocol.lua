@@ -79,7 +79,10 @@ function Protocol.Encode(kind, mode, to, ...)
   for i = 1, 3 do
     if tostring(parts[i]):find(Protocol.SEP, 1, true) then return nil end
   end
-  return table.concat(parts, Protocol.SEP)
+  local text = table.concat(parts, Protocol.SEP)
+  -- the game refuses a longer message: never queue one
+  if #text > Protocol.MAX_MESSAGE then return nil end
+  return text
 end
 
 -- Decode(text): { kind, mode, to, fields = { ... } }, or nil for anything
@@ -219,6 +222,19 @@ end
 -- A comma list of numbers or IDs, and back
 function Protocol.List(list)
   return table.concat(list or {}, ",")
+end
+
+-- ListWithin(list, room): the list's first entries that fit room bytes as a
+-- List, and how many of them (the rest go in a later message)
+function Protocol.ListWithin(list, room)
+  local out, used = {}, 0
+  for _, item in ipairs(list or {}) do
+    local add = #tostring(item) + (#out > 0 and 1 or 0)
+    if used + add > room then break end
+    out[#out + 1] = tostring(item)
+    used = used + add
+  end
+  return table.concat(out, ","), #out
 end
 
 function Protocol.ParseList(text)

@@ -173,11 +173,9 @@ function LauncherMixin:CreateButton()
   -- Drag around the minimap; the angle is saved as it moves
   btn:RegisterForDrag("LeftButton")
   btn:SetScript("OnDragStart", function(frame)
-    frame.isDragging = true
     frame:SetScript("OnUpdate", function() launcher:SetAngle(AngleFromCursor()) end)
   end)
   btn:SetScript("OnDragStop", function(frame)
-    frame.isDragging = false
     frame:SetScript("OnUpdate", nil)
     launcher:SetAngle(AngleFromCursor())
   end)

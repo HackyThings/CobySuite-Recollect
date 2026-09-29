@@ -4,6 +4,31 @@ All notable changes to Recollect are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-09-29
+
+### Added
+
+- **Items bought with a currency now show the price:** "Sold by X for 350 Honor", or "Sold by X, 5 for 350 Honor and 10 gold" when one purchase gives several, for thousands of items sold for Honor, Conquest, Timewarped Badges, Trader's Tender and other currencies. Curators' currency prices are now compared with the database like gold prices: a matching price confirms it, and a different one is reported.
+
+### Changed
+
+- **Weapon oils and sharpening stones from an older expansion now read Outdated**, like older potions and flasks: each expansion makes new ones. English clients only, since the check reads the item's Use line.
+- **Curator mode stops reporting what the author already checked.** A finding the author looked into and turned down (an NPC that walks, a vendor that rides on another player's mount such as the Mighty Caravan Brutosaur's) is no longer recorded or sent.
+- **Curator mode sends less over time.** Each account confirms once that a vendor's (or other place's) listing matches the database, and once enough curators have confirmed a place, nobody sends a match for it again. Differences are always sent, and when one turns up, everyone may confirm that place once more.
+
+### Fixed
+
+- **Curators with many collections waiting for the author's confirmation** could look offline to the author: their reply grew too long to send. It now sends what fits and the rest in the next reply.
+- **A collection keeps going to the author's character that asked for it**, even when the author checks in from another character meanwhile.
+- **Findings the author never confirmed within 30 days** are sent again in the next collection instead of being treated as delivered.
+- **Items with no information** are noted again after a database update even when nothing else was waiting to be sent.
+- **Curators no longer report loot the database already explains:** a world drop looted from a boss, or an item any enemy of a zone can drop looted in that zone, is no longer reported as that enemy's own drop, and a bag opened right after disenchanting is no longer taken for a disenchant.
+- **Fewer false reports from curators:** a vendor someone summons or brings along (Jeeves, an Argent Squire), a holiday vendor's goods out of season, a tabard handed out again for free, a currency gained at its cap or from a craft, a world quest's reward (it changes each time the quest is up), the Trading Post item you kept from an earlier month, food eaten while learning a recipe at a trainer, and a quest giver standing where its quest starts are no longer reported.
+- **Fewer false reports from curators about places:** an NPC found in several spots, a quest offered by several NPCs, a boss's loot chest, a treasure's other spawns and a boss's other forms now match what the database has, so curators no longer report them as wrong or new.
+- **Curators with a reputation discount at a vendor** no longer report that vendor's prices as different from the database's: a price 5 to 20% below it counts as the same price.
+- **The curator dashboard's Findings search** finds a creature or item by its name once the game has loaded that name, not only by the name it had when the list was built.
+- **The curator connection test** (`/rec curator ping`) now answers only members of the curator community, replies the same way the test reached it, and runs one test at a time per character.
+
 ## [0.0.1d] - 2026-09-28
 
 ### Added
@@ -174,7 +199,8 @@ All notable changes to Recollect are documented here. Format follows [Keep a Cha
   - **Feedback:** `/rec feedback` opens a box for anything you want the author to know. It goes with your next collection too.
   - **Errors:** any Recollect error your game shows is kept and sent along, so it can be fixed. Flags, feedback and errors are read only by the author, and what the author already has is cleared when a new database arrives.
 
-[Unreleased]: https://github.com/HackyThings/CobySuite-Recollect/compare/v0.0.1d...HEAD
+[Unreleased]: https://github.com/HackyThings/CobySuite-Recollect/compare/v0.0.2...HEAD
+[0.0.2]: https://github.com/HackyThings/CobySuite-Recollect/releases/tag/v0.0.2
 [0.0.1d]: https://github.com/HackyThings/CobySuite-Recollect/releases/tag/v0.0.1d
 [0.0.1c]: https://github.com/HackyThings/CobySuite-Recollect/releases/tag/v0.0.1c
 [0.0.1b]: https://github.com/HackyThings/CobySuite-Recollect/releases/tag/v0.0.1b

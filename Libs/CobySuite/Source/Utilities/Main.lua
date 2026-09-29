@@ -183,7 +183,7 @@ function U.StripColors(text)
 end
 
 ---------------------------------------------------------------------------
--- Key bindings as a player reads them
+-- Versions, key bindings and command lines as a player reads them
 ---------------------------------------------------------------------------
 local BUTTON_WORDS = { BUTTON1 = "Left Click", BUTTON2 = "Right Click", BUTTON3 = "Middle Click" }
 

@@ -1,9 +1,12 @@
 -------------------------------------------------------------------------------
 -- Purpose: a consumable (item class 0)
 --
--- Potions, elixirs, flasks and phials, food and drink, bandages, Vantus runes
--- and item enhancements are made anew for each expansion, so one from an
--- older expansion is Outdated: both the item's expansionID and AllTheThings'
+-- Potions, elixirs, flasks and phials, food and drink, bandages, Vantus runes,
+-- item enhancements and temporary weapon enhancements (oils, sharpening
+-- stones, weightstones and weapon runes, which the game files as Other: an
+-- English Use line applying to "your ... weapon" for a set time; Cobanyte,
+-- 2026-09-29, after a curator's flag on Algari Mana Oil) are made anew for
+-- each expansion, so one from an older expansion is Outdated: both the item's expansionID and AllTheThings'
 -- added patch below GetServerExpansionLevel (Facts.Item.Age "older"; the
 -- reason names the later of the two: "from Shadowlands (added in patch
 -- 9.0.2)"). When the game says older and the added patch says current
@@ -46,6 +49,32 @@ local REPLACED = {
   [Sub.VantusRune or 9] = { "A Vantus rune", "A current-expansion Vantus rune" },
 }
 local OTHER = { "A consumable", "A current-expansion consumable" }
+local WEAPON = { "A temporary weapon enhancement", "A current-expansion temporary weapon enhancement" }
+-- Every Other consumable of the 2026-09-28 dump whose Use line reads this way
+-- (73, from Classic's Rough Sharpening Stone to Midnight's Oil of Dawn) is a
+-- weapon oil, stone or rune; a permanent coating ("lasts until canceled") and
+-- an artifact relic name no time, and stay Other
+local function IsTimedWeaponBuff(useText)
+  local plain = useText:gsub("|c........", ""):gsub("|[rR]", ""):lower()
+  local weapon = plain:find("your weapons?%f[%A]") or plain:find("your [%a%-]+ weapons?%f[%A]")
+    or plain:find("your [%a%-]+ [%a%-]+ weapons?%f[%A]")
+  local timed = plain:find("for %d+ min") or plain:find("for %d+ hour") or plain:find("for %d+ sec")
+    or plain:find("lasts %d+ min") or plain:find("lasts %d+ hour")
+  return weapon ~= nil and timed ~= nil
+end
+
+-- The kind's { older, current } wording, or nil for a kind no expansion
+-- replaces; and, for an Other consumable whose Use line decides it but hasn't
+-- loaded, why it can't be told yet
+local function Kind(ctx)
+  local words = REPLACED[ctx.facts.subclassID]
+  if words or ctx.facts.subclassID ~= (Sub.Other or 8) or not R.EnglishClient() then return words end
+  local tip = ctx.Tooltip()
+  if tip and tip.useText then return IsTimedWeaponBuff(tip.useText) and WEAPON or nil end
+  if ctx.facts.spellLoading then return nil, "its Use line is still loading" end
+  if ctx.facts.spellFailed then return nil, "its Use line can't be loaded" end
+  return nil
+end
 local NOT_REPLACED = "; this kind isn't replaced each expansion"
 -- Enum.TooltipDataLineType.UsageRequirement (43 in 12.1): "Requires Midnight Herbalism (1)"
 local USAGE_REQUIREMENT = (Enum and Enum.TooltipDataLineType and Enum.TooltipDataLineType.UsageRequirement) or 43
@@ -70,8 +99,14 @@ R.Register({
     if not age then
       return R.Unknown("Consumable; its expansion can't be read")
     end
-    local words = REPLACED[ctx.facts.subclassID]
+    local words, pending = Kind(ctx)
     local UseEffect = Recollect.Purposes.UseEffect
+    if pending and age ~= "current" then
+      -- whether it is a kind each expansion replaces can't be told before the
+      -- Use line reads (contract rule 14): never "isn't replaced" meanwhile
+      return R.Unknown(("%s %s; %s"):format(OTHER[1], UseEffect.From(expansion, source, patch), pending), nil,
+        ctx.facts.spellLoading and "loading" or "unreadable")
+    end
     if age == "older" then
       -- Both sources place it in an older expansion (Facts.Item.Age)
       local text = ("%s %s, an older expansion"):format((words or OTHER)[1], UseEffect.From(expansion, source, patch))

@@ -5,10 +5,14 @@
 -- few blocks.
 --
 --   contexts[n] = { char, class, race, level, faction, profs, chromie,
---                   warmode, map, build }
+--                   warmode, map, build, difficulty }
 --     char: an index into the account's characters (no GUID or name
 --     travels); faction: 0 Horde, 1 Alliance, 2 neither (as the shipped
---     f0/f1); profs: the character's profession skill lines, "171.333"
+--     f0/f1); profs: the character's profession skill lines, "171.333";
+--     difficulty: the instance difficulty (0 outside an instance, 8 a
+--     Mythic+ keystone run), so the pipeline can tell a keystone run's
+--     end-of-run loot apart and decide it item by item (blocks made before
+--     it lack the field)
 --   quests[n] = { char, at, kind = "base" or "delta", base, data }
 --     the completed-quest state for records that need it (positions and
 --     availability): one base per character per data version, then deltas
@@ -38,6 +42,7 @@ Context.seams = {
   WarMode = function() return C_PvP.IsWarModeActive() end,
   Map = function() return C_Map.GetBestMapForUnit("player") end,
   Build = function() return select(2, GetBuildInfo()) end,
+  Difficulty = function() return (select(3, GetInstanceInfo())) end,
   CompletedQuests = function() return C_QuestLog.GetAllCompletedQuestIDs() end,
   Compress = function(text) return C_EncodingUtil.CompressString(text) end,
   Decompress = function(data) return C_EncodingUtil.DecompressString(data) end,
@@ -110,7 +115,7 @@ local function Block(db)
   return {
     char = Context.CharIndex(db), class = Read("Class"), race = Read("Race"), level = Read("Level"),
     faction = faction and (FACTIONS[faction] or 2) or nil, profs = SkillLines(), chromie = Read("Chromie"),
-    warmode = Read("WarMode"), map = Read("Map"), build = Read("Build"),
+    warmode = Read("WarMode"), map = Read("Map"), build = Read("Build"), difficulty = Read("Difficulty"),
   }
 end
 
@@ -124,7 +129,7 @@ end
 local function Key(block)
   return table.concat({ tostring(block.char), tostring(block.class), tostring(block.race), tostring(block.level),
     tostring(block.faction), tostring(block.profs), tostring(block.chromie), tostring(block.warmode),
-    tostring(block.map), tostring(block.build) }, "|")
+    tostring(block.map), tostring(block.build), tostring(block.difficulty) }, "|")
 end
 
 -- Current(): the index of the context block for this moment, made once

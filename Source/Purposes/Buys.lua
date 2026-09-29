@@ -263,81 +263,79 @@ end
 -- The check's answer for one list of relations and owner
 local function Answer(relations, owner, itemID)
   local Relations = Recollect.Facts.Relations
-  do
-    -- serving this character, for another (a verified mismatch), or not told
-    -- (the owner's record lacks what a route is restricted by, PI-14)
-    local serving, others, untold = {}, {}, {}
-    for _, relation in ipairs(relations) do
-      if relation.kind == "buys" then
-        local applies = Relations.Applies(relation, owner)
-        if applies == true then serving[#serving + 1] = relation
-        elseif applies == nil then untold[#untold + 1] = relation
-        elseif applies ~= "unavailable" then others[#others + 1] = relation end
-      end
+  -- serving this character, for another (a verified mismatch), or not told
+  -- (the owner's record lacks what a route is restricted by, PI-14)
+  local serving, others, untold = {}, {}, {}
+  for _, relation in ipairs(relations) do
+    if relation.kind == "buys" then
+      local applies = Relations.Applies(relation, owner)
+      if applies == true then serving[#serving + 1] = relation
+      elseif applies == nil then untold[#untold + 1] = relation
+      elseif applies ~= "unavailable" then others[#others + 1] = relation end
     end
-    if #serving == 0 and #others == 0 and #untold == 0 then return nil end
-    local seen = {}
-    local t = Tally(serving, owner, seen)
-    local o = Tally(others, owner, seen)
-    local u = Tally(untold, owner, seen)
-    local mismatch = Restrictions(others, owner)
-    local _, unknown = Restrictions(untold, owner)
-    local untoldWords = u.total > 0 and ("%d more depend on this character's %s, not recorded yet (log in to it once)")
-      :format(u.total, Kinds(unknown)) or nil
-    if t.missing > 0 then
-      local more = t.missing - #t.names
-      return R.Result(V.USEFUL, ("Buys %d you don't have yet: %s%s"):format(t.missing, table.concat(t.names, ", "),
-        more > 0 and (" and %d more"):format(more) or ""))
-    end
-    if t.achievement then
-      return R.Result(V.USEFUL, ("Counts toward \"%s\", which you haven't earned"):format(t.achievement.name or "an achievement"))
-    end
-    -- plain gear it buys with a look still to collect: only the logged-in
-    -- character's copy, since whether a look can be collected is that
-    -- character's (playerCanCollect)
-    local looks = owner.isViewer and t.plain > 0 and Looks(t, owner) or nil
-    if looks and #looks.missing > 0 then
-      return R.Result(V.USEFUL, ("Buys %d %s you haven't collected: %s"):format(#looks.missing,
-        #looks.missing == 1 and "appearance" or "appearances", LookNames(looks.missing, itemID)))
-    end
-    -- a plain item it buys that leads to a collectible still missing (rule 39)
-    local open, summary, chainUnread, unfollowed = FollowPlain(t, owner, itemID)
-    if open then
-      local Chains, best = Recollect.Facts.Chains, summary.best
-      local name = Recollect.Facts.Buys.Name(open.thing) or ("item " .. open.thing.id)
-      return R.Result(V.USEFUL, ("Buys %s (%d%s), which leads to %s"):format(name, open.relation.count or 1,
-        Chains.CostWords(open.relation, itemID), Chains.Words(best.entry, owner, best.thing, best.quests)))
-    end
-    local plainWords = PlainWords(chainUnread, unfollowed)
-    local otherWords = o.total > 0 and ("%d more for another %s"):format(o.total, Kinds(mismatch)) or nil
-    if t.total == 0 then
-      -- an achievement whose state can't be read holds an earned one's note back (PI-08)
-      if t.achievementUnread then
-        return R.Unknown("Whether it still counts toward an achievement can't be read yet", nil, "loading")
-      end
-      if t.earned and u.total == 0 then return R.Info(("Counts toward \"%s\", which you've earned"):format(t.earned.name or "an achievement")) end
-      if u.total > 0 then
-        local headline = ("Buys %d %s this character's record can't match yet"):format(u.total, u.total == 1 and "thing" or "things")
-        return R.Unknown(headline .. "; " .. untoldWords .. (otherWords and ("; " .. otherWords) or ""), headline, "character")
-      end
-      if o.total > 0 then
-        local gap = ClassGap(others, owner)
-        local headline = gap and ("Buys %d %s, %s"):format(o.total, o.total == 1 and "thing" or "things", gap)
-          or ("Buys %d %s for another %s"):format(o.total, o.total == 1 and "thing" or "things", Kinds(mismatch))
-        return R.Unknown(headline, headline)
-      end
-      return R.Unknown("What it buys can't be read yet", nil, "unreadable")
-    end
-    local headline = ("Buys %d %s"):format(t.total, t.total == 1 and "thing" or "things")
-    if t.vendorCount > 0 then headline = headline .. (" from %d %s"):format(t.vendorCount, t.vendorCount == 1 and "vendor" or "vendors") end
-    local lookWords = LookWords(looks)
-    local reason = headline .. "; " .. StateWords(t) .. (lookWords and ("; " .. lookWords) or "")
-      .. (plainWords and ("; " .. plainWords) or "")
-      .. (otherWords and ("; " .. otherWords) or "") .. (untoldWords and ("; " .. untoldWords) or "")
-    local category = ((t.unread > 0 or chainUnread > 0 or (looks and looks.waiting > 0)) and "loading")
-      or (t.failed > 0 and "unreadable") or (t.unassessed > 0 and "character") or nil
-    return R.Unknown(reason, headline, category)
   end
+  if #serving == 0 and #others == 0 and #untold == 0 then return nil end
+  local seen = {}
+  local t = Tally(serving, owner, seen)
+  local o = Tally(others, owner, seen)
+  local u = Tally(untold, owner, seen)
+  local mismatch = Restrictions(others, owner)
+  local _, unknown = Restrictions(untold, owner)
+  local untoldWords = u.total > 0 and ("%d more depend on this character's %s, not recorded yet (log in to it once)")
+    :format(u.total, Kinds(unknown)) or nil
+  if t.missing > 0 then
+    local more = t.missing - #t.names
+    return R.Result(V.USEFUL, ("Buys %d you don't have yet: %s%s"):format(t.missing, table.concat(t.names, ", "),
+      more > 0 and (" and %d more"):format(more) or ""))
+  end
+  if t.achievement then
+    return R.Result(V.USEFUL, ("Counts toward \"%s\", which you haven't earned"):format(t.achievement.name or "an achievement"))
+  end
+  -- plain gear it buys with a look still to collect: only the logged-in
+  -- character's copy, since whether a look can be collected is that
+  -- character's (playerCanCollect)
+  local looks = owner.isViewer and t.plain > 0 and Looks(t, owner) or nil
+  if looks and #looks.missing > 0 then
+    return R.Result(V.USEFUL, ("Buys %d %s you haven't collected: %s"):format(#looks.missing,
+      #looks.missing == 1 and "appearance" or "appearances", LookNames(looks.missing, itemID)))
+  end
+  -- a plain item it buys that leads to a collectible still missing (rule 39)
+  local open, summary, chainUnread, unfollowed = FollowPlain(t, owner, itemID)
+  if open then
+    local Chains, best = Recollect.Facts.Chains, summary.best
+    local name = Recollect.Facts.Buys.Name(open.thing) or ("item " .. open.thing.id)
+    return R.Result(V.USEFUL, ("Buys %s (%d%s), which leads to %s"):format(name, open.relation.count or 1,
+      Chains.CostWords(open.relation, itemID), Chains.Words(best.entry, owner, best.thing, best.quests)))
+  end
+  local plainWords = PlainWords(chainUnread, unfollowed)
+  local otherWords = o.total > 0 and ("%d more for another %s"):format(o.total, Kinds(mismatch)) or nil
+  if t.total == 0 then
+    -- an achievement whose state can't be read holds an earned one's note back (PI-08)
+    if t.achievementUnread then
+      return R.Unknown("Whether it still counts toward an achievement can't be read yet", nil, "loading")
+    end
+    if t.earned and u.total == 0 then return R.Info(("Counts toward \"%s\", which you've earned"):format(t.earned.name or "an achievement")) end
+    if u.total > 0 then
+      local headline = ("Buys %d %s this character's record can't match yet"):format(u.total, u.total == 1 and "thing" or "things")
+      return R.Unknown(headline .. "; " .. untoldWords .. (otherWords and ("; " .. otherWords) or ""), headline, "character")
+    end
+    if o.total > 0 then
+      local gap = ClassGap(others, owner)
+      local headline = gap and ("Buys %d %s, %s"):format(o.total, o.total == 1 and "thing" or "things", gap)
+        or ("Buys %d %s for another %s"):format(o.total, o.total == 1 and "thing" or "things", Kinds(mismatch))
+      return R.Unknown(headline, headline)
+    end
+    return R.Unknown("What it buys can't be read yet", nil, "unreadable")
+  end
+  local headline = ("Buys %d %s"):format(t.total, t.total == 1 and "thing" or "things")
+  if t.vendorCount > 0 then headline = headline .. (" from %d %s"):format(t.vendorCount, t.vendorCount == 1 and "vendor" or "vendors") end
+  local lookWords = LookWords(looks)
+  local reason = headline .. "; " .. StateWords(t) .. (lookWords and ("; " .. lookWords) or "")
+    .. (plainWords and ("; " .. plainWords) or "")
+    .. (otherWords and ("; " .. otherWords) or "") .. (untoldWords and ("; " .. untoldWords) or "")
+  local category = ((t.unread > 0 or chainUnread > 0 or (looks and looks.waiting > 0)) and "loading")
+    or (t.failed > 0 and "unreadable") or (t.unassessed > 0 and "character") or nil
+  return R.Unknown(reason, headline, category)
 end
 
 -- Answers kept while every thing's state is (Facts.Buys.Stamp: until data

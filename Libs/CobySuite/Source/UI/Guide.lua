@@ -39,8 +39,8 @@
 --
 -- Everything is built at once, so create a guide out of combat (at load or
 -- login); showing and hiding it later is safe in combat. It is a CreateWindow
--- shell at DIALOG strata that the player can move and resize; the text
--- reflows with the width.
+-- shell in the MEDIUM layer, like every window, that the player can move and
+-- resize; the text reflows with the width.
 --
 --   local help = CobySuite.UI.CreateHelpButton(window, {
 --     onClick = function() guide:Toggle() end,

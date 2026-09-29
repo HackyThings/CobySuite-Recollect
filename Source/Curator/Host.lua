@@ -19,9 +19,13 @@ Recollect.Curator = Curator
 local Host = {}
 Curator.Host = Host
 
-Host.HOST_VERSION = 4   -- 2: Versions fails closed, Hints is fact-keyed, PurchasesOf;
+Host.HOST_VERSION = 6   -- 2: Versions fails closed, Hints is fact-keyed, PurchasesOf;
                         -- 3: NpcName, ZoneName, OpenSettings (the curator dashboard);
-                        -- 4: Knows, StoredItems, OnSnapshotCaptured (items with no information)
+                        -- 4: Knows, StoredItems, OnSnapshotCaptured (items with no information);
+                        -- 5: NpcPlaces, QuestPlace, EncounterOfObject, ObjectAlias (data format 7),
+                        --    Sources' event, QuestGiver's second answer (every giver);
+                        -- 6: Sources' costs and unlisted (a V code's price in currencies, data
+                        --    format 8, 2026-09-29)
 
 -------------------------------------------------------------------------------
 -- Versions (D13)
@@ -102,13 +106,18 @@ end
 
 local hintsFor, hintsSet
 -- The curator hints shipped with the data (D30), as a fresh set of the
--- facts they name: { unseen = { [fact] = true } }
+-- facts they name, and the settled sources and confirmation rounds (D36) as
+-- shipped: { unseen = { [fact] = true }, settled = { [source] = round },
+-- rounds = { [source] = round }, quiet = { [fact] = true or { [value] = true } } }
 function Host.Hints()
   local DataVersion = Recollect.Facts and Recollect.Facts.DataVersion
   local ok, hints = false, nil
   if DataVersion and DataVersion.Hints then ok, hints = pcall(DataVersion.Hints) end
   local unseen = ok and type(hints) == "table" and type(hints.unseen) == "table" and hints.unseen or nil
-  if hintsFor == unseen and hintsSet then return { unseen = hintsSet } end
+  local settled = ok and type(hints) == "table" and type(hints.settled) == "table" and hints.settled or {}
+  local rounds = ok and type(hints) == "table" and type(hints.rounds) == "table" and hints.rounds or {}
+  local quiet = ok and type(hints) == "table" and type(hints.quiet) == "table" and hints.quiet or {}
+  if hintsFor == unseen and hintsSet then return { unseen = hintsSet, settled = settled, rounds = rounds, quiet = quiet } end
   local set = {}
   for letter, sources in pairs(unseen or {}) do
     if type(letter) == "string" and type(sources) == "table" then
@@ -120,7 +129,7 @@ function Host.Hints()
     end
   end
   hintsFor, hintsSet = unseen, set
-  return { unseen = set }
+  return { unseen = set, settled = settled, rounds = rounds, quiet = quiet }
 end
 
 -- The shipped relations bucket strings the handshake challenge reads
@@ -223,8 +232,12 @@ end
 -- The shipped relations of one kind for an item, sources or uses
 -- ("soldBy", "dropsFrom", "foundIn", "zoneDrop", "reward", "choice",
 -- "objective", "questItem", "starts", "usedAt", "teaches", "reagentOf",
--- "currency" ...): { id, count, price, serves } (price: a gold-only
--- seller's shipped price in copper, count its stack)
+-- "currency" ...): { id, count, price, costs, unlisted, serves, event }
+-- (price: a gold-only seller's shipped price in copper, count its stack, nil
+-- when the data gives it as "?"; costs: a priced seller's (V) every cost as
+-- copied { kind, id, count } entries, gold included, nil for any other
+-- relation; unlisted: "costs" or "gold" when part of that price isn't known;
+-- event: true for a route only during a holiday or event, the "h" flag)
 function Host.Sources(itemID, kind, context)
   local Relations = Recollect.Facts and Recollect.Facts.Relations
   local out = {}
@@ -232,18 +245,38 @@ function Host.Sources(itemID, kind, context)
   local ok, list = pcall(Relations.Of, itemID, kind)
   if not ok then return out end
   for _, relation in ipairs(list) do
-    out[#out + 1] = { id = relation.id, count = relation.count, price = relation.price, serves = Serves(relation, context) }
+    local costs = type(relation.costs) == "table" and relation.kind == "soldBy" and relation.costs or nil
+    out[#out + 1] = { id = relation.id, count = relation.count, price = relation.price, serves = Serves(relation, context),
+      event = relation.flags and relation.flags.event and true or nil,
+      costs = costs and CopyCosts(costs) or nil, unlisted = costs and costs.unlisted or nil }
   end
   return out
 end
 
--- An NPC's shipped position: { mapID, x, y } or nil
+-- An NPC's shipped position (its first place): { mapID, x, y } or nil
 function Host.NpcPosition(npcID)
   local Vendors = Recollect.Facts and Recollect.Facts.Vendors
   if not (Vendors and Vendors.Position) then return nil end
   local ok, position = pcall(Vendors.Position, npcID)
   if not ok or type(position) ~= "table" then return nil end
   return { mapID = position.mapID, x = position.x, y = position.y }
+end
+
+-- Every place the shipped data gives an NPC, the first place first, as
+-- { { mapID, x, y } }: an NPC walking a path, with several spawns or in
+-- several cities has more than one (data format 7). Empty when none
+function Host.NpcPlaces(npcID)
+  local Vendors = Recollect.Facts and Recollect.Facts.Vendors
+  local out = {}
+  if not (Vendors and Vendors.Places) then return out end
+  local ok, list = pcall(Vendors.Places, npcID)
+  for _, place in ipairs(ok and type(list) == "table" and list or {}) do
+    if type(place) == "table" and type(place.mapID) == "number" and place.mapID > 0 and type(place.x) == "number"
+      and type(place.y) == "number" then
+      out[#out + 1] = { mapID = place.mapID, x = place.x, y = place.y }
+    end
+  end
+  return out
 end
 
 -- The Encounter Journal encounter the shipped data maps a boss NPC to (the
@@ -253,6 +286,34 @@ function Host.EncounterOf(npcID)
   if not (Relations and Relations.EncounterOf) then return nil end
   local ok, encounterID = pcall(Relations.EncounterOf, npcID)
   return ok and type(encounterID) == "number" and encounterID or nil
+end
+
+-- The numbers of a Facts reader's list answer, as a new list (empty when
+-- the reader is missing, throws or answers anything else)
+local function Numbers(reader, id)
+  local out = {}
+  if type(reader) ~= "function" then return out end
+  local ok, list = pcall(reader, id)
+  for _, value in ipairs(ok and type(list) == "table" and list or {}) do
+    if type(value) == "number" then out[#out + 1] = value end
+  end
+  return out
+end
+
+-- The Encounter Journal encounters whose loot comes out of a boss loot chest
+-- (the data's L table, data format 7: AllTheThings' encounter providers), as
+-- a list, empty when the object is none
+function Host.EncounterOfObject(objectID)
+  local Relations = Recollect.Facts and Recollect.Facts.Relations
+  return Numbers(Relations and Relations.EncountersOfObject, objectID)
+end
+
+-- The container objects a treasure's spawn object is filed under (the data's
+-- S table, data format 7: the loot of any spawn is the container's), as a
+-- list, empty when none
+function Host.ObjectAlias(objectID)
+  local Vendors = Recollect.Facts and Recollect.Facts.Vendors
+  return Numbers(Vendors and Vendors.ObjectAliases, objectID)
 end
 
 -- What the shipped data says combining an item makes: { count (how many of
@@ -294,12 +355,40 @@ function Host.ZoneName(mapID)
   return ok and type(name) == "string" and name ~= "" and name or nil
 end
 
--- The NPC the shipped data says gives a quest, or nil
-function Host.QuestGiver(questID)
+-- A quest's G record as plain values, or nil
+local function QuestRecord(questID)
   local Relations = Recollect.Facts and Recollect.Facts.Relations
   if not (Relations and Relations.QuestGiver) then return nil end
   local ok, giver = pcall(Relations.QuestGiver, questID)
-  return ok and type(giver) == "table" and giver.npcID or nil
+  if not ok or type(giver) ~= "table" then return nil end
+  local givers = {}
+  for _, npc in ipairs(type(giver.npcIDs) == "table" and giver.npcIDs or {}) do
+    if type(npc) == "number" then givers[#givers + 1] = npc end
+  end
+  local first = type(giver.npcID) == "number" and giver.npcID or givers[1]
+  if first and givers[1] == nil then givers[1] = first end
+  return { npcID = first, npcIDs = givers, mapID = giver.mapID, x = giver.x, y = giver.y }
+end
+
+-- The NPC the shipped data says gives a quest, or nil; and, second, every
+-- giver it lists (the first first; a quest with a giver in each faction's
+-- camp lists both since data format 7), a new list, empty with no giver
+function Host.QuestGiver(questID)
+  local record = QuestRecord(questID)
+  if not record then return nil, {} end
+  return record.npcID, record.npcIDs
+end
+
+-- Where the shipped data says a quest starts: { npcID, npcIDs, mapID, x, y }
+-- (x and y from 0 to 1; npcIDs every giver, npcID the one the place was
+-- taken with, or the first listed), or nil. The place is the quest's, not
+-- one giver's: with several givers it may be another giver's spot
+function Host.QuestPlace(questID)
+  local record = QuestRecord(questID)
+  if not (record and type(record.mapID) == "number" and type(record.x) == "number" and type(record.y) == "number") then
+    return nil
+  end
+  return record
 end
 
 -- A quest's shipped frequency letters ("d" daily, "w" weekly, "y" yearly,
@@ -484,10 +573,6 @@ end
 
 function Host.Print(text)
   Recollect.Utilities.Message(text)
-end
-
-function Host.Warn(text)
-  Recollect.Utilities.Message.Warn(text)
 end
 
 -- Is a value secret (12.x)? The curator records nothing it can't read.

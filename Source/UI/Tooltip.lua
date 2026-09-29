@@ -2,7 +2,7 @@
 -- UI.Tooltip: Recollect on the tooltip of any item
 --
 -- The tooltip itself gets one line only, saying how to see the audit
--- ("Recollect  hold Alt for details"); the audit shows in its own panel
+-- ("Recollect: hold Alt for details"); the audit shows in its own panel
 -- beside the tooltip (UI.AuditPanel) while the configured key is held (Alt
 -- by default; Shift or Ctrl, or always, in the settings window).
 --

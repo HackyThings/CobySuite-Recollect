@@ -16,8 +16,9 @@
 --
 -- An entry whose item or info can't be read marks the read unread (no "not
 -- seen", no stamp; recorder contract rule 1); a cost count, cost or gold
--- price that can't be read makes that listing incomplete (no price). A
--- secret value in any return is no value.
+-- price that can't be read, or an entry with extended costs of which none
+-- read and no gold price, makes that listing incomplete (no price). A secret
+-- value in any return is no value.
 --
 -- Only while curator mode may record; events are ignored while a test run
 -- scripts the client. Client reads go through Vendor.seams.
@@ -101,10 +102,23 @@ local function ReadEntry(index, visit)
     return
   end
   local costs, complete = Costs(index)
-  if type(info.price) ~= "number" then complete = false end
+  -- the gold price and the stack are fields of the returned table, which
+  -- Seam can't check; a secret one is no value (2026-09-29: the stack is
+  -- written into a price in a currency's text since data format 8)
+  local price = info.price
+  if type(price) ~= "number" or Host.IsSecret(price) then price, complete = nil, false end
+  local stack = info.stackCount
+  if type(stack) ~= "number" or Host.IsSecret(stack) then stack = nil end
+  -- an entry the game says has item or currency costs, with none read and
+  -- no gold price, has costs not loaded yet: it is not free. Only at no gold
+  -- price: whether an extended cost with no cost items (a requirement only)
+  -- stays that way beside a gold price is unmeasured, and marking that
+  -- incomplete would drop its gold price from every comparison
+  local free = price == nil or price <= 0
+  if info.hasExtendedCost == true and #costs == 0 and free then complete = false end
   if not complete then visit.costsLoaded = false end
   visit.trades[itemID] = visit.trades[itemID] or {}
-  table.insert(visit.trades[itemID], { stack = info.stackCount, price = info.price or 0, costs = costs, complete = complete })
+  table.insert(visit.trades[itemID], { stack = stack, price = price or 0, costs = costs, complete = complete })
 end
 
 local function StillReading(visit)
@@ -140,7 +154,7 @@ function Vendor.Read()
   if not Curator.Main.MayRecord() or Seam("InCombat") then return end
   local npc = Vendor.NpcID(Seam("NpcGUID"))
   local count = Seam("NumItems")
-  if not npc or type(count) ~= "number" or Curator.Recorders.NpcPosition.Traveling(npc) then return end
+  if not npc or type(count) ~= "number" or Curator.Recorders.NpcPosition.Traveling(npc, "npc") then return end
   local visit = { npc = npc, filter = Seam("Filter"), costsLoaded = true, trades = {}, count = count,
     generation = Compare.Generation("merchant"), epoch = Curator.Main.Epoch(),
     context = Curator.Context.Owner(), reaction = Seam("Reaction") }

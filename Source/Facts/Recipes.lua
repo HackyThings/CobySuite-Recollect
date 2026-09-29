@@ -12,8 +12,8 @@
 -- slot of its own, outside the reagent slots, so its inputs come from
 -- GetSalvagableItemIDs, as Blizzard's salvage slot reads them. The result is
 -- kept per character:
---   characters[key].recipes[skillLine] = { name, at, build, learned, version,
---     uses = { [itemID] = learned recipes that use it } }
+--   characters[key].recipes[skillLine] = { name, at, learned, version,
+--     uses = { [itemID] = learned recipes that use it }, stale, dropped }
 -- An index of another INDEX_VERSION (one built before salvage inputs were
 -- read) counts as missing. A scan cut short is dropped, never stored half
 -- done: the window closed, the data source changing or changed, a recipe
@@ -52,13 +52,13 @@
 --
 -- Recorded alt use (F-02): at login and on SKILL_LINES_CHANGED the
 -- character's crafting professions are stored (char.professions, a set of
--- skill lines, with professionsAt), and an index of a profession it no
--- longer has is marked stale and dropped (CR-09). RecordedByOthers(itemID)
--- lists what other characters' current scans recorded: { name, profession,
--- count, scannedAt }, only for indexes of the current INDEX_VERSION, not
--- stale, of a profession the character still had at its last login. It is
--- history, never a claim that the recipe is still known or that this copy
--- can reach that character.
+-- skill lines), and an index of a profession it no longer has is marked
+-- stale and dropped (CR-09). RecordedByOthers(itemID) lists what other
+-- characters' current scans recorded: { name, profession, count, scannedAt },
+-- only for indexes of the current INDEX_VERSION, not stale, of a profession
+-- the character still had at its last login. It is history, never a claim
+-- that the recipe is still known or that this copy can reach that
+-- character.
 -------------------------------------------------------------------------------
 local Recipes = {}
 Recollect.Facts.Recipes = Recipes
@@ -104,7 +104,6 @@ local seams = {
   Character = function() return Recollect.Inventory.Snapshots.CurrentCharacter(true) end,
   OtherCharacters = function() return Recollect.Inventory.Snapshots.OtherCharacters() end,
   After = function(delay, fn) C_Timer.After(delay, fn) end,
-  Build = function() return Recollect.Utilities.Build() end,
   Now = function() return GetTime() end,   -- the same all through one frame
   SkillLineName = function(skillLine) return C_TradeSkillUI.GetTradeSkillDisplayName(skillLine) end,
 }
@@ -157,7 +156,7 @@ local function Finish(s)
   scan = nil
   local store = Store()
   if not store then return end
-  store[s.skillLine] = { name = s.name, at = time(), build = seams.Build(), learned = s.learned,
+  store[s.skillLine] = { name = s.name, at = time(), learned = s.learned,
     version = INDEX_VERSION, uses = s.uses }
   scanned[s.skillLine] = true
   generation = generation + 1
@@ -362,7 +361,7 @@ function Recipes.RecordProfessions()
   if not professions or type(char) ~= "table" then return false end
   local set = {}
   for skillLine in pairs(professions) do set[skillLine] = true end
-  char.professions, char.professionsAt = set, time()
+  char.professions = set
   for skillLine, entry in pairs(type(char.recipes) == "table" and char.recipes or {}) do
     if type(entry) == "table" and not set[skillLine] then entry.stale, entry.dropped = true, true end
   end

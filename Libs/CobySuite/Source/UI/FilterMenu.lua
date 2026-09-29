@@ -92,7 +92,7 @@ local BADGE_PATCH_SAMPLE = { 0.12, 0.22, 0.55, 0.70 } -- plain interior: left of
 
 local function CoverGlyph(button, atlasName)
   local info = C_Texture.GetAtlasInfo(atlasName)
-  if not info then return nil end
+  if not info then return end
   local patch = button:CreateTexture(nil, "OVERLAY", nil, 0)
   patch:SetTexture(info.file)
   local l, r = info.leftTexCoord, info.rightTexCoord
@@ -101,7 +101,6 @@ local function CoverGlyph(button, atlasName)
   patch:SetTexCoord(l + (r - l) * s[1], l + (r - l) * s[2], t + (b - t) * s[3], t + (b - t) * s[4])
   patch:SetPoint("TOPLEFT", BADGE_PATCH_INSET, -BADGE_PATCH_INSET)
   patch:SetPoint("BOTTOMRIGHT", -BADGE_PATCH_INSET, BADGE_PATCH_INSET)
-  return patch
 end
 
 function UI.CreateFilterStyleButton(parent, opts)
@@ -117,7 +116,7 @@ function UI.CreateFilterStyleButton(parent, opts)
   button:SetPushedAtlas(BUTTON_ATLAS.pressed)
   button:SetHighlightAtlas(BUTTON_ATLAS.highlight, "ADD")
 
-  button.Patch = CoverGlyph(button, BUTTON_ATLAS.normal)
+  CoverGlyph(button, BUTTON_ATLAS.normal)
 
   local inset = opts.glyphInset or 0
   local glyph = button:CreateTexture(nil, "OVERLAY", nil, 1)

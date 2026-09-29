@@ -51,7 +51,8 @@ local Mixin = CobySuite_Recollect.UI.TableHeaderMixin
 --   persistence     (table?)   { savedVariable = "NAME", path = "key" } for width storage
 --   utilities       (table?)   addon's Utilities table (Colors, HeaderBg, Fonts, AddTooltip; AddTooltip defaults to CobySuite.UI.AddTooltip)
 --   onSort          (fn?)      callback(key, dir) fired on column click
---   onColumnResize  (fn?)      callback() fired after drag release
+--   onColumnResize  (fn?)      callback() fired whenever column widths change:
+--                              each step of a drag, an auto-fit, a reset, a fit
 --   measureColumn   (fn?)      callback(colIndex, key) -> width for auto-fit
 --   onUserResize    (fn?)      callback(colIndex, how) when the user sizes a
 --                              column: how is "drag" (a drag that changed its
@@ -288,7 +289,6 @@ function Mixin:_BuildHeaders()
       divider:SetSize(1, h - 6)
       divider:SetPoint("RIGHT", 0, 0)
       divider:SetColorTexture(dividerColor[1], dividerColor[2], dividerColor[3], dividerColor[4] or 1)
-      btn._divider = divider
     end
 
     self._headerButtons[i] = btn
@@ -451,11 +451,6 @@ end
 -------------------------------------------------------------------------------
 function Mixin:GetColumns()
   return self._columns
-end
-
-function Mixin:GetColumnWidth(index)
-  local col = self._columns[index]
-  return col and col.width
 end
 
 -- GetColumnBounds(): { { key, left, width } } per column, left from the
