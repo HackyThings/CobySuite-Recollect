@@ -28,6 +28,9 @@
 -- beside the findings, so a store holding only notes is not "empty".
 -- The curator also sends O once a session when it is a member with curator
 -- mode on, and L when it opts out. Nothing here deletes a record: only V.
+-- Each step is also written to the curator's own collection history
+-- (Curator.History: the request, the start, refusals, K, V, cancels), which
+-- nothing sends.
 -------------------------------------------------------------------------------
 local Curator = Recollect.Curator
 local Host = Curator.Host
@@ -93,7 +96,7 @@ local function Send(kind, mode, ...)
 end
 
 -- A message of a pull: handed over locally when the author is this very
--- character (Transport.IsLocalPull), else sent on the channel
+-- character (Transport.IsLocalPull), else whispered to the author
 local function SendFor(localOnly, kind, mode, ...)
   if localOnly then return Transport.SendLocal(kind, mode, Protocol.AUTHOR, ...) end
   return Send(kind, mode, ...)
@@ -217,11 +220,22 @@ end
 
 local Count = CobySuite_Recollect.Utilities.TableCount
 
+-- Remember(step, ...): one step into the collection history; a history that
+-- fails never stops a pull
+local function Remember(step, ...)
+  local history = Curator.History
+  if not (history and history[step]) then return nil end
+  local ok, result = pcall(history[step], ...)
+  if not ok then Host.Log("Curator history (%s) failed: %s", tostring(step), tostring(result)) end
+  return ok and result or nil
+end
+
 -------------------------------------------------------------------------------
 -- A pull
 -------------------------------------------------------------------------------
-local function Refuse(request, mode, reason, localOnly)
+local function Refuse(request, mode, reason, localOnly, sender)
   Host.Log("Curator collection %s refused: %s", tostring(request), tostring(reason))
+  Remember("Refused", request, reason, sender, mode)
   SendFor(localOnly, "S", mode, request, 0, 0, "", "refused:" .. reason)
 end
 
@@ -244,20 +258,21 @@ end
 
 -- Starts sending a pull's collection (in a later frame: packing a big
 -- store is the costliest step); localOnly: the author is this very
--- character, so nothing goes over the channel
+-- character, so nothing is whispered
 function Sharing.Start(request, mode, sender, localOnly)
   local snapshot, pending = Sharing.Snapshot()
   if not next(snapshot.records) and not next(snapshot.confirms) and not next(snapshot.notes) then
-    Refuse(request, mode, "empty", localOnly)
+    Refuse(request, mode, "empty", localOnly, sender)
     return false
   end
   local payload, why = Protocol.Pack(snapshot)
   if not payload then
-    Refuse(request, mode, why or "pack", localOnly)
+    Refuse(request, mode, why or "pack", localOnly, sender)
     return false
   end
   transfer = { request = request, mode = mode, sender = sender, pending = pending, payload = payload,
     chunks = Protocol.Chunks(payload, request), checksum = Protocol.Checksum(payload), sent = 0, localOnly = localOnly }
+  Remember("Started", request, sender, mode, snapshot, #payload, #transfer.chunks, localOnly)
   Host.Log("Curator collection %s for %s: %d findings, %d stamps, %d notes, %d bytes in %d parts%s", tostring(request),
     tostring(sender), Count(snapshot.records), Count(snapshot.confirms), Count(snapshot.notes), #payload, #transfer.chunks,
     localOnly and " (on this client)" or "")
@@ -278,19 +293,21 @@ function Sharing.OnRequest(msg)
   if request == "" then return end
   local localOnly = Transport.IsLocalPull(msg.mode, msg.sender)
   if transfer and not transfer.waitingK then
-    Refuse(request, msg.mode, "busy", localOnly)
+    Refuse(request, msg.mode, "busy", localOnly, msg.sender)
     return
   end
   if transfer then
     Transport.Drop(transfer.request)
+    Remember("Replaced", transfer.request)
     transfer = nil
   end
   local state = Sharing.State()
   if state == "off" or state == "nodata" then
-    Refuse(request, msg.mode, state, localOnly)
+    Refuse(request, msg.mode, state, localOnly, msg.sender)
     return
   end
   Host.Log("Curator collection %s requested by %s (%s)", tostring(request), tostring(msg.sender), state)
+  Remember("Asked", request, msg.sender, msg.mode, { prompt = state == "ask", localOnly = localOnly })
   if state == "ask" then
     prompt = { request = request, mode = msg.mode, sender = msg.sender, override = override, at = GetServerTime(),
       localOnly = localOnly }
@@ -308,7 +325,7 @@ function Sharing.AnswerPrompt(allow)
   if allow then
     Curator.Main.Defer(function() Sharing.Start(asked.request, asked.mode, asked.sender, asked.localOnly) end)
   else
-    Refuse(asked.request, asked.mode, "declined", asked.localOnly)
+    Refuse(asked.request, asked.mode, "declined", asked.localOnly, asked.sender)
   end
   if Sharing.OnChanged then pcall(Sharing.OnChanged) end
   return true
@@ -337,6 +354,7 @@ function Sharing.OnAcknowledge(msg)
     Curator.Store.Acknowledged(transfer.request, transfer.pending)
   end
   Curator.Notes.Acknowledged(transfer.request, transfer.pending.notes)
+  Remember("Acknowledged", transfer.request)
   local mode = transfer.mode
   transfer = nil
   if mode == Protocol.LIVE then Host.Print("Recollect: curator findings delivered. Thank you.") end
@@ -350,20 +368,25 @@ function Sharing.OnSaved(msg)
   local db = Curator.Store.DB()
   Host.Log("Curator saved report from %s: saved %s; lost %s", tostring(msg.sender), tostring(msg.fields[1]), tostring(msg.fields[2]))
   for _, request in ipairs(Protocol.ParseList(msg.fields[1])) do
-    if db.awaiting[request] then Curator.Store.Saved(request) end
-    Curator.Store.FrozenSaved(request)
-    Curator.Notes.Saved(request)
+    local held = db.awaiting[request] ~= nil and Curator.Store.Saved(request)
+    held = Curator.Store.FrozenSaved(request) or held
+    held = Curator.Notes.Saved(request) or held
+    if held then Remember("Saved", request) end
   end
   for _, request in ipairs(Protocol.ParseList(msg.fields[2])) do
-    if db.awaiting[request] then Curator.Store.Lost(request) end
-    Curator.Store.FrozenLost(request)
-    Curator.Notes.Lost(request)
+    local held = db.awaiting[request] ~= nil and Curator.Store.Lost(request)
+    held = Curator.Store.FrozenLost(request) or held
+    held = Curator.Notes.Lost(request) or held
+    if held then Remember("Lost", request) end
   end
 end
 
-local function Stop(printed)
+-- Stop(printed, by): the transfer ends unacknowledged; by ("you" or
+-- "author") says who cancelled it
+local function Stop(printed, by)
   if not transfer then return end
   Transport.Drop(transfer.request)
+  Remember("Cancelled", transfer.request, by)
   local mode = transfer.mode
   transfer = nil
   if printed and mode == Protocol.LIVE then Host.Print("Recollect: curator collection cancelled. Nothing was deleted.") end
@@ -372,14 +395,14 @@ end
 
 function Sharing.OnCancel(msg)
   if not FromAuthor(msg) or not transfer or msg.fields[1] ~= transfer.request then return end
-  Stop(true)
+  Stop(true, "author")
 end
 
 -- Cancel(): the curator stops the transfer (the transfer window, /rec curator cancel)
 function Sharing.Cancel()
   if not transfer then return false end
   SendFor(transfer.localOnly, "X", transfer.mode, transfer.request, "cancelled")
-  Stop(true)
+  Stop(true, "you")
   return true
 end
 
@@ -388,6 +411,20 @@ function Sharing.Status()
   if not transfer then return nil end
   return { request = transfer.request, sent = transfer.sent, total = #transfer.chunks, bytes = #transfer.payload,
     waitingK = transfer.waitingK == true, paused = Transport.IsPaused() }
+end
+
+-- Holds(key): whether the running collection carries this record ID or
+-- stamp key as it was when the collection began (a frozen block goes whole:
+-- HoldsBlock)
+function Sharing.Holds(key)
+  local held = transfer and transfer.pending
+  if not held or held.block then return false end
+  return (held.recs ~= nil and held.recs[key] ~= nil) or (held.confirms ~= nil and held.confirms[key] ~= nil)
+end
+
+-- HoldsBlock(block): whether the running collection is that frozen block
+function Sharing.HoldsBlock(block)
+  return transfer ~= nil and transfer.pending ~= nil and transfer.pending.block == block
 end
 
 -------------------------------------------------------------------------------
@@ -430,26 +467,6 @@ if EventRegistry and EventRegistry.RegisterCallback then
   end, Sharing)
 end
 
--- The channel watch (Transport.CheckChannel): a curator, or the author,
--- whose character is in the community but couldn't join the hidden channel
--- hears it once, and once when it is back
-Sharing.CHANNEL_MISSING = "Recollect curator mode couldn't join its hidden channel on this character, so the author "
-  .. "can't reach it. Every chat channel slot may be in use: leave one, then type /rec curator channel."
-Sharing.CHANNEL_BACK = "Recollect: the hidden curator channel is joined; curator mode can send and receive again."
-
-local wasMissing = false
-function Sharing.OnChannelChanged(state)
-  local concerned = Curator.Main.IsEnabled() or Membership.MayPull(Transport.Self())
-  if state == "missing" then
-    wasMissing = true
-    if concerned then Host.Print(Sharing.CHANNEL_MISSING) end
-  elseif state == "ok" and wasMissing then
-    wasMissing = false
-    if concerned then Host.Print(Sharing.CHANNEL_BACK) end
-  end
-end
-Transport.OnChannelChanged = function(state) Sharing.OnChannelChanged(state) end
-
 local announced = false
 local frame = CreateFrame("Frame")
 pcall(frame.RegisterEvent, frame, "PLAYER_ENTERING_WORLD")
@@ -468,14 +485,14 @@ frame:SetScript("OnEvent", function(_, event)
 end)
 
 -------------------------------------------------------------------------------
--- Tests: _test.Swap(state) puts state in place of the transfer, the prompt
--- and the channel-missing note (none when state is nil) and returns what it
+-- Tests: _test.Swap(state) puts state in place of the transfer and the
+-- prompt (none when state is nil) and returns what it
 -- replaced (the loopback's set-aside, as Transport._test.Swap)
 -------------------------------------------------------------------------------
 Sharing._test = {}
 function Sharing._test.Swap(state)
-  local old = { transfer = transfer, prompt = prompt, wasMissing = wasMissing }
-  state = state or { wasMissing = false }
-  transfer, prompt, wasMissing = state.transfer, state.prompt, state.wasMissing
+  local old = { transfer = transfer, prompt = prompt }
+  state = state or {}
+  transfer, prompt = state.transfer, state.prompt
   return old
 end

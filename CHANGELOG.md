@@ -4,6 +4,27 @@ All notable changes to Recollect are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [0.0.1d] - 2026-09-28
+
+### Added
+
+- **Curator dashboard:** `/rec curator` now opens a window for curators. **Overview** starts with one line saying whether curator mode is recording (or why not, such as combat) and three numbers: what waits to be sent, what the author has saved so far, and when the last collection was. Anything you should know or fix comes next, such as a character outside the community (with a Join button); then what waits, by kind, against the 1 MB limit, and the last few collections. The connection to the author, the lines `/rec curator diag` prints and what gets recorded are folded away at the bottom. **Findings** lists everything you recorded in a table you can sort, search and filter: what kind of finding it is, what you saw next to what the database says, and whether it's waiting, sent or saved; hover a row for all of it. **History** lists every collection the author asks for from now on: when, which of the author's characters, what it held and how it went. The bottom of the window has the curator settings, feedback, "Ask me before each collection" and a button to turn curator mode off. `/rec curator status` prints the one-line status the command showed before.
+- **Items with no information:** with curator mode on, Recollect notes items its database knows nothing about, from your bags, bank and warband bank, loot, vendors and quests, so the author can look into them. Only the item and where you saw it are kept, never how many you have, your currencies or gold. Curators who turned curator mode on before this version see a one-time chat line before their bags and banks are included. On such an item the details window's Curator Flag reads **Request info**, with Missing info already chosen. The curator dashboard counts them in a **No info** tile.
+- **Want to be a curator?** With curator mode off, the item details window shows this button where curators see Curator Flag. Hover it for what curator mode does; click it to open the Curator settings.
+- **Achievement button:** achievement rows in the item details window's tables have a small achievement icon in the Map column. One click opens the game's achievement window at that achievement.
+
+### Changed
+
+- **Windows no longer stay on top of the game's own windows.** Recollect's windows now sit with the game's panels: clicking any window brings it to the front, and a window opens in front. Only questions that need an answer, such as confirmations, stay above everything.
+- **Curator mode no longer uses a hidden chat channel.** Everything it sends is now a hidden whisper, which reaches every realm and takes none of your chat channel slots. A character still in the old RecollectCurators channel is asked once, after login, whether to leave it; **Leave channel** leaves that channel and no other. `/rec curator channel` is no longer needed.
+- **Show Achievement** (the item details window's right-click menu on an achievement) goes straight to the achievement when the achievement window is already open. When it's closed, a small window asks you to click **Open achievements**, which opens it the way the game's own button does, and Recollect then shows the achievement there. Opening that window from the addon itself could get the game to blame Recollect for blocked actions later. In combat it waits until combat ends.
+- **What it's for tiles** now say what their numbers mean in each kind's own words ("Achievements: not earned yet", "Crafting: 79 make things you lack"), and every tile in the item details window has a tooltip with the breakdown.
+
+### Fixed
+
+- **Blocked-action errors after opening the settings from the game's menu:** pressing **Open Settings** on the Recollect page under Options > AddOns brought the game menu back behind the settings window, and the game blamed Recollect for SpellStopCasting, SpellStopTargeting and an unnamed protected action ("Recollect has been blocked from an action only available to the Blizzard UI"). The button now just closes Options and opens the settings window.
+- **Right-click on names in the item details window's Overview** opens the same menu the tables do (it opened nothing before).
+
 ## [0.0.1c] - 2026-09-28
 
 ### Added
@@ -153,6 +174,9 @@ All notable changes to Recollect are documented here. Format follows [Keep a Cha
   - **Feedback:** `/rec feedback` opens a box for anything you want the author to know. It goes with your next collection too.
   - **Errors:** any Recollect error your game shows is kept and sent along, so it can be fixed. Flags, feedback and errors are read only by the author, and what the author already has is cleared when a new database arrives.
 
-[Unreleased]: https://github.com/HackyThings/CobySuite-Recollect/compare/v0.0.1a...HEAD
+[Unreleased]: https://github.com/HackyThings/CobySuite-Recollect/compare/v0.0.1d...HEAD
+[0.0.1d]: https://github.com/HackyThings/CobySuite-Recollect/releases/tag/v0.0.1d
+[0.0.1c]: https://github.com/HackyThings/CobySuite-Recollect/releases/tag/v0.0.1c
+[0.0.1b]: https://github.com/HackyThings/CobySuite-Recollect/releases/tag/v0.0.1b
 [0.0.1a]: https://github.com/HackyThings/CobySuite-Recollect/releases/tag/v0.0.1a
 [0.0.1]: https://github.com/HackyThings/CobySuite-Recollect/releases/tag/v0.0.1

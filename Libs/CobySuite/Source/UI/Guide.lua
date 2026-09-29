@@ -353,7 +353,6 @@ function UI.CreateGuideWindow(opts)
     icon         = opts.icon,
     width        = opts.width or 580,
     height       = opts.height or 620,
-    strata       = "DIALOG",
     resizable    = { minWidth = 440, minHeight = 320, maxWidth = 1000, maxHeight = 1100 },
     escapeCloses = opts.name ~= nil,
     persist      = opts.persist,

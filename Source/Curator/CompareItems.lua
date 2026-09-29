@@ -19,6 +19,9 @@
 --   r:<item>                  the recipe an item taught (shipped: teaches)
 --   n:<item>:npc:<id> / :obj:<id>   what a quest item was used on (usedAt)
 --   $:<item>:c:<currency>     how much of a currency using the item gave
+-- Every looted item is also handed to the items-with-no-information recorder
+-- as seen at its source ("c:<npc>", "ob:<object>" ...: Compare.SawItem, the
+-- fact ni:<item>).
 -- Loot is never complete (chance), so it has no "not seen"; each loot
 -- window stamps a confirmation per source (the matched item IDs as the
 -- positions, total 0), which also counts how often a source was looted.
@@ -74,6 +77,7 @@ function Compare.Loot(window, ctx)
     local def = LOOT[source.kind]
     local matched = {}
     for itemID in pairs(source.items) do
+      Compare.SawItem(itemID, def.prefix .. ":" .. source.id, ctx)
       if def.kind and Shipped(itemID, def.kind)[source.id] then
         matched[#matched + 1] = itemID
       elseif source.kind == "drop" and Compare.WorldDrop(itemID) then

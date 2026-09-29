@@ -19,7 +19,9 @@ Recollect.Curator = Curator
 local Host = {}
 Curator.Host = Host
 
-Host.HOST_VERSION = 2   -- 2: Versions fails closed, Hints is fact-keyed, PurchasesOf
+Host.HOST_VERSION = 4   -- 2: Versions fails closed, Hints is fact-keyed, PurchasesOf;
+                        -- 3: NpcName, ZoneName, OpenSettings (the curator dashboard);
+                        -- 4: Knows, StoredItems, OnSnapshotCaptured (items with no information)
 
 -------------------------------------------------------------------------------
 -- Versions (D13)
@@ -274,6 +276,24 @@ function Host.Combines(itemID)
   return out
 end
 
+-- An NPC's name in the player's language, or nil until the client has it
+-- (a boss by its journal entry, else its creature tooltip, read again later
+-- after a miss)
+function Host.NpcName(npcID)
+  local Vendors = Recollect.Facts and Recollect.Facts.Vendors
+  if not (Vendors and Vendors.NpcName) then return nil end
+  local ok, name = pcall(Vendors.NpcName, npcID)
+  return ok and type(name) == "string" and name ~= "" and name or nil
+end
+
+-- A map's name in the player's language, or nil
+function Host.ZoneName(mapID)
+  local Vendors = Recollect.Facts and Recollect.Facts.Vendors
+  if not (Vendors and Vendors.ZoneName) then return nil end
+  local ok, name = pcall(Vendors.ZoneName, mapID)
+  return ok and type(name) == "string" and name ~= "" and name or nil
+end
+
 -- The NPC the shipped data says gives a quest, or nil
 function Host.QuestGiver(questID)
   local Relations = Recollect.Facts and Recollect.Facts.Relations
@@ -298,6 +318,124 @@ function Host.Recipe(spellID)
   local ok, recipe = pcall(Relations.Recipe, spellID)
   if not ok or type(recipe) ~= "table" then return nil end
   return { skillLine = recipe.skillLine, product = recipe.product, quantity = recipe.quantity }
+end
+
+-------------------------------------------------------------------------------
+-- Items with no information (Recorders/NoInfo.lua)
+-------------------------------------------------------------------------------
+-- The items a confirmed known use names (its parts, the reward item, the
+-- item a vendor sells for it), built once per Data.Uses table. An entry
+-- with no confirmed line is ignored by the checks, so it is no information.
+local usesFor, usesSet
+local function ConfirmedUses()
+  local uses = Recollect.Data and Recollect.Data.Uses
+  if usesSet and usesFor == uses then return usesSet end
+  local set = {}
+  for _, entry in ipairs(type(uses) == "table" and uses or {}) do
+    if type(entry) == "table" and type(entry.confirmed) == "string" and entry.confirmed ~= "" then
+      for itemID in pairs(type(entry.parts) == "table" and entry.parts or {}) do
+        if type(itemID) == "number" then set[itemID] = true end
+      end
+      if type(entry.rewardItem) == "number" then set[entry.rewardItem] = true end
+      if type(entry.sold) == "number" then set[entry.sold] = true end
+    end
+  end
+  usesFor, usesSet = uses, set
+  return set
+end
+
+-- What the shipped data says of one item, without its quality siblings:
+-- the reason it counts as known, or nil when it says nothing. A read that
+-- fails counts as known ("unreadable"): nothing is recorded on a guess.
+local function OwnInformation(itemID)
+  local Facts = Recollect.Facts or {}
+  local Data = Recollect.Data or {}
+  local Relations = Facts.Relations
+  local ok, codes = pcall(Relations and Relations.Codes or function() return nil end, itemID)
+  if not ok then return "unreadable" end
+  if type(codes) == "string" and codes ~= "" then return "codes" end
+  local okRemoved, removed = pcall(Relations and Relations.RemovedIn or function() return nil end, itemID)
+  if not okRemoved then return "unreadable" end
+  if removed then return "removed" end
+  if type(Data.Descriptions) == "table" and Data.Descriptions[itemID] then return "description" end
+  local okNotes, notes = pcall(Facts.Notes and Facts.Notes.For or function() return nil end, itemID)
+  if not okNotes then return "unreadable" end
+  if type(notes) == "table" and #notes > 0 then return "note" end
+  local okUses, uses = pcall(ConfirmedUses)
+  if not okUses then return "unreadable" end
+  if uses[itemID] then return "use" end
+  if type(Data.Residual) == "table" and Data.Residual[itemID] then return "leftover" end
+  return nil
+end
+
+-- Knows(itemID): whether the shipped data this client loaded says anything
+-- at all about an item, as { known, why }. Known: relation codes of any
+-- letter (routes no longer available included), a removal patch, a
+-- description, a guide note, a confirmed known use naming it, a leftover
+-- note, or a quality sibling that has one of those (Relations.Family, once
+-- the data ships a family table). An added patch alone is not information.
+-- The data off counts as known ("data off"), and so does anything that
+-- can't be read: nothing is recorded then.
+function Host.Knows(itemID)
+  if type(itemID) ~= "number" or Host.IsSecret(itemID) or itemID <= 0 then return { known = true, why = "not an item" } end
+  if Host.Versions().ok ~= true then return { known = true, why = "data off" } end
+  local why = OwnInformation(itemID)
+  if why then return { known = true, why = why } end
+  local Relations = Recollect.Facts and Recollect.Facts.Relations
+  if Relations and type(Relations.Family) == "function" then
+    local ok, family = pcall(Relations.Family, itemID)
+    for _, sibling in ipairs(ok and type(family) == "table" and family or {}) do
+      if type(sibling) == "number" and sibling ~= itemID and OwnInformation(sibling) then
+        return { known = true, why = "sibling" }
+      end
+    end
+  end
+  return { known = false, why = "nothing" }
+end
+
+-- StoredItems(): the items in the logged-in character's stored bank tabs
+-- and in the warband bank's, as { { id, where = "bank" or "wb", quality } },
+-- one per item and place, from Recollect's stored reads (never a bank frame,
+-- never another character's bank, no counts). quality is nil when the
+-- stored read has none.
+function Host.StoredItems()
+  local Inventory = Recollect.Inventory
+  local Snapshots, Locations = Inventory.Snapshots, Inventory.Locations
+  local out, seen = {}, {}
+  local function Add(entry, where)
+    local slots = type(entry) == "table" and type(entry.read) == "table" and entry.read.slots
+    for _, stack in pairs(type(slots) == "table" and slots or {}) do
+      local id = type(stack) == "table" and stack.itemID
+      local key = type(id) == "number" and id > 0 and (id .. "@" .. where)
+      if key and not seen[key] then
+        seen[key] = true
+        out[#out + 1] = { id = id, where = where, quality = type(stack.quality) == "number" and stack.quality or nil }
+      end
+    end
+  end
+  local okChar, char = pcall(Snapshots.CurrentCharacter, false)
+  for bagID, entry in pairs(okChar and type(char) == "table" and type(char.locations) == "table" and char.locations or {}) do
+    if Locations.KindOf(bagID) == Locations.KIND_BANK then Add(entry, "bank") end
+  end
+  local okWarband, warband = pcall(Snapshots.Warband)
+  for bagID, entry in pairs(okWarband and type(warband) == "table" and warband or {}) do
+    if Locations.KindOf(bagID) == Locations.KIND_WARBAND then Add(entry, "wb") end
+  end
+  table.sort(out, function(a, b)
+    if a.where ~= b.where then return a.where < b.where end
+    return a.id < b.id
+  end)
+  return out
+end
+
+-- OnSnapshotCaptured(fn): fn() whenever Recollect stores a bank tab it read;
+-- returns a function that stops it
+function Host.OnSnapshotCaptured(fn)
+  local listener = {}
+  function listener:ReceiveEvent() fn() end
+  local events = { Recollect.Events.SnapshotCaptured }
+  Recollect.EventBus:Register(listener, events)
+  return function() Recollect.EventBus:Unregister(listener, events) end
 end
 
 -- The bags' item counts ({ [itemID] = count }, bags 0 to 5), or nil when a
@@ -362,6 +500,16 @@ end
 -- window's Curator Flag button)
 function Host.RegisterProvider(provider)
   if Recollect.RegisterCuratorProvider then Recollect.RegisterCuratorProvider(provider) end
+end
+
+-- Opens Recollect's settings window at a category ("curator"); false when
+-- it can't open (not built yet, or in combat before it was)
+function Host.OpenSettings(category)
+  local Config = Recollect.Config
+  local open = Config and (Config.OpenSettingsAt or Config.OpenSettings)
+  if not open then return false end
+  local ok = pcall(open, category)
+  return ok
 end
 
 -- Tells Recollect a curator setting changed, so its settings window repaints

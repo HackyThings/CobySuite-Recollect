@@ -94,7 +94,6 @@ Ping.seams = {
   end,
   SendBN = function(id, prefix, text) return C_BattleNet.SendGameData(id, prefix, text) end,
   Join = function(name) return JoinTemporaryChannel(name) end,
-  Leave = function(name) return LeaveChannelByName(name) end,
   ChannelIndex = function(name)
     local index = GetChannelName(name)
     return index
@@ -213,8 +212,7 @@ end
 function Ping.SendRoute(route, text, target)
   local key = Ping.ROUTES[route].key
   local prefix, T = Curator.Const.PREFIX, Curator.Transport
-  -- the community's own stream channel (Transport.ChannelIndex is the hidden
-  -- channel since 2026-09-28, which the custom probes cover)
+  -- the community's own stream channel, found by its name
   local community = T.Community()
   local index = community and community.channelName and Seam("ChannelInfo", community.channelName)
   if type(index) ~= "number" or index <= 0 then index = nil end
@@ -290,11 +288,11 @@ function Ping.Environment()
   Add("Group: %s; instance: %s (%s); addon chat: %s", Seam("InGroup") and "yes" or "no", tostring(inInstance), tostring(kind),
     tostring(T.Activity()))
   Add("Prefix %s registered: %s", Curator.Const.PREFIX, tostring(Seam("PrefixRegistered", Curator.Const.PREFIX)))
-  local community, index = T.Community(), T.ChannelIndex()
+  local community = T.Community()
   if community then
-    local id, name, instanceID, isCommunities = Seam("ChannelInfo", index or community.channelName)
-    Add("Community channel: %s at /%s; GetChannelName says id %s, name %s, instance %s, communities channel %s",
-      community.channelName, tostring(index), tostring(id), tostring(name), tostring(instanceID), tostring(isCommunities))
+    local id, name, instanceID, isCommunities = Seam("ChannelInfo", community.channelName)
+    Add("Community channel: %s; GetChannelName says id %s, name %s, instance %s, communities channel %s",
+      community.channelName, tostring(id), tostring(name), tostring(instanceID), tostring(isCommunities))
   else
     Add("Community: not found on this character")
   end
@@ -386,8 +384,8 @@ function Ping.LocalTests()
   end)
   Timed("transport", function()
     local ok, interval = pcall(T.Interval)
-    return ("self %s, member %s, channel /%s, activity %s, send interval %s s, paused %s"):format(tostring(T.Self()),
-      tostring(T.IsMember()), tostring(T.ChannelIndex()), tostring(T.Activity()), ok and tostring(interval) or "?",
+    return ("self %s, member %s, activity %s, send interval %s s, paused %s"):format(tostring(T.Self()),
+      tostring(T.IsMember()), tostring(T.Activity()), ok and tostring(interval) or "?",
       tostring(T.IsPaused and T.IsPaused()))
   end)
   Timed("members", function()
@@ -411,8 +409,8 @@ end
 -- The test (the curator's side)
 -------------------------------------------------------------------------------
 function Ping.Round(round)
-  Log("Curator test round %d: community channel /%s, custom channel %s, members %d", round,
-    tostring(Curator.Transport.ChannelIndex()), CustomIndex() and ("/" .. CustomIndex()) or "not joined",
+  Log("Curator test round %d: custom channel %s, members %d", round,
+    CustomIndex() and ("/" .. CustomIndex()) or "not joined",
     #Curator.Membership.Roster())
   for route = 1, #Ping.ROUTES do
     state.sent[route] = state.sent[route] or {}
@@ -632,11 +630,14 @@ function Ping.Listen(why)
   state.listening = true
   Seam("Join", Ping.CHANNEL)
   Log("Curator test: joined %s to answer tests (%s)", Ping.CHANNEL, tostring(why or "asked"))
+  -- Stops answering after LISTEN_FOR, but never leaves the channel from
+  -- here: LeaveChannelByName from a timer is a blocked action (a curator's
+  -- error report, 2026-09-28, ADDON_ACTION_BLOCKED). The test channel is a
+  -- temporary one, dropped at logout
   Ping.seams.After(Ping.LISTEN_FOR, function()
     if state.running then return end
     state.listening = false
-    Seam("Leave", Ping.CHANNEL)
-    Log("Curator test: left %s", Ping.CHANNEL)
+    Log("Curator test: stopped answering on %s (it stays joined until logout)", Ping.CHANNEL)
   end)
   return true
 end

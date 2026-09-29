@@ -14,6 +14,26 @@
 -------------------------------------------------------------------------------
 Recollect.Data.Changelog = {
   {
+    version = "0.0.1d",
+    title = "Curator dashboard",
+    date = "2026-09-28",
+    new = {
+      "Curator dashboard: {/rec curator} shows what you recorded and sent",
+      "Items with no information: curators note them for the author",
+      "Want to be a curator?: a button in the item details window",
+      "Achievement button: opens the game's achievement window at it",
+    },
+    changed = {
+      "Windows: click any window to bring it to the front",
+      "Curator mode: whispers only, no hidden chat channel",
+      "What it's for tiles: plain words and a tooltip on each",
+    },
+    fixed = {
+      "Blocked-action errors after Open Settings in Options > AddOns",
+      "Right-click menus on names in the item details Overview",
+    },
+  },
+  {
     version = "0.0.1c",
     title = "Curators on any realm",
     date = "2026-09-28",

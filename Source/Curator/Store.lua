@@ -6,11 +6,15 @@
 -- A record is one fact with one observed value at one game build, under a
 -- curator-local record ID made when it is created:
 --   records[id] = { id, fact, kind, value, shipped, build, touched, ctx = { [ctxIndex]
---                   = count }, variants, rev, first, last }
+--                   = count }, variants, rev, first, last, info }
 --   kind: "addition", "conflict" or "notseen"; fact names the fact
 --   ("v:<npc>:i:<item>:price"); value is the observed value as text (a
 --   different value is a different record, and so is a later game build);
---   shipped is what the data said.
+--   shipped is what the data said. info (an item with no information's
+--   "ni:<item>" record only, Recorders/NoInfo.lua) is what the item is, as
+--   "c<class>.<subclass>,q<quality>,b<bind>,e<expansion>,s<0|1>", a part that
+--   couldn't be read left out; set when the record is made and filled in
+--   by a later observation that read more parts.
 --   variants = { [key] = { ctx, quests, reaction, cast, n } }: for records
 --   whose observations carry more than their context (a position conflict's
 --   quest state, a price conflict's reaction, a drop's cast just before),
@@ -30,6 +34,10 @@
 --   counter for the whole store (nextRev), so a stamp evicted and made again
 --   never repeats a revision an old acknowledgement names.
 --
+-- reported["ni:<item>"] = true: an item with no information whose record a
+-- V deleted (the author has it), so it isn't recorded again under this data
+-- version (at most NOINFO_REPORTED_CAP marks; Main.Freeze empties it).
+--
 -- Delivery: delivered[id or key] = rev when that revision was acknowledged
 -- (K); it goes in the next pull while its rev differs. awaiting[requestID] =
 -- { at, recs = { [id] = rev }, confirms = { [key] = rev } } until a V says
@@ -37,13 +45,15 @@
 -- (then they are pending again); dropped after AWAITING_DAYS.
 --
 -- bytes estimates every recorder field: records (with their variants),
--- stamps, delivered marks, awaiting requests, context blocks and quest
+-- stamps, delivered and reported marks, awaiting requests, context blocks and quest
 -- entries (Context adds and removes its own through AddBytes). Past
 -- CAP_BYTES the oldest records and stamps go first (D17), then the context
 -- blocks and quest deltas nothing names any more (Context.Prune). Frozen
 -- blocks (findings made under an earlier data version or layout, Main.lua's
 -- header) count toward the same cap and go first, oldest block whole, before
--- any live finding. Store.Swap puts a scratch table in place for tests.
+-- any live finding. The notes (Notes.lua) and the collection history
+-- (History.lua) live in the same table but outside the cap, each bounded by
+-- its own limits. Store.Swap puts a scratch table in place for tests.
 -------------------------------------------------------------------------------
 local Curator = Recollect.Curator
 local Host = Curator.Host
@@ -63,6 +73,11 @@ local function GameBuild()
   local ok, build = pcall(Store.seams.Build)
   return ok and build or "?"
 end
+-- Build(): the game build records are made under now
+function Store.Build()
+  return GameBuild()
+end
+
 local sandbox
 local lookup, lookupFor   -- [fact] = { [value .. "@" .. build] = id }, built per records
                           -- table in memory (a clear puts a new one in place)
@@ -70,7 +85,7 @@ local lookup, lookupFor   -- [fact] = { [value .. "@" .. build] = id }, built pe
 -------------------------------------------------------------------------------
 -- The table
 -------------------------------------------------------------------------------
-local FIELDS = { "records", "confirms", "delivered", "awaiting", "contexts", "quests" }
+local FIELDS = { "records", "confirms", "delivered", "awaiting", "contexts", "quests", "reported" }
 
 local function Normalize(db)
   for _, field in ipairs(FIELDS) do
@@ -131,7 +146,7 @@ local function Count(tbl)
 end
 
 local function RecordBytes(record)
-  return 48 + #record.fact + #record.value + #(record.shipped or "") + Count(record.ctx) * 8
+  return 48 + #record.fact + #record.value + #(record.shipped or "") + #(record.info or "") + Count(record.ctx) * 8
     + Count(record.variants) * 40
 end
 
@@ -163,6 +178,7 @@ function Store.Recount()
   for _, record in pairs(db.records) do bytes = bytes + RecordBytes(record) end
   for _, stamp in pairs(db.confirms) do bytes = bytes + StampBytes(stamp) end
   bytes = bytes + Count(db.delivered) * MARK_BYTES
+  bytes = bytes + Count(db.reported) * MARK_BYTES
   for _, entry in pairs(db.awaiting) do bytes = bytes + AwaitingBytes(entry) end
   for _, block in pairs(db.contexts) do bytes = bytes + Store.ContextBytes(block) end
   for _, entry in pairs(db.quests) do bytes = bytes + Store.QuestBytes(entry) end
@@ -188,6 +204,24 @@ local function RemoveRecord(db, id)
     if next(bucket) == nil then lookup[record.fact] = nil end
   end
   db.bytes = db.bytes - RecordBytes(record)
+end
+
+-- Remove(id): one record goes, with its delivered mark and its lookup entry
+-- (an item with no information making room under its own cap, NoInfo)
+function Store.Remove(id)
+  local db = Store.DB()
+  local had = db.records[id] ~= nil
+  RemoveRecord(db, id)
+  return had
+end
+
+-- Find(fact, value): the record of that fact and value at this game build,
+-- or nil (whether Record would repeat it or make a new one)
+function Store.Find(fact, value)
+  local db = Store.DB()
+  local byValue = Lookup(db)[fact]
+  local id = byValue and byValue[LookupKey(tostring(value or ""), GameBuild())]
+  return id and db.records[id] or nil
 end
 
 local function RemoveStamp(db, key)
@@ -277,10 +311,19 @@ local function AddVariant(record, ctxIndex, extra)
   variant.n = variant.n + 1
 end
 
--- Record(kind, fact, value, shipped, ctxIndex, extra): adds one observation
--- and returns its record. value and shipped are text; extra, when given,
--- the observation's { quests, reaction, cast } (see variants above).
-function Store.Record(kind, fact, value, shipped, ctxIndex, extra)
+-- The parts of an info text ("c15.4,q3"), counted
+local function InfoParts(info)
+  local n = 0
+  for _ in tostring(info or ""):gmatch("[^,]+") do n = n + 1 end
+  return n
+end
+
+-- Record(kind, fact, value, shipped, ctxIndex, extra, info): adds one
+-- observation and returns its record. value and shipped are text; extra,
+-- when given, the observation's { quests, reaction, cast } (see variants
+-- above); info, when given, what the item is (see info above): kept on a
+-- new record, and on a repeat when it has more parts than the record's.
+function Store.Record(kind, fact, value, shipped, ctxIndex, extra, info)
   local db = Store.DB()
   value = tostring(value or "")
   local build = GameBuild()
@@ -305,6 +348,7 @@ function Store.Record(kind, fact, value, shipped, ctxIndex, extra)
     byValue[key] = id
   end
   AddVariant(record, ctxIndex, extra)
+  if type(info) == "string" and info ~= "" and InfoParts(info) > InfoParts(record.info) then record.info = info end
   record.touched = NextRev(db)
   db.bytes = db.bytes + RecordBytes(record)
   Store.Trim()
@@ -392,9 +436,20 @@ function Store.Saved(requestID)
   local db = Store.DB()
   local entry = DropAwaiting(db, requestID)
   if not entry then return false end
+  local marks = Count(db.reported)
   for id, rev in pairs(entry.recs) do
     local record = db.records[id]
-    if record and record.rev == rev then RemoveRecord(db, id) end
+    if record and record.rev == rev then
+      -- an item with no information the author now has: not recorded again
+      -- under this data version (NoInfo), within the marks' cap
+      local fact = record.fact
+      if type(fact) == "string" and fact:find("^ni:") and not db.reported[fact] and marks < Curator.Const.NOINFO_REPORTED_CAP then
+        db.reported[fact] = true
+        db.bytes = db.bytes + MARK_BYTES
+        marks = marks + 1
+      end
+      RemoveRecord(db, id)
+    end
   end
   for key, rev in pairs(entry.confirms) do
     local stamp = db.confirms[key]
@@ -467,18 +522,20 @@ function Store.AwaitingIDs()
   return out
 end
 
--- Counts(): { records, pending, bytes, byKind = { [kind] = n }, stamps }
 -- Counts(): records, stamps, pending (records and stamps not yet
 -- delivered), bytes (the whole store, against the cap), pendingBytes (the
 -- pending ones as the store counts them, before packing and compression:
 -- what a pull would send, less the contexts it carries along), byKind
+-- ({ [kind] = n }), noInfo (the live "ni:" records, also counted in
+-- byKind.addition), frozen and frozenPending
 function Store.Counts()
   local db = Store.DB()
-  local out = { records = 0, pending = 0, pendingBytes = 0, stamps = 0, bytes = db.bytes, byKind = {} }
+  local out = { records = 0, pending = 0, pendingBytes = 0, stamps = 0, bytes = db.bytes, byKind = {}, noInfo = 0 }
   local pending = Store.Pending()
   for _, record in pairs(db.records) do
     out.records = out.records + 1
     out.byKind[record.kind] = (out.byKind[record.kind] or 0) + 1
+    if type(record.fact) == "string" and record.fact:find("^ni:") then out.noInfo = out.noInfo + 1 end
   end
   for _ in pairs(db.confirms) do out.stamps = out.stamps + 1 end
   for id in pairs(pending.recs) do

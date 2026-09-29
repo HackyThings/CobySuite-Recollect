@@ -188,7 +188,7 @@ Guide.SECTIONS = {
     end,
     try = {
       { "/rec settings", "Turn it on or off (Curator)" },
-      { "/rec curator", "Its status" },
+      { "/rec curator", "The curator dashboard: what's waiting, what was sent" },
     },
   },
 }

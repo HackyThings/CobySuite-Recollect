@@ -16,6 +16,8 @@
 --                 month for the item that is still available (shipped: its
 --                 U codes, "202503,0|x", or nil). A U0 (month not known) or
 --                 another month is no match, so the author learns the month.
+-- Every offered item is also handed to the items-with-no-information
+-- recorder as seen at "tp" (Compare.SawItem, the fact ni:<item>).
 -- One stamp per visit, source "tp", total 0: the item IDs whose shipped U
 -- code names this month. The shop is never complete for the data (ATT files
 -- past months too), so no not seen and no conflicts.
@@ -86,6 +88,7 @@ end
 function TradingPost.Compare(month, items, ctx)
   local matched = {}
   for itemID in pairs(items) do
+    Curator.Compare.SawItem(itemID, "tp", ctx)
     local codes, hit = Host.CodesOf(itemID, "U"), false
     for _, code in ipairs(codes) do
       if code.id == month and not code.gone then hit = true end

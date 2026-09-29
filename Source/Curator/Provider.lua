@@ -2,7 +2,9 @@
 -- Curator.Provider: what Recollect's hooks ask the curator for (curator
 -- spec, "The separation boundary"): the settings category's config, text
 -- and join button, the guide section's body, /rec curator and /rec
--- feedback, and the details window's Curator Flag button (D35).
+-- feedback, the details window's Curator Flag button (D35), and the
+-- dashboard's doorway for Recollect's Taint suite (OpenDashboard,
+-- CloseDashboard, DashboardTabs).
 -- Registered with Recollect through Host at load. Recollect reads these
 -- functions only when its windows, guide or slash commands run, and only
 -- plain values cross.
@@ -18,6 +20,12 @@ Provider.HOST_VERSION = Host.HOST_VERSION
 -- The config the settings category binds its rows to
 function Provider.Config()
   return Curator.Config
+end
+
+-- IsEnabled(): whether curator mode is on (the details window offers the
+-- curator program in the Curator Flag's place when it isn't)
+function Provider.IsEnabled()
+  return Curator.Main.IsEnabled() == true
 end
 
 -------------------------------------------------------------------------------
@@ -53,9 +61,9 @@ end
 -- Text for the settings category and the guide
 -------------------------------------------------------------------------------
 Provider.SETTINGS_TEXT = {
-  "Recollect notes where the game shows something its database gets wrong or is missing: a vendor price, a drop, a quest reward, where an NPC stands. It records game IDs and your character's class, race, level, faction, professions and, where it matters, quest progress; never names, chat, gold or your inventory.",
+  "Recollect notes where the game shows something its database gets wrong or is missing: a vendor price, a drop, a quest reward, where an NPC stands, and any item it knows nothing about, including ones in your bags and banks. It records game IDs and your character's class, race, level, faction, professions and, where it matters, quest progress; never names, chat, gold, currencies, how many of anything you have, or anything else you carry.",
   "You can also flag an item from its details window, or send feedback with /rec feedback: those carry the words you type. Recollect errors your game shows are kept too. Only the author reads them.",
-  "Recollect's author collects your findings in the background through the \"Recollect Curators\" community to improve the database. You'll see a chat message when a collection starts and ends; /rec curator shows or cancels it.",
+  "Recollect's author collects your findings in the background through the \"Recollect Curators\" community to improve the database. You'll see a chat message when a collection starts and ends; /rec curator shows what's waiting, what was sent, and a running collection you can cancel.",
   "Findings are sent only from characters in the community, whose members can see your character's name and zone. Your characters share one random curator ID made by Recollect (not your Blizzard account), so other members can tell they belong to the same player.",
   "Your findings stay under 1 MB and are deleted once collected. Turning this off stops recording and offers to delete them.",
 }
@@ -81,8 +89,8 @@ function Provider.GuideBody()
   return {
     "Optional, and off until you turn it on in /rec settings, Curator.",
     table.concat({
-      bullet .. "While you play, it notes where the game differs from Recollect's database: a vendor price, a drop, a quest reward",
-      bullet .. "It records game IDs and your character's class, race, level, faction and professions; never names, chat, gold or your inventory",
+      bullet .. "While you play, it notes where the game differs from Recollect's database (a vendor price, a drop, a quest reward) and items it knows nothing about, your bags and banks included",
+      bullet .. "It records game IDs and your character's class, race, level, faction and professions; never names, chat, gold, currencies or how many of anything you have",
       bullet .. "Flag an item from its details window (Curator Flag), or send feedback with /rec feedback; Recollect's errors go along too, and only the author reads them",
       bullet .. "The author collects the findings through the \"Recollect Curators\" community, whose members can see each other's names and zones",
       bullet .. "Turning it off stops recording and offers to delete your findings",
@@ -94,20 +102,35 @@ end
 -------------------------------------------------------------------------------
 -- Notes: the details window's Curator Flag and /rec feedback (D35)
 -------------------------------------------------------------------------------
+-- Whether the shipped data says nothing at all about an item (the items
+-- with no information recorder's own rule, Host.Knows)
+local function NoInfo(itemID)
+  local recorder = Curator.Recorders and Curator.Recorders.NoInfo
+  return recorder ~= nil and recorder.IsEmpty(itemID) == true
+end
+
 -- FlagState(itemID): nil unless curator mode is on; else { flagged, state
--- (the last entry's: "pending", "sent" or "delivered"), entries, atLimit }
+-- (the last entry's: "pending", "sent" or "delivered"), entries, atLimit,
+-- noInfo (the shipped data says nothing about the item: the button reads
+-- Request info) }
 function Provider.FlagState(itemID)
   itemID = tonumber(itemID)
   if not (itemID and Curator.Main.IsEnabled() and Curator.Notes) then return nil end
   local flag = Curator.Notes.Flag(itemID)
   local last = flag.entries[#flag.entries]
-  return { flagged = last ~= nil, state = last and last.state or nil, entries = #flag.entries, atLimit = flag.atLimit }
+  return { flagged = last ~= nil, state = last and last.state or nil, entries = #flag.entries, atLimit = flag.atLimit,
+    noInfo = NoInfo(itemID) or nil }
 end
 
--- OpenFlag(itemID): the flag window for an item; false when it can't open
+-- OpenFlag(itemID): the flag window for an item; false when it can't open.
+-- An item with no flag yet that the shipped data says nothing about opens
+-- with the reason Missing info chosen (the curator may pick another).
 function Provider.OpenFlag(itemID)
   if not (Curator.Main.IsEnabled() and Curator.FlagDialog) then return false end
-  return Curator.FlagDialog.Open(itemID)
+  local id = tonumber(itemID)
+  local reason = nil
+  if id and Curator.Notes and #Curator.Notes.Flag(id).entries == 0 and NoInfo(id) then reason = "missing" end
+  return Curator.FlagDialog.Open(itemID, reason)
 end
 
 -- OpenFeedback(): the feedback window, or a line saying how to turn curator mode on
@@ -120,22 +143,29 @@ function Provider.OpenFeedback()
 end
 
 -------------------------------------------------------------------------------
+-- The curator dashboard's doorway (Recollect's Taint suite opens it on each
+-- tab through these; /rec curator toggles it)
+-------------------------------------------------------------------------------
+-- DashboardTabs(): the dashboard's tabs, in order
+function Provider.DashboardTabs()
+  local out = {}
+  for i, tab in ipairs(Curator.DashboardWindow and Curator.DashboardWindow.TABS or {}) do out[i] = tab.key end
+  return out
+end
+
+-- OpenDashboard(tab): shows the dashboard on that tab; false when it can't
+-- open (in combat before it was built)
+function Provider.OpenDashboard(tab)
+  return Curator.DashboardWindow ~= nil and Curator.DashboardWindow.Open(tab) == true
+end
+
+function Provider.CloseDashboard()
+  if Curator.DashboardWindow then Curator.DashboardWindow.Close() end
+end
+
+-------------------------------------------------------------------------------
 -- /rec curator
 -------------------------------------------------------------------------------
--- /rec curator channel: puts the community's channel back in the list
-function Provider.AddChannel()
-  local index, why = Curator.Transport.AddChannel()
-  if index then
-    Host.Print(("Recollect's hidden curator channel is joined (/%d)."):format(index))
-  elseif why == "member" then
-    Host.Print("This character isn't in the Recollect Curators community: /rec curator join")
-  elseif why == "slot" then
-    Host.Print("Every chat channel slot is in use: leave one channel, then type /rec curator channel again.")
-  else
-    Host.Print("Joining Recollect's hidden curator channel; it takes a moment.")
-  end
-  return index
-end
 
 local function CountsText(tbl)
   local keys, parts = {}, {}
@@ -155,8 +185,10 @@ end
 
 -- Diagnose(): the lines /rec curator diag prints, for a curator whose client
 -- doesn't answer the author (Cobanyte, 2026-09-28): what this client sees of
--- curator mode, the community, its channel, its members' roles, the curator
--- messages it got, and why the last one from the author went unanswered
+-- curator mode, the community, where its whispers to the author go, the
+-- members (how many are online, who may collect and whether they are), the
+-- curator messages it got, and why the last one from the author went
+-- unanswered
 function Provider.Diagnose()
   local main, T, M, S = Curator.Main, Curator.Transport, Curator.Membership, Curator.Sharing
   local versions = Host.Versions()
@@ -165,20 +197,22 @@ function Provider.Diagnose()
   out[#out + 1] = ("Curator mode: %s; answering as %s; curator ID %s"):format(main.IsEnabled() and "on" or "off",
     S and S.State() or "?", tostring(main.CuratorID()))
   local community = T.Community()
-  out[#out + 1] = community and ("Community: found (club %s); hidden channel %s; whispers to the author go to %s"):format(
-    tostring(community.clubId), T.ChannelIndex() and ("/" .. T.ChannelIndex()) or "not joined (type /rec curator channel)",
-    T.RouteOf(Curator.Protocol.AUTHOR) or "nobody yet (until the author's first message)")
+  out[#out + 1] = community and ("Community: found (club %s); curator messages go by whisper; to the author: %s"):format(
+    tostring(community.clubId), M.MayPull(T.Self()) and "none needed (this character may collect)"
+      or T.RouteOf(Curator.Protocol.AUTHOR) or "every online Owner and Leader, until the author's first message")
     or "Community: this character isn't in the Recollect Curators community"
-  local authors, members = {}, 0
+  local authors, members, online = {}, 0, 0
   for _, entry in ipairs(M.Roster()) do
     members = members + 1
+    if entry.presence == "online" then online = online + 1 end
     if entry.role == M.ROLE.OWNER or entry.role == M.ROLE.LEADER then
-      authors[#authors + 1] = ("%s (%s, %s)"):format(entry.name, M.ROLE_NAMES[entry.role], entry.nameFrom or "?")
+      authors[#authors + 1] = ("%s (%s, %s), %s"):format(entry.name, M.ROLE_NAMES[entry.role], entry.nameFrom or "?",
+        tostring(entry.presence or "?"))
     end
   end
-  out[#out + 1] = ("Members read %s: %d named%s; who may collect: %s"):format(Ago(M.ReadAt()), members,
+  out[#out + 1] = ("Members read %s: %d named, %d online%s; who may collect: %s"):format(Ago(M.ReadAt()), members, online,
     (M.unnamed or 0) > 0 and (", " .. M.unnamed .. " with no readable name") or "",
-    #authors > 0 and table.concat(authors, ", ") or "nobody (so every collection request is ignored)")
+    #authors > 0 and table.concat(authors, "; ") or "nobody (so every collection request is ignored)")
   out[#out + 1] = "This character: " .. tostring(T.Self())
   local counts = T.Counts()
   out[#out + 1] = ("Curator messages this session: got %s; with the prefix by chat type %s; sent %s"):format(
@@ -195,9 +229,13 @@ function Provider.Diagnose()
   return out
 end
 
--- /rec curator: the transfer window while a collection runs or waits for an
--- answer, else the status line; join, channel, cancel, diag, and console
--- (development)
+-- /rec curator: the curator dashboard (a toggle; its Overview shows a
+-- running collection and a request waiting for an answer), or the status
+-- line when the window can't open (in combat before it was built); status
+-- prints that line, and join, ping or transport, pong, diag, cancel and
+-- console (development) do what they always did. channel, which joined the
+-- old hidden channel, only says there is none now (0.0.1c told curators to
+-- type it).
 function Provider.Slash(rest)
   local word = rest and rest:match("^%s*(%S+)") or ""
   word = word:lower()
@@ -205,7 +243,7 @@ function Provider.Slash(rest)
   if word == "join" then
     Provider.PrintJoinLink()
   elseif word == "channel" then
-    Provider.AddChannel()
+    Host.Print("Recollect: curator messages go by whisper now, so there's no curator channel to join.")
   elseif (word == "ping" or word == "transport") and Curator.Ping then
     -- an optional "Name-Realm" after it: the player whose answers count
     Curator.Ping.Start(rest and rest:match("^%s*%S+%s+(%S+)"))
@@ -222,6 +260,10 @@ function Provider.Slash(rest)
     if not (Sharing and Sharing.Cancel()) then Host.Print("No curator collection is running.") end
   elseif word == "console" and Curator.Console and Curator.Console.Open then
     Curator.Console.Open()
+  elseif word == "status" then
+    Host.Print(Provider.Status())
+  elseif Curator.DashboardWindow and Curator.DashboardWindow.Toggle() then
+    return
   elseif Sharing and (Sharing.Status() or Sharing.Prompt()) and Curator.TransferWindow then
     Curator.TransferWindow.Open()
   else

@@ -211,6 +211,13 @@ function Config.OpenSettings()
   window:Open()
 end
 
+-- OpenSettingsAt(key): the window at one category ("curator" for the
+-- curator dashboard's settings button)
+function Config.OpenSettingsAt(key)
+  window:Open()
+  if key and window.panels and window.panels[key] then window:SelectCategory(key) end
+end
+
 -------------------------------------------------------------------------------
 -- Options > AddOns entry (registered once this addon has finished loading).
 -- Its text names the audit panel's key as the settings have it

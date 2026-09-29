@@ -1,58 +1,52 @@
 -------------------------------------------------------------------------------
--- Curator.Transport: the hidden channel, whispers, the send queue and the
--- receiver (curator spec, "Channel and addressing", "Adaptive rate")
+-- Curator.Transport: whispers, the send queue and the receiver (curator
+-- spec, "Channel and addressing", "Adaptive rate")
 --
--- The routes (the route test, /rec curator ping, 2026-09-28): an addon
--- message on the community's chat channel is never delivered to another
--- player (nor echoed back), so the traffic goes two other ways, both
--- measured between two clients:
---   - whispers, for a message to one addressee whose character is known
---     (Route: the author's character once a message from them passed the
---     role check, a curator's once its R came in). 30 of 30 arrived at 4 a
---     second, whole, about half a second each way. Any realm: between
---     realms that aren't connected (Alleria and Illidan), with no Battle.net
---     friendship and no shared guild, only the community, 60 of 60 arrived
---     at a pull's pace and 40 of 40 in a burst each way (the route test,
---     2026-09-28); opposite factions are untested;
---   - the hidden channel, Const.CHANNEL_NAME, a custom channel joined with
---     JoinTemporaryChannel and in no chat window (so no join notice shows),
---     for messages to everyone (the presence check) and for any addressee
---     with no route. 60 of 60 arrived at one message every 2 seconds; faster
---     draws the channel throttle. A custom channel reaches only this realm
---     and the ones connected to it (ChannelReaches), so the author's
---     presence check is also whispered to each online member elsewhere
---     (SendTo, Sweep.lua).
--- A member of the community joins the hidden channel by itself (the channel
--- watch, CheckChannel: 15 seconds after login and on channel and club
--- changes); it is told once, after a second look CONFIRM seconds later,
--- only when the join failed (every channel slot in use), and once when it
--- is back. AddChannel(), for /rec curator channel, joins it again.
+-- Every message is a whisper (Cobanyte, 2026-09-28: the hidden channel went,
+-- since whispers reach every realm and the channel took a chat channel slot
+-- for nothing). Measured between two clients with the route test (/rec
+-- curator transport): 30 of 30 arrived at 4 a second, whole, about half a
+-- second each way; between realms that aren't connected (Alleria and
+-- Illidan), with no Battle.net friendship and no shared guild, only the
+-- community, 60 of 60 at a pull's pace and 40 of 40 in a burst each way; an
+-- Alliance curator's collection reached the Horde author the same day. An
+-- addon message on the community's own chat channel is never delivered to
+-- another player, so the community is only the member list.
+--   - A message to one addressee whose character is known goes to that
+--     character (Route: the author's once a message from them passed the
+--     role check, a curator's once its R came in).
+--   - A message with no route is whispered to each character Recipients
+--     names from the community's member list, online ones only (a whisper
+--     to someone offline prints "No player named ..." in the sender's
+--     chat): to everyone (Protocol.ALL, the presence check), every online
+--     member; to the author with no route yet (a curator's O and L), every
+--     online Owner and Leader. Its onSent runs once the last copy has left.
+--   - Test-mode traffic is honoured only from this very character (D23), so
+--     it is whispered to this character itself: it goes through the server's
+--     send path, and the local echo delivers it.
 --
--- The queue: one message at a time, spaced by the adaptive rate (counted
--- from the last send on its route, even when the queue had emptied since):
--- on the channel about 1 message a second at full rate, of which curator
--- traffic uses 50% idle or resting, 35% moving and 20% in combat (a secret
--- speed counts as combat), so other addons keep room; a whisper
--- WHISPER_INTERVAL seconds apart when idle, scaled the same way.
--- AddonMessageThrottle (3: the message was dropped) halves the rate, waits
--- BACKOFF seconds and sends it again (a receiver drops duplicate sequence
--- numbers). ChannelThrottle (8: the message may still arrive) halves the
--- rate and moves on; a lost data part is asked for again by N. A whisper
--- the game refuses goes once more over the channel. AddOnMessageLockdown
--- pauses the queue until ADDON_RESTRICTION_STATE_CHANGED shows the Chat
--- restriction gone, or, when the restriction reads off (the game refused
--- with no restriction change; seen in game 2026-09-26), until BACKOFF has
--- passed. Sends are scheduled with C_Timer, never OnUpdate.
+-- The queue: one message at a time, WHISPER_INTERVAL seconds apart when
+-- idle or resting, longer while moving (BUDGET) and in combat (a secret
+-- speed counts as combat), counted from the last send even when the queue
+-- had emptied since, so other addons keep room. AddonMessageThrottle (3:
+-- the message was dropped) halves the rate, waits BACKOFF seconds and sends
+-- it again (a receiver drops duplicate sequence numbers); a lost data part
+-- is asked for again by N. A whisper the game refuses otherwise goes once
+-- more after BACKOFF. AddOnMessageLockdown pauses the queue until
+-- ADDON_RESTRICTION_STATE_CHANGED shows the Chat restriction gone, or, when
+-- the restriction reads off (the game refused with no restriction change;
+-- seen in game 2026-09-26), until BACKOFF has passed. Sends are scheduled
+-- with C_Timer, never OnUpdate.
 --
 -- The receiver: every CHAT_MSG_ADDON argument is checked for secrets before
 -- any match; a secret argument drops the message. Messages with the prefix
 -- are decoded (Protocol.Decode) and handed to every handler of their type
 -- (the curator side, and the author's console in development builds), with
--- the server-stamped sender in canonical "Name-Realm" form. Only a whisper
--- or the hidden channel is read (a message with no channel name, from the
--- loopback, counts as the channel). LOCAL_ECHO hands each message sent to
--- this client's own handlers and drops a server copy (the community channel
--- never returned one, Step 1 T14; the hidden channel does).
+-- the server-stamped sender in canonical "Name-Realm" form. A whisper is
+-- read; so is the old hidden channel (a 0.0.1c client still sends on it) and
+-- a message with no channel name (the loopback). LOCAL_ECHO hands each
+-- message sent to this client's own handlers once and drops any copy the
+-- server returns.
 -- Tally() says what went out and came back; OnSent(text, result, locally),
 -- when set (the console's activity log in development builds), hears every
 -- send with its result code.
@@ -66,7 +60,7 @@ local Protocol = Curator.Protocol
 local Transport = {}
 Curator.Transport = Transport
 
-Transport.FULL_RATE = 1          -- messages a second the channel allows (Step 1 T4 measures it)
+Transport.FULL_RATE = 1          -- the rate BUDGET's shares are of (WhisperInterval scales by them)
 Transport.BUDGET = { idle = 0.5, moving = 0.35, combat = 0.2 }
 Transport.BACKOFF = 5             -- seconds after a throttle before the rate recovers
 Transport.WHISPER_INTERVAL = 0.25 -- seconds between whispers when idle (4 a second arrived whole, 2026-09-28)
@@ -76,13 +70,13 @@ Transport.WHISPER_INTERVAL = 0.25 -- seconds between whispers when idle (4 a sec
 -- dropped: each message is handled once either way (spec, T14's fallback)
 Transport.LOCAL_ECHO = true
 -- A live pull between this client's author and curator sides (the author
--- pulling their own findings) never needs the channel: SendLocal and
+-- pulling their own findings) never leaves the client: SendLocal and
 -- EnqueueLocal hand its messages to this client's own receiver a frame
--- later, so it takes a moment instead of minutes at the channel's rate.
--- Test-mode pulls keep the channel (the channel suites exercise it).
+-- later. Test-mode pulls go through the server (the channel suites
+-- exercise it).
 Transport.LOCAL_SELF = true
 
-local RESULT = { SUCCESS = 0, THROTTLE = 3, CHANNEL_THROTTLE = 8, LOCKDOWN = 11 }
+local RESULT = { SUCCESS = 0, THROTTLE = 3, LOCKDOWN = 11 }
 Transport.RESULT = RESULT
 
 Transport.seams = {
@@ -90,10 +84,6 @@ Transport.seams = {
   Send = function(prefix, text, chatType, target) return C_ChatInfo.SendAddonMessage(prefix, text, chatType, target) end,
   Clubs = function() return C_Club.GetSubscribedClubs() end,
   Streams = function(clubId) return C_Club.GetStreams(clubId) end,
-  ChannelIndex = function(name) return GetChannelName(name) end,
-  AddChannel = function(name) return JoinTemporaryChannel(name) end,
-  Realms = function() return GetAutoCompleteRealms() end,
-  CanAddChannel = function() return ChatFrameUtil.CanAddChannel() end,
   ChatRestricted = function()
     local state = C_RestrictedActions.GetAddOnRestrictionState(Enum.AddOnRestrictionType.Chat)
     return state ~= nil and state ~= 0
@@ -112,17 +102,14 @@ local pumping = false     -- a send is scheduled
 local paused = false      -- the Chat restriction is on
 local scale = 1           -- the throttle's cut, back to 1 after BACKOFF
 local recoverAt = 0
-local lastSent = nil      -- the clock at the last send attempt on the channel
 local lastWhisper = nil   -- the clock at the last whisper
 local routes = {}         -- [addressee] = "Name-Realm", the character a message to it is whispered to
-local joinTried = nil     -- the clock at the last join of the hidden channel
 local community = nil     -- { clubId, streamId, channelName }, found once per change
-local channelState = nil  -- "ok", "missing" or "none" (not a member), as last told
 local handlers = {}       -- [kind] = { fn(msg), ... }
 -- What went out and came back this session, by kind (the channel suites and
 -- the console say it when a message never arrives)
-local tally = { sent = {}, results = {}, got = {}, own = {}, raw = {}, echo = {}, handed = {}, noChannel = 0, lockdowns = 0,
-  whispered = 0, fallback = 0 }
+local tally = { sent = {}, results = {}, got = {}, own = {}, raw = {}, echo = {}, handed = {}, unreachable = 0, lockdowns = 0,
+  whispered = 0, retried = 0 }
 
 local function Seam(name, ...)
   local ok, a, b = pcall(Transport.seams[name], ...)
@@ -240,37 +227,6 @@ function Transport.IsMember()
   return Transport.Community() ~= nil
 end
 
--- The hidden channel's current index, or nil when this character isn't a
--- member of the community or isn't in the channel
-function Transport.ChannelIndex()
-  if not Transport.Community() then return nil end
-  local index = Seam("ChannelIndex", Curator.Const.CHANNEL_NAME)
-  if type(index) == "number" and index > 0 then return index end
-  return nil
-end
-
--- AddChannel(): joins the hidden channel; returns the index, or nil and why
--- ("member", "slot", "joining": the join answers a moment later, and the
--- watch tells if it failed)
-function Transport.AddChannel()
-  Transport.Forget()
-  if not Transport.Community() then return nil, "member" end
-  local index = Transport.ChannelIndex()
-  if index then return index end
-  if Seam("CanAddChannel") == false then
-    Host.Log("Curator channel: can't join %s, every chat channel slot is in use", Curator.Const.CHANNEL_NAME)
-    return nil, "slot"
-  end
-  joinTried = Seam("Clock") or 0
-  local ok, err = pcall(Transport.seams.AddChannel, Curator.Const.CHANNEL_NAME)
-  index = Transport.ChannelIndex()
-  Host.Log("Curator channel: joined %s: %s", Curator.Const.CHANNEL_NAME,
-    not ok and ("error " .. tostring(err)) or index and ("/" .. index) or "waiting for the game")
-  if not index then return nil, "joining" end
-  Transport.CheckChannel()
-  Transport.Resume()
-  return index
-end
 
 -------------------------------------------------------------------------------
 -- Routes: which character a message to an addressee is whispered to
@@ -290,36 +246,14 @@ function Transport.RouteOf(to)
   return routes[to]
 end
 
-local function NormalRealm(realm)
-  if type(realm) ~= "string" or Host.IsSecret(realm) then return nil end
-  return (realm:gsub("[%s%-]", "")):lower()
-end
-
 -- Whisperable(name): whether "Name-Realm" can be whispered: any realm (the
 -- route test, 2026-09-28: whispers crossed realms that aren't connected)
 function Transport.Whisperable(name)
   return type(name) == "string" and name ~= "" and not Host.IsSecret(name)
 end
 
--- ChannelReaches(name): whether the hidden channel reaches "Name-Realm":
--- this realm or one connected to it (a custom channel stops there)
-function Transport.ChannelReaches(name)
-  if type(name) ~= "string" or Host.IsSecret(name) then return false end
-  local realm = NormalRealm(name:match("^[^%-]+%-(.+)$"))
-  if not realm then return true end
-  local mine = NormalRealm(Seam("Realm"))
-  if mine and realm == mine then return true end
-  local ok, realms = pcall(Transport.seams.Realms)
-  if not ok or type(realms) ~= "table" or (issecrettable and issecrettable(realms)) then return false end
-  for _, other in ipairs(realms) do
-    if NormalRealm(other) == realm then return true end
-  end
-  return false
-end
-
--- The character a queued message is whispered to, or nil for the channel
+-- The character a queued message is whispered to, or nil when there is none
 local function WhisperTo(item)
-  if item.channel then return nil end
   if item.target and Transport.Whisperable(item.target) then return item.target end
   local to = item.text:match("^[^~]*~[^~]*~([^~]*)")
   local name = to and routes[to]
@@ -327,44 +261,26 @@ local function WhisperTo(item)
   return nil
 end
 
--------------------------------------------------------------------------------
--- The channel watch
--------------------------------------------------------------------------------
-Transport.CONFIRM = 3   -- seconds between the two looks that call a channel missing
-
-local function ChannelNow()
-  if not Transport.IsMember() then return "none" end
-  return Transport.ChannelIndex() and "ok" or "missing"
-end
-
-local function Tell(state)
-  if channelState == state then return end
-  Host.Log("Curator channel: %s (was %s; index %s)", state, tostring(channelState), tostring(Transport.ChannelIndex()))
-  channelState = state
-  if Transport.OnChannelChanged then pcall(Transport.OnChannelChanged, state) end
-end
-
-Transport.JOIN_AGAIN = 30   -- seconds before a join that didn't take is tried again
-
--- CheckChannel(): looks at the channel now; a member not in it joins it (at
--- most every JOIN_AGAIN seconds), and "missing" is told only when a second
--- look CONFIRM seconds later still finds no channel; "ok" and "none" at once
-function Transport.CheckChannel()
-  local state = ChannelNow()
-  if state ~= "missing" then
-    Tell(state)
-    return state
+-- Recipients(mode, to): who a message with no route is whispered to, from
+-- the community's member list, online members only (a whisper to someone
+-- offline prints "No player named ..." in the sender's chat):
+--   test mode: this character itself (D23), through the server and back
+--   Protocol.ALL: every online member but this character
+--   Protocol.AUTHOR: every online member who may collect (Owner, Leader)
+--   anything else (a curator ID with no route yet): nobody
+function Transport.Recipients(mode, to)
+  local me = Transport.Self()
+  if mode == Protocol.TEST then return me and { me } or {} end
+  if to ~= Protocol.ALL and to ~= Protocol.AUTHOR then return {} end
+  local M = Curator.Membership
+  local out = {}
+  for _, entry in ipairs(M and M.Roster() or {}) do
+    if not entry.isSelf and entry.name ~= me and entry.presence == "online" and Transport.Whisperable(entry.name)
+        and (to == Protocol.ALL or M.MayPull(entry.name)) then
+      out[#out + 1] = entry.name
+    end
   end
-  local now = Seam("Clock") or 0
-  if not joinTried or now - joinTried >= Transport.JOIN_AGAIN then
-    if Transport.AddChannel() then return "ok" end
-  end
-  if channelState == "missing" then return state end
-  Transport.seams.After(Transport.CONFIRM, function()
-    local later = ChannelNow()
-    if later ~= "none" then Tell(later) end
-  end)
-  return state
+  return out
 end
 
 -------------------------------------------------------------------------------
@@ -381,7 +297,8 @@ function Transport.Activity()
   return "idle"
 end
 
--- Seconds between two sends now
+-- Seconds between two sends at the budget's share of FULL_RATE (the
+-- whisper spacing scales by it)
 function Transport.Interval()
   local activity = Transport.Activity()
   local budget = Transport.BUDGET[activity] or Transport.BUDGET.idle
@@ -401,59 +318,45 @@ local function Schedule(delay)
   end)
 end
 
--- Seconds between two whispers now: WHISPER_INTERVAL idle, longer by the
--- same budget and throttle cut as the channel
+-- Seconds between two whispers now: WHISPER_INTERVAL idle or resting,
+-- longer by the budget while moving or in combat and by a throttle's cut
 function Transport.WhisperInterval()
   local idle = 1 / (Transport.FULL_RATE * Transport.BUDGET.idle)
   return Transport.WHISPER_INTERVAL * Transport.Interval() / idle
 end
 
 -- Wait(): seconds until the next message may go, counted from the last
--- send on its route, so a message queued just after a send never follows
--- it at once (two sends a frame apart drew ChannelThrottle in game,
--- 2026-09-26)
+-- send, so a message queued just after a send never follows it at once
+-- (two sends a frame apart drew a throttle in game, 2026-09-26)
 function Transport.Wait()
   local now = Seam("Clock")
-  if not now then return 0 end
-  local item = queue[1]
-  if item and WhisperTo(item) then
-    return lastWhisper and math.max(0, lastWhisper + Transport.WhisperInterval() - now) or 0
-  end
-  if not lastSent then return 0 end
-  return math.max(0, lastSent + Transport.Interval() - now)
+  if not now or not lastWhisper then return 0 end
+  return math.max(0, lastWhisper + Transport.WhisperInterval() - now)
 end
 
 -- Sends the oldest message; returns the delay before the next one, or nil
--- to stop (empty, paused, or no route and no channel)
+-- to stop (empty or paused)
 local function SendOne()
   local item = queue[1]
   if not item then return nil end
   local target = WhisperTo(item)
-  local index = not target and Transport.ChannelIndex()
-  if not target and not index then
-    tally.noChannel = tally.noChannel + 1
-    Host.Log("Curator send held: no whisper route and not in the %s channel (%d waiting)", Curator.Const.CHANNEL_NAME, #queue)
-    return nil
+  if not target then
+    -- its addressee's route is gone (never set, or a test swapped it out)
+    table.remove(queue, 1)
+    tally.unreachable = tally.unreachable + 1
+    Host.Log("Curator send dropped: nobody to whisper %s to (%d waiting)", item.text:sub(1, 1), #queue)
+    if item.onSent then pcall(item.onSent, nil) end
+    return #queue > 0 and Transport.Wait() or nil
   end
-  local ok, result
-  if target then
-    ok, result = pcall(Transport.seams.Send, Curator.Const.PREFIX, item.text, "WHISPER", target)
-  else
-    ok, result = pcall(Transport.seams.Send, Curator.Const.PREFIX, item.text, "CHANNEL", index)
-  end
+  local ok, result = pcall(Transport.seams.Send, Curator.Const.PREFIX, item.text, "WHISPER", target)
   result = ok and result or nil
   local kind = item.text:sub(1, 1)
   local sentMsg = Protocol.Decode(item.text)
   if DataWorthLogging(sentMsg) then
-    Host.Log("Curator sent %s %s: %s", Transport.Describe(sentMsg), target and ("by whisper to " .. target) or ("on /" .. index),
-      ok and tostring(result) or "error")
+    Host.Log("Curator sent %s by whisper to %s: %s", Transport.Describe(sentMsg), target, ok and tostring(result) or "error")
   end
-  if target then
-    lastWhisper = Seam("Clock")
-    tally.whispered = tally.whispered + 1
-  else
-    lastSent = Seam("Clock")
-  end
+  lastWhisper = Seam("Clock")
+  tally.whispered = tally.whispered + 1
   tally.sent[kind] = (tally.sent[kind] or 0) + 1
   local code = ok and tostring(result) or "error"
   tally.results[code] = (tally.results[code] or 0) + 1
@@ -473,24 +376,19 @@ local function SendOne()
     recoverAt = (Seam("Clock") or 0) + Transport.BACKOFF
     return Transport.BACKOFF
   end
-  if result == RESULT.CHANNEL_THROTTLE then
-    -- the game may still deliver it: slow down, never send it twice
-    scale = scale / 2
-    recoverAt = (Seam("Clock") or 0) + Transport.BACKOFF
-    Host.Log("Curator send throttled by the channel (8): %s may still arrive; the rate is halved", kind)
-  elseif result ~= RESULT.SUCCESS and target then
-    -- a whisper the game refused: once more over the channel
-    item.channel = true
-    tally.fallback = tally.fallback + 1
-    Host.Log("Curator whisper to %s refused (%s): %s goes over the channel instead", target, tostring(result), kind)
-    return Transport.Wait()
+  if result ~= RESULT.SUCCESS and not item.retried then
+    -- a whisper the game refused: once more after BACKOFF
+    item.retried = true
+    tally.retried = tally.retried + 1
+    Host.Log("Curator whisper to %s refused (%s): %s goes again in %d seconds", target, tostring(result), kind, Transport.BACKOFF)
+    return Transport.BACKOFF
   end
   table.remove(queue, 1)
-  if result ~= RESULT.SUCCESS and result ~= RESULT.CHANNEL_THROTTLE then
-    Host.Log("Curator send refused (%s): %s", tostring(result), kind)
+  if result ~= RESULT.SUCCESS then
+    Host.Log("Curator whisper of %s to %s refused again (%s): dropped", kind, target, tostring(result))
   end
   if item.onSent then pcall(item.onSent, result) end
-  if (result == RESULT.SUCCESS or result == RESULT.CHANNEL_THROTTLE) and Transport.LOCAL_ECHO then
+  if result == RESULT.SUCCESS and Transport.LOCAL_ECHO and item.echo ~= false then
     Transport.seams.After(0, function() Transport.Echo(item.text) end)
   end
   return #queue > 0 and Transport.Wait() or nil
@@ -502,17 +400,49 @@ Pump = function()
   if delay then Schedule(delay) end
 end
 
+-- The queue items for one message: one to its route, else one per
+-- recipient (Recipients) sharing onSent, which runs once the last has left;
+-- only the first is echoed to this client (LOCAL_ECHO). An empty list when
+-- nobody is online to get it.
+local function Items(text, tag, onSent)
+  local _, mode, to = text:match("^([^~]*)~([^~]*)~([^~]*)")
+  if mode ~= Protocol.TEST and to and routes[to] then return { { text = text, tag = tag, onSent = onSent } } end
+  local names = Transport.Recipients(mode, to)
+  local items, left = {}, #names
+  local function Each(result)
+    left = left - 1
+    if left == 0 and onSent then onSent(result) end
+  end
+  for i, name in ipairs(names) do
+    items[i] = { text = text, tag = tag, onSent = Each, target = name, echo = i == 1 }
+  end
+  return items
+end
+
 -- Enqueue(text, tag, onSent, first): queues one message; tag names what it
 -- belongs to (a request ID) so Drop can take a cancelled transfer's messages
--- out; first puts it at the front (replies)
+-- out; first puts it at the front (replies). A message nobody online can be
+-- whispered still reaches this client's own handlers (the author answering
+-- their own presence check), and onSent(nil) runs a frame later.
 function Transport.Enqueue(text, tag, onSent, first)
   if type(text) ~= "string" then return false end
-  local item = { text = text, tag = tag, onSent = onSent }
-  if first then table.insert(queue, 1, item) else queue[#queue + 1] = item end
   local kind = text:sub(1, 1)
-  if kind ~= "D" or #queue == 1 then
-    Host.Log("Curator queued %s%s (%d characters); %d waiting, sending %s", kind, first and " first" or "", #text, #queue,
-      paused and "paused" or tostring(Transport.Activity()))
+  local items = Items(text, tag, onSent)
+  if #items == 0 then
+    tally.unreachable = tally.unreachable + 1
+    Host.Log("Curator %s not sent: nobody online to whisper it to", kind)
+    Transport.seams.After(0, function()
+      if Transport.LOCAL_ECHO then Transport.Echo(text) end
+      if onSent then pcall(onSent, nil) end
+    end)
+    return true
+  end
+  for i, item in ipairs(items) do
+    if first then table.insert(queue, i, item) else queue[#queue + 1] = item end
+  end
+  if kind ~= "D" or #queue == #items then
+    Host.Log("Curator queued %s%s (%d characters) for %d %s; %d waiting, sending %s", kind, first and " first" or "", #text,
+      #items, #items == 1 and "character" or "characters", #queue, paused and "paused" or tostring(Transport.Activity()))
   end
   if not pumping and not paused then Schedule(Transport.Wait()) end
   return true
@@ -526,9 +456,8 @@ function Transport.Send(kind, mode, to, ...)
 end
 
 -- SendTo(name, onSent, kind, mode, to, ...): a message whispered to one
--- character whatever the routes say (the presence check to a member the
--- hidden channel can't reach); a refused whisper goes once more on the
--- channel, as any whisper does
+-- character whatever the routes say; a refused whisper goes once more
+-- after BACKOFF, as any whisper does
 function Transport.SendTo(name, onSent, kind, mode, to, ...)
   local text = Protocol.Encode(kind, mode, to, ...)
   if type(text) ~= "string" or not Transport.Whisperable(name) then return false end
@@ -540,7 +469,7 @@ function Transport.SendTo(name, onSent, kind, mode, to, ...)
 end
 
 -- EnqueueLocal(text, onSent): hands a message to this client's own
--- receiver a frame later, never over the channel; onSent(0) first
+-- receiver a frame later, never through the server; onSent(0) first
 function Transport.EnqueueLocal(text, onSent)
   if type(text) ~= "string" then return false end
   local kind = text:sub(1, 1)
@@ -585,7 +514,7 @@ function Transport.Queued(tag)
   return n
 end
 
--- Resume(): starts the queue again when messages wait (the channel is back)
+-- Resume(): starts the queue again when messages wait
 function Transport.Resume()
   if #queue > 0 and not pumping and not paused then Schedule(Transport.Wait()) end
 end
@@ -633,7 +562,9 @@ function Transport.Receive(prefix, text, channel, sender, ...)
   -- a route test (/rec curator ping): counted above by chat type, handled by Ping.lua's own receivers
   if type(text) == "string" and text:sub(1, 4) == "RCT~" then return false end
   if channel == "CHANNEL" then
-    -- the channel's name comes 4th after the sender; none from the loopback
+    -- the old hidden channel (a 0.0.1c client still sends there; TODO with
+    -- LeaveOldChannel.lua: drop once no such client is left) or none (the
+    -- loopback); the channel's name comes 4th after the sender
     local name = select(4, ...)
     local ours = Curator.Const.CHANNEL_NAME:lower()
     if type(name) == "string" and name ~= "" and not name:lower():find(ours, 1, true) then
@@ -641,8 +572,7 @@ function Transport.Receive(prefix, text, channel, sender, ...)
       return false
     end
   elseif channel ~= "WHISPER" then
-    Host.Log("Curator message from %s ignored: it came by %s, not a whisper or the %s channel", tostring(sender), tostring(channel),
-      Curator.Const.CHANNEL_NAME)
+    Host.Log("Curator message from %s ignored: it came by %s, not a whisper", tostring(sender), tostring(channel))
     return false
   end
   local msg = Protocol.Decode(text)
@@ -693,15 +623,15 @@ function Transport.Counts()
 end
 
 -- Tally(): one line on what this session sent (by kind, and by the send's
--- result code: 0 is success, 11 the addon chat lockdown; how many went by
--- whisper, and how many whispers went again on the channel) and received (from
+-- result code: 0 is success, 11 the addon chat lockdown; how many whispers,
+-- and how many were refused once and sent again) and received (from
 -- others, its own messages coming back from the server, those handed over
 -- by LOCAL_ECHO, and every message with the prefix by the chat type it came
--- with, before any filter), and how often no channel was found
+-- with, before any filter), and how many had nobody to go to
 function Transport.Tally()
-  return ("sent %s (results %s; %d by whisper, %d whispers sent again on the channel); received %s; own back %s; echoed locally %s; handed over without the channel %s; with the prefix by chat type %s; no channel %d; lockdowns %d; queued %d%s")
-    :format(Counts(tally.sent), Counts(tally.results), tally.whispered or 0, tally.fallback or 0, Counts(tally.got), Counts(tally.own),
-      Counts(tally.echo), Counts(tally.handed), Counts(tally.raw), tally.noChannel, tally.lockdowns, #queue, paused and "; paused" or "")
+  return ("sent %s (results %s; %d whispers, %d sent again after a refusal); received %s; own back %s; echoed locally %s; handed over locally %s; with the prefix by chat type %s; nobody to send to %d; lockdowns %d; queued %d%s")
+    :format(Counts(tally.sent), Counts(tally.results), tally.whispered or 0, tally.retried or 0, Counts(tally.got), Counts(tally.own),
+      Counts(tally.echo), Counts(tally.handed), Counts(tally.raw), tally.unreachable, tally.lockdowns, #queue, paused and "; paused" or "")
 end
 
 -------------------------------------------------------------------------------
@@ -709,52 +639,24 @@ end
 -------------------------------------------------------------------------------
 pcall(Transport.seams.Register, Curator.Const.PREFIX)
 
--- The watch starts WATCH_AFTER seconds after entering the world (the
--- community channels join a moment after login), then follows changes
-Transport.WATCH_AFTER = 15
-local watching = false
-local check = CobySuite_Recollect.Utilities.Coalesce(1, function() if watching then Transport.CheckChannel() end end)
-
+-- A club added, removed or changed: find the community again
 local function Changed()
   Transport.Forget()
-  check:Call()
 end
-
--- A character that just joined the curator community joins the hidden
--- channel a moment later
-local function Joined(clubId)
-  Changed()
-  if Host.IsSecret(clubId) then return end
-  Transport.seams.After(Transport.CONFIRM, function()
-    local found = Transport.Community()
-    if found and tostring(found.clubId) == tostring(clubId) and not Transport.ChannelIndex() then Transport.AddChannel() end
-  end)
-end
-Transport.Joined = Joined
+Transport.Joined = Changed
 
 local events = {
   CHAT_MSG_ADDON = function(...) Transport.Receive(...) end,
   ADDON_RESTRICTION_STATE_CHANGED = function() Transport.OnRestrictionChanged() end,
-  CLUB_ADDED = Joined,
+  CLUB_ADDED = Changed,
   CLUB_REMOVED = Changed,
   CLUB_STREAM_ADDED = Changed,
   CLUB_STREAM_REMOVED = Changed,
-  CHANNEL_UI_UPDATE = function()
-    if #queue > 0 and not pumping then Schedule(Transport.Wait()) end
-    check:Call()
-  end,
-  PLAYER_ENTERING_WORLD = function()
-    if watching then return end
-    Transport.seams.After(Transport.WATCH_AFTER, function()
-      watching = true
-      Transport.CheckChannel()
-    end)
-  end,
 }
 
 local frame = CreateFrame("Frame")
 for event in pairs(events) do pcall(frame.RegisterEvent, frame, event) end
--- Not gated on a test run: the channel suites talk over the real channel,
+-- Not gated on a test run: the channel suites talk through the server,
 -- and receiving reads nothing a test scripts
 frame:SetScript("OnEvent", function(_, event, ...)
   local ok, err = pcall(events[event], ...)
@@ -763,20 +665,20 @@ end)
 
 -------------------------------------------------------------------------------
 -- Tests: _test.Swap(state) puts state in place of the queue, the rate state,
--- the routes, the channel state and the tally (a fresh session's when state is nil) and
+-- the routes and the tally (a fresh session's when state is nil) and
 -- returns what it replaced, so the loopback sets the live ones aside for a
 -- scripted run and puts them back after it. Tables are handed over, never
 -- wiped. Only sync tests swap, so no real send is due while they run.
 -------------------------------------------------------------------------------
 Transport._test = {}
 function Transport._test.Swap(state)
-  local old = { queue = queue, pumping = pumping, paused = paused, scale = scale, recoverAt = recoverAt, lastSent = lastSent,
-    lastWhisper = lastWhisper, routes = routes, joinTried = joinTried, community = community, channelState = channelState, tally = tally }
+  local old = { queue = queue, pumping = pumping, paused = paused, scale = scale, recoverAt = recoverAt,
+    lastWhisper = lastWhisper, routes = routes, community = community, tally = tally }
   state = state or { queue = {}, pumping = false, paused = false, scale = 1, recoverAt = 0, routes = {},
-    tally = { sent = {}, results = {}, got = {}, own = {}, raw = {}, echo = {}, handed = {}, noChannel = 0, lockdowns = 0,
-      whispered = 0, fallback = 0 } }
-  queue, pumping, paused, scale, recoverAt, lastSent = state.queue, state.pumping, state.paused, state.scale, state.recoverAt, state.lastSent
-  lastWhisper, routes, joinTried = state.lastWhisper, state.routes or {}, state.joinTried
-  community, channelState, tally = state.community, state.channelState, state.tally
+    tally = { sent = {}, results = {}, got = {}, own = {}, raw = {}, echo = {}, handed = {}, unreachable = 0, lockdowns = 0,
+      whispered = 0, retried = 0 } }
+  queue, pumping, paused, scale, recoverAt = state.queue, state.pumping, state.paused, state.scale, state.recoverAt
+  lastWhisper, routes = state.lastWhisper, state.routes or {}
+  community, tally = state.community, state.tally
   return old
 end

@@ -8,7 +8,8 @@
 -- addon never calls it), with a checkbox to delete the current findings.
 -- "Stop curating" deletes them if ticked and tells the author (L); "Keep
 -- curating" turns curator mode back on. In combat, where no window may be
--- built, the same words go to chat and the findings are kept.
+-- built, the same words go to chat and the findings are kept. Deleting also
+-- clears the collection history (Curator.History).
 -------------------------------------------------------------------------------
 local Curator = Recollect.Curator
 local Host = Curator.Host
@@ -27,10 +28,14 @@ local function FindingsCount()
   return counts.records + counts.stamps
 end
 
+-- Finish(delete): recording stays off; delete also removes every finding,
+-- note and the collection history (the curator's own record of what was
+-- sent); the author hears L either way
 local function Finish(delete)
   if delete then
     Curator.Main.ClearFindings()
     if Curator.Notes then Curator.Notes.Clear() end   -- flags, feedback and errors are findings too
+    if Curator.History then Curator.History.Clear() end
   end
   Curator.Sharing.SendLeaving()
   if dialog then dialog:Hide() end
@@ -80,6 +85,8 @@ function OptOut.Show()
   dialog.Delete:SetChecked(false)
   dialog:Show()
 end
+
+OptOut.Finish = Finish
 
 function OptOut.IsShown()
   return dialog ~= nil and dialog:IsShown()

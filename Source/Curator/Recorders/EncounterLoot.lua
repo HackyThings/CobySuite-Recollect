@@ -21,6 +21,8 @@
 --                            and no live c code naming a boss the data maps
 --                            (table J) to such a journal encounter. shipped:
 --                            the item's D codes as "<journal>[|x]", or nil.
+-- Every item is also handed to the items-with-no-information recorder as
+-- seen at "e:<encounter>" (Compare.SawItem, the fact ni:<item>).
 -- One stamp per visit, source "e:<encounter>", total 0: the item IDs the
 -- shipped data knows there. A D code the journal can't map (no answer, or
 -- a secret one) leaves the item unjudged: no addition, no stamp. A c code
@@ -96,6 +98,7 @@ end
 function EncounterLoot.Compare(encounterID, items, ctx)
   local matched = {}
   for itemID in pairs(items) do
+    Curator.Compare.SawItem(itemID, "e:" .. encounterID, ctx)
     local known, shipped = EncounterLoot.Known(itemID, encounterID)
     if known then
       matched[#matched + 1] = itemID

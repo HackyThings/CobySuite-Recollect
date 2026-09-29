@@ -15,6 +15,10 @@
 --     onSort = function(viewKey, columnKey, ascending) end,
 --     rowButton = function(parent) -> button,   -- one icon button a row,
 --                  -- made here, for a column with button
+--     rowAltButton = function(row) -> button,   -- optional: a second one in
+--                  -- the same place, shown instead when the column's
+--                  -- button.alt(row) is true; it handles its own clicks
+--                  -- (the details window's secure achievement button)
 --   })
 --   t:AddView(key, columns, { minStretch, sortKey, ascending })
 --     columns = { { key, label, width, stretch, justify, tooltip, sortable,
@@ -24,7 +28,8 @@
 --       barColor = { r, g, b, a },
 --       icon = function(row) -> fileID or atlas, true,    (first column)
 --       button = { shown = function(row), onClick = function(row, button),
---         onEnter = function(button, row) } } }   (the row's button, centered)
+--         onEnter = function(button, row), alt = function(row) } } }   (the
+--         row's button, centered; alt true shows the alternate button there)
 --   t:ShowView(key)   t:SetRows(key, rows)   t:Refresh()   t:GetSort(key)
 -- Double-clicking a column's divider fits it to its title and its cells'
 -- text (the header's measureColumn: Table:MeasureColumn, the first
@@ -145,6 +150,20 @@ local function MakeRow(t, list, i)
     end)
     row.Button = button
   end
+  if t.opts.rowAltButton then
+    local alt = t.opts.rowAltButton(row)
+    alt:Hide()
+    alt:HookScript("OnEnter", function(self)
+      row:LockHighlight()
+      local spec = self.column and self.column.button
+      if spec and spec.onAltEnter and row.data then spec.onAltEnter(self, row.data) end
+    end)
+    alt:HookScript("OnLeave", function()
+      row:UnlockHighlight()
+      if t.opts.onRowLeave then t.opts.onRowLeave(row, row.data) end
+    end)
+    row.AltButton = alt
+  end
   row:Hide()
   return row
 end
@@ -250,6 +269,7 @@ function Table:Layout()
   view.bounds = bounds
   for _, row in ipairs(self.pool) do
     if row.Button and not view.buttonColumn then row.Button:Hide() end
+    if row.AltButton and not view.buttonColumn then row.AltButton:Hide() end
     for c = 1, self.maxCells do
       local col, text, b = columns[c], row.cells[c], bounds[c]
       text:ClearAllPoints()
@@ -257,9 +277,11 @@ function Table:Layout()
         text:Hide()
       elseif view.columns[c] and view.columns[c].button then
         text:Hide()
-        if row.Button then
-          row.Button:ClearAllPoints()
-          row.Button:SetPoint("CENTER", row, "LEFT", b.left + b.width / 2, 0)
+        for _, button in ipairs({ row.Button or false, row.AltButton or false }) do
+          if button then
+            button:ClearAllPoints()
+            button:SetPoint("CENTER", row, "LEFT", b.left + b.width / 2, 0)
+          end
         end
       else
         text:Show()
@@ -377,6 +399,7 @@ function Table:Paint()
     if not data then
       frame:Hide()
       if frame.Button then frame.Button:Hide() end
+      if frame.AltButton then frame.AltButton:Hide() end
     else
       frame:Show()
       U.AddAlternatingRowBg(frame, index)
@@ -390,10 +413,15 @@ function Table:Paint()
       end
       frame.Icon:SetShown(icon ~= nil)
       local spec = view.buttonColumn
+      local useAlt = frame.AltButton ~= nil and spec ~= nil and spec.button.alt ~= nil and spec.button.alt(data) == true
       if frame.Button then
         frame.Button.column = spec
-        local show = spec and (not spec.button.shown or spec.button.shown(data))
+        local show = spec and not useAlt and (not spec.button.shown or spec.button.shown(data))
         frame.Button:SetShown(show and true or false)
+      end
+      if frame.AltButton then
+        frame.AltButton.column = spec
+        frame.AltButton:SetShown(useAlt)
       end
       for c = 1, self.maxCells do
         local col, text = columns[c], frame.cells[c]

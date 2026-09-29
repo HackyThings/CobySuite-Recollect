@@ -5,10 +5,20 @@
 -- RECOLLECT_CURATOR_DB = {
 --   schema, id (random, made once per account; every character shares it),
 --   addonVersion, dataVersion, formatVersion (what the findings were made against),
---   records, confirms, delivered, awaiting, contexts, quests, bytes
---     (the recorder fields, capped at 1 MB; Curator.Store owns their shape),
+--   records, confirms, delivered, awaiting, contexts, quests, reported, bytes
+--     (the recorder fields, capped at 1 MB; Curator.Store owns their shape;
+--     reported marks the items with no information already delivered under
+--     this data version, Recorders/NoInfo.lua),
+--   noInfoNotice (the server time from which bag and bank sweeps may run:
+--     set when curator mode is turned on from a build whose settings text
+--     names them, or when the one-time chat line was shown; kept through a
+--     layout reset and a delete),
 --   notes (flags, feedback and errors the curator wrote or ran into:
 --     Curator.Notes; outside the cap, never evicted),
+--   history (every collection the author asked for, newest first:
+--     Curator.History; outside the cap, with caps of its own),
+--   windows (the curator windows' places and sizes, the dashboard's tab,
+--     open sections and column widths),
 --   intake, received (Cobanyte's client only, written by the dev console;
 --     outside the cap and never cleared here),
 --   frozen = { block, ... } (oldest first): findings made under an earlier
@@ -31,7 +41,7 @@ local Main = {}
 Curator.Main = Main
 
 local SCHEMA = 1
-local RECORDER_FIELDS = { "records", "confirms", "delivered", "awaiting", "contexts", "quests" }
+local RECORDER_FIELDS = { "records", "confirms", "delivered", "awaiting", "contexts", "quests", "reported" }
 
 local function NewID()
   local parts = {}
@@ -66,7 +76,8 @@ function Main.DB()
     local block = type(keep.schema) == "number" and Block(keep, keep.schema) or nil
     if block then frozen[#frozen + 1] = block end
     RECOLLECT_CURATOR_DB = { schema = SCHEMA, id = type(keep.id) == "string" and keep.id or nil,
-      intake = keep.intake, received = keep.received, notes = keep.notes, joinAsked = keep.joinAsked, frozen = frozen,
+      intake = keep.intake, received = keep.received, notes = keep.notes, joinAsked = keep.joinAsked, noInfoNotice = keep.noInfoNotice, frozen = frozen,
+      history = keep.history, windows = keep.windows,
       dataVersion = keep.dataVersion, formatVersion = keep.formatVersion, addonVersion = keep.addonVersion }
     if block then
       Host.Log("Curator saved data of layout %s kept as a frozen block (%s), made under data %s", tostring(keep.schema),

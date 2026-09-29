@@ -32,6 +32,10 @@ Curator.Config = CobySuite_Recollect.Config.New({
 Curator.OnConfigChanged = function(name, old, new)
   -- work scheduled before curator mode was turned off (or on) is dropped
   if name == "curator_enabled" and Curator.Main then Curator.Main.BumpEpoch() end
+  -- turned on: the settings text the curator just read says bags and banks
+  -- are included, so their sweeps need no chat line (Recorders/NoInfo.lua)
+  local NoInfo = Curator.Recorders and Curator.Recorders.NoInfo
+  if name == "curator_enabled" and new == true and NoInfo then NoInfo.OptedIn() end
   -- turned off: the opt-out dialog (delete findings, how to leave), after
   -- the settings window has finished applying
   if name == "curator_enabled" and old == true and new == false and Curator.OptOutDialog then
@@ -43,14 +47,14 @@ end
 -- Constants (curator spec: Roles and the community, Protocol, Footprint)
 Curator.Const = {
   CLUB_NAME = "Recollect Curators",
-  STREAM_NAME = "General",  -- the community's stream: chat, and the hidden curator traffic (Cobanyte, 2026-09-26)
+  STREAM_NAME = "General",  -- the community's stream: curators' chat (Cobanyte, 2026-09-26); the traffic goes by whisper
   CLUB_ID = 503127671,     -- the "Recollect Curators" community (a number in game; compared as text); nil: found by name
   TICKET_ID = "jKPlgr0hzZD", -- the public invite ticket: never expires, unlimited uses (made 2026-09-26)
   PREFIX = "RecollectCur",  -- at most 16 bytes
-  -- The hidden channel the curator traffic goes on: a custom channel joined
-  -- with JoinTemporaryChannel, in no chat window. The community's own channel
-  -- never delivered an addon message between two players (the route test,
-  -- 2026-09-28); a custom channel and whispers did.
+  -- The old hidden channel (0.0.1c) the curator traffic went on until it
+  -- moved to whispers (2026-09-28): the receiver still reads it from 0.0.1c
+  -- clients, and UI/LeaveOldChannel.lua asks a character still in it to
+  -- leave.
   CHANNEL_NAME = "RecollectCurators",
   CAP_BYTES = 1024 * 1024, -- the recorder fields of RECOLLECT_CURATOR_DB (D17)
   AWAITING_DAYS = 30,      -- acknowledged collections not confirmed saved are dropped after this
@@ -68,4 +72,17 @@ Curator.Const = {
   -- (122708), Mighty Caravan Brutosaur (264058), Trader's Gilded Brutosaur
   -- (465235)
   VENDOR_MOUNT_SPELLS = { 61425, 61447, 122708, 264058, 465235 },
+  -- Items with no information (Recorders/NoInfo.lua, spec
+  -- Recollect-No-Info-Items-Spec-2026-09-28): at most NOINFO_CAP live ni:
+  -- records (about 135 KB of the 1 MB); NOINFO_REPORTED_CAP delivered marks
+  -- kept per data version; NOINFO_PLACES named places per item (a fourth
+  -- counts on the newest); NOINFO_SLICE items a sweep job compares;
+  -- NOINFO_PENDING items waiting for their data at once, each for at most
+  -- NOINFO_PENDING_SECONDS
+  NOINFO_CAP = 1500,
+  NOINFO_REPORTED_CAP = 4000,
+  NOINFO_PLACES = 3,
+  NOINFO_SLICE = 40,
+  NOINFO_PENDING = 60,
+  NOINFO_PENDING_SECONDS = 30,
 }

@@ -15,6 +15,9 @@
 --                                    a quest may have several givers)
 --   T:<quest>                        who takes the turn-in (not shipped yet)
 --   Q:<quest>                        a daily or weekly the game states
+-- Every reward, choice and turn-in item is also handed to the
+-- items-with-no-information recorder as seen at "q:<quest>"
+-- (Compare.SawItem, the fact ni:<item>).
 -- Rewards are filtered by class (U14), so a quest window is never complete
 -- and gives no "not seen": additions, conflicts and stamps only.
 -------------------------------------------------------------------------------
@@ -35,6 +38,7 @@ function Compare.QuestRewards(visit, ctx)
   local quest, matched = visit.questID, {}
   for _, kind in ipairs(KINDS) do
     for itemID, count in pairs(visit[kind.field] or {}) do
+      Compare.SawItem(itemID, "q:" .. quest, ctx)
       if Compare.Shipped(itemID, kind.relation)[quest] then
         matched[#matched + 1] = itemID
       elseif Compare.Shipped(itemID, kind.otherRelation)[quest] then
@@ -53,6 +57,7 @@ end
 function Compare.QuestRequired(questID, required, ctx)
   local matched = {}
   for itemID, count in pairs(required) do
+    Compare.SawItem(itemID, "q:" .. questID, ctx)
     local shipped = Compare.Shipped(itemID, "objective")[questID] or Compare.Shipped(itemID, "questItem")[questID]
     local fact = "q:" .. questID .. ":o:" .. itemID
     if not shipped then

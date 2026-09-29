@@ -11,8 +11,8 @@
 -- are reviewed.
 -------------------------------------------------------------------------------
 Recollect.Data.Hints = {
-  dataVersion = "2026.09.28.2",
-  format = 4,
+  dataVersion = "2026.09.28.3",
+  format = 5,
   unseen = {
   },
 }

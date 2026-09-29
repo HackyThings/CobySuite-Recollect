@@ -16,6 +16,8 @@
 --                 available (shipped: its codes flagged "|x", as "1|x", or
 --                 nil). An O code flagged no longer available counts as none,
 --                 so an item offered again reaches the author as an addition.
+-- Every listed item is also handed to the items-with-no-information
+-- recorder as seen at "bm" (Compare.SawItem, the fact ni:<item>).
 -- One stamp per visit, source "bm", total 0: the item IDs with a live O
 -- code. A listing is never complete (the market rotates), so no not seen and
 -- no conflicts.
@@ -72,6 +74,7 @@ end
 function BlackMarket.Compare(items, ctx)
   local matched = {}
   for itemID in pairs(items) do
+    Curator.Compare.SawItem(itemID, "bm", ctx)
     local codes, live = Host.CodesOf(itemID, "O"), false
     for _, code in ipairs(codes) do
       if not code.gone then live = true end

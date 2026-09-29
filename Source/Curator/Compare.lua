@@ -20,6 +20,9 @@
 --   p:<npc>                   where an NPC stands, "<map>:<x>,<y>" (0 to 1)
 -- Stamps: "v:<npc>" (positions in the shipped vendor index), "m:<input>"
 -- (positions among the item's shipped combines), "p:<npc>".
+-- Every item a vendor lists is also handed to the items-with-no-information
+-- recorder as seen at "v:<npc>" (SawItem, Recorders/NoInfo.lua: the fact
+-- ni:<item>).
 --
 -- The generation guard: the vendor ("merchant") and profession ("trade")
 -- windows have a number raised when they close or change. A read notes the
@@ -50,6 +53,17 @@ end
 
 function Compare.StillValid(kind, noted)
   return (generation[kind] or 0) == noted
+end
+
+-------------------------------------------------------------------------------
+-- An item seen at a place ("v:<npc>", "c:<npc>", "q:<quest>" ...), for the
+-- items-with-no-information recorder (Recorders/NoInfo.lua, which loads
+-- after the comparisons); it records only an item the shipped data says
+-- nothing about
+-------------------------------------------------------------------------------
+function Compare.SawItem(itemID, where, ctx)
+  local noInfo = Curator.Recorders and Curator.Recorders.NoInfo
+  if noInfo then noInfo.Saw(itemID, where, ctx) end
 end
 
 -------------------------------------------------------------------------------
@@ -219,6 +233,7 @@ end
 function Compare.VendorItems(state, visit, ctx, from, to)
   for i = from, math.min(to, #state.items) do
     local itemID = state.items[i]
+    Compare.SawItem(itemID, "v:" .. visit.npc, ctx)
     if Item(visit, itemID, visit.trades[itemID], state.position[itemID] ~= nil, ctx) then
       state.matched[#state.matched + 1] = state.position[itemID]
     end

@@ -141,7 +141,10 @@ local seams = {
   ViewerName = function() return UnitName("player") end,
   After = function(seconds, fn) C_Timer.After(seconds, fn) end,
   Dressable = function(itemID) return C_Item.IsDressableItemByID(itemID) end,
-  ShowAchievement = function(achievementID) ShowAchievementFrameForAchievement(achievementID) end,
+  -- the game's achievement window at it: selected at once when the window
+  -- is shown, else one click on our prompt's secure button opens it
+  -- (UI/AchievementPrompt.lua)
+  ShowAchievement = function(achievementID) return Recollect.UI.AchievementPrompt.Show(achievementID) end,
   -- Shift-click, as the game reads it (IsModifiedClick CHATLINK)
   ChatLinkClick = function() return IsModifiedClick ~= nil and IsModifiedClick("CHATLINK") == true end,
   -- the game's own map pin link for a place: the player's waypoint is set
@@ -1069,23 +1072,49 @@ function FOR.Explain(model, j, itemID)
   return lines
 end
 
--- WHAT IT'S FOR's tiles: a tile per kind of use, the count and how many are
--- still open (Cobanyte, 2026-09-28: more of the tiles where they fit); only
--- when there are two kinds or more, else the group's title says it
+-- WHAT IT'S FOR's tiles: a tile per kind of use, the count large and, on
+-- the label line, what is still open in that kind's own words (Cobanyte,
+-- 2026-09-28: "1 · 1 open" and "80 · 79 open" said nothing), with a tooltip
+-- that breaks the count down; only when there are two kinds or more, else
+-- the group's title says it. Words: { one open of one, all open, some open,
+-- all done }; "open" is a row still to get or do (filterState "missing"),
+-- which for a recipe means it makes something you don't have yet.
 FOR.TILES = {
-  { key = "buys", label = "Buys", icon = "Interface\\Icons\\INV_Misc_Coin_01" },
-  { key = "quests", label = "Quests, places", icon = "Interface\\Icons\\INV_Misc_Note_01" },
-  { key = "achievements", label = "Achievements", icon = "Interface\\Icons\\Achievement_General" },
-  { key = "crafting", label = "Crafting", icon = "Interface\\Icons\\Trade_Engineering" },
-  { key = "takes", label = "A use takes", icon = "Interface\\Icons\\INV_Misc_Bag_10" },
+  { key = "buys", label = "Buys", icon = "Interface\\Icons\\INV_Misc_Coin_01", title = "What it buys",
+    words = { "not owned yet", "none owned yet", "%d not owned yet", "all owned" },
+    open = "Not owned yet", done = "Owned",
+    note = "Collectibles and items it can be traded for; those you don't have yet come first in the list." },
+  { key = "quests", label = "Quests, places", icon = "Interface\\Icons\\INV_Misc_Note_01", title = "Quests and places",
+    words = { "not done yet", "none done yet", "%d not done", "all done" }, open = "Not done yet", done = "Done",
+    note = "Quests that use it and places or NPCs it's used at." },
+  { key = "achievements", label = "Achievements", icon = "Interface\\Icons\\Achievement_General", title = "Achievements",
+    words = { "not earned yet", "none earned yet", "%d not earned", "all earned" }, open = "Not earned yet", done = "Earned",
+    note = "Achievements it counts toward." },
+  { key = "crafting", label = "Crafting", icon = "Interface\\Icons\\Trade_Engineering", title = "Crafting with it",
+    words = { "makes something you lack", "all make things you lack", "%d make things you lack", "you have all they make" },
+    open = "Make something you don't have", done = "Make what you already have",
+    note = "Recipes that use it. A recipe counts as open when what it makes is something you don't have yet." },
+  { key = "takes", label = "A use takes", icon = "Interface\\Icons\\INV_Misc_Bag_10", title = "What using it takes",
+    words = { "still needed", "all still needed", "%d still needed", "all ready" }, open = "Still needed", done = "Ready",
+    note = "The other parts a use of it needs." },
 }
+
+-- The label line's words for a tile: its kind's words for how much is open
+function FOR.TileWords(def, n, open, have)
+  local w = def.words
+  if open > 0 and open == n then return n == 1 and w[1] or w[2] end
+  if open > 0 then return w[3]:format(open) end
+  if have == n then return w[4] end
+  return nil   -- nothing open, but not every one read as done: no words
+end
 function FOR.Tiles(j)
   local counts = {}
   local function Count(key, row)
-    local c = counts[key] or { n = 0, open = 0 }
+    local c = counts[key] or { n = 0, open = 0, have = 0 }
     counts[key] = c
     c.n = c.n + 1
     if row.filterState == "missing" then c.open = c.open + 1 end
+    if row.filterState == "have" then c.have = c.have + 1 end
   end
   for _, group in ipairs(FOR.GROUPS) do
     for _, row in ipairs(FOR.Rows(j, group)) do
@@ -1099,8 +1128,14 @@ function FOR.Tiles(j)
   for _, def in ipairs(FOR.TILES) do
     local c = counts[def.key]
     if c and c.n > 0 then
-      tiles[#tiles + 1] = { label = def.label, icon = def.icon, count = c.n,
-        note = c.open > 0 and ("%d open"):format(c.open) or nil }
+      local words = FOR.TileWords(def, c.n, c.open, c.have)
+      local lines = { { "In all", tostring(c.n) } }
+      if c.open > 0 then lines[#lines + 1] = { def.open, tostring(c.open) } end
+      if c.have > 0 then lines[#lines + 1] = { def.done, tostring(c.have) } end
+      local rest = c.n - c.open - c.have
+      if rest > 0 then lines[#lines + 1] = { "No state to show, or not read yet", tostring(rest) } end
+      tiles[#tiles + 1] = { label = words and (def.label .. ": " .. words) or def.label, icon = def.icon, count = c.n,
+        tip = { title = def.title, lines = lines, note = def.note } }
     end
   end
   local total = 0
@@ -1298,10 +1333,30 @@ local function GetTiles(rows)
     if counts[a] ~= counts[b] then return counts[a] > counts[b] end
     return (SOURCE_ORDER[a] or 20) < (SOURCE_ORDER[b] or 20)
   end)
+  -- each tile's tooltip: the first few of its kind with where each is, and
+  -- where the rest are (Cobanyte, 2026-09-28: the tiles had no tooltip)
+  local SHOWN = 6
+  local byKind = {}
+  for _, row in ipairs(rows) do
+    local kind = row.kindLabel or "Other"
+    byKind[kind] = byKind[kind] or {}
+    table.insert(byKind[kind], row)
+  end
   local tiles = {}
   for _, kind in ipairs(order) do
+    local lines = {}
+    for i, row in ipairs(byKind[kind]) do
+      if i > SHOWN then break end
+      local okN, name = pcall(Data().DisplayName, row)
+      local okW, where = pcall(Data().Where, row)
+      lines[#lines + 1] = { (okN and type(name) == "string" and name ~= "") and name or "Loading",
+        (okW and type(where) == "string") and where or "" }
+    end
+    local more = counts[kind] - #lines
     tiles[#tiles + 1] = { label = kind, count = counts[kind],
-      icon = SOURCE_ICONS[kind] or "Interface\\Icons\\INV_Misc_QuestionMark" }
+      icon = SOURCE_ICONS[kind] or "Interface\\Icons\\INV_Misc_QuestionMark",
+      tip = { title = ("%s (%d)"):format(kind, counts[kind]), lines = lines,
+        note = more > 0 and ("And %d more on the Comes from tab."):format(more) or "All of them are on the Comes from tab too." } }
   end
   return tiles
 end
@@ -2241,8 +2296,12 @@ local STATUS = { key = "status", label = "Status", width = 130, text = function(
   sort = function(row) return ("%d %s"):format(row.tier or 2, Lower(row.stateText) or "~") end }
 -- The waypoint button (its click and hover are set in BuildBody)
 local MAP = { key = "map", label = "Map", width = 36, sortable = false,
-  tooltip = "Set a map waypoint to where it is",
-  button = { shown = function(row) return Data().Place(row) ~= nil end } }
+  tooltip = "Set a map waypoint to where it is; on an achievement, open it in the achievement window",
+  button = { shown = function(row) return Data().Place(row) ~= nil end,
+    -- an achievement with no place: the secure achievement button instead
+    alt = function(row)
+      return row.what == "achievement" and Recollect.Utilities.IsPositiveID(row.achievementID) and Data().Place(row) == nil
+    end } }
 -- Who and where: the seller, the quest's giver, the creature's or spot's zone
 local function WHERE(label, width)
   return { key = "where", label = label or "Where", width = width or 190, color = Gray,
@@ -2631,20 +2690,38 @@ end
 -- says comes from the curator's provider, the only way Recollect reaches it.
 -------------------------------------------------------------------------------
 local FLAG_WIDTH = 96
+local JOIN_WIDTH = 150    -- "Want to be a curator?"
+local JOIN_TIP = "Curators help Recollect's database grow. With curator mode on, Recollect notes what the game "
+  .. "shows you that its database gets wrong or doesn't have yet, as game IDs only, and the author collects it to "
+  .. "improve the next version. Click to open the Curator settings, which say exactly what is recorded and turn it on."
 local FLAG_TIPS = {
   pending = "Your flag isn't sent yet: click to change it",
   sent = "Your flag was sent; the author hasn't saved it yet. Click to add more information",
   delivered = "Your flag was delivered. Click to add more information",
 }
 
--- FlagButton(model, provider): nil (no button), or { text, tooltip, itemID }
+-- FlagButton(model, provider): nil (no button), or { text, tooltip, itemID,
+-- join, width }. An item the shipped data says nothing about (the
+-- provider's noInfo) reads Request info until it is flagged. With curator
+-- mode off the same place offers the curator program (Cobanyte,
+-- 2026-09-28): "Want to be a curator?", a click opens the Curator settings.
 function Detail.FlagButton(model, provider)
+  if model and provider and type(provider.IsEnabled) == "function" then
+    local okE, on = pcall(provider.IsEnabled)
+    if okE and on == false then
+      return { text = "Want to be a curator?", tooltip = JOIN_TIP, join = true, width = JOIN_WIDTH }
+    end
+  end
   local itemID = model and model.source and model.source.itemID
   if not (itemID and provider and provider.FlagState and provider.OpenFlag) then return nil end
   local ok, state = pcall(provider.FlagState, itemID)
   if not ok or type(state) ~= "table" then return nil end
   if state.flagged then
     return { text = "Flagged", tooltip = FLAG_TIPS[state.state] or FLAG_TIPS.delivered, itemID = itemID }
+  end
+  if state.noInfo then
+    return { text = "Request info", itemID = itemID,
+      tooltip = "Recollect's database knows nothing about this item yet. Ask the author to look into it; your own words are optional" }
   end
   return { text = "Curator Flag", itemID = itemID,
     tooltip = "Something missing or wrong here? Flag it for Recollect's author, with a reason and your own words" }
@@ -2659,9 +2736,12 @@ local function PaintFlag()
   window.Flag:SetShown(flag ~= nil)
   window.Flag.itemID = flag and flag.itemID or nil
   window.Flag.tip = flag and flag.tooltip or nil
+  window.Flag.join = flag and flag.join or nil
+  local width = flag and flag.width or FLAG_WIDTH
+  window.Flag:SetWidth(width)
   if flag then window.Flag:SetText(flag.text) end
   -- the name and the verdict end left of the header's buttons
-  local right = -PAD - 70 - (flag and (FLAG_WIDTH + 6) or 0)
+  local right = -PAD - 70 - (flag and (width + 6) or 0)
   window.Name:SetPoint("RIGHT", window, "RIGHT", right, 0)
   window.Verdict:SetPoint("RIGHT", window, "RIGHT", right, 0)
 end
@@ -3059,8 +3139,8 @@ function Detail.MenuEntries(row)
   if data.Link(row) or row.itemID then Add("open", "Link in chat", function() LinkRow(row) end) end
   if row.itemID or row.what == "mount" then Add("open", "Preview", function() Preview(row) end) end
   -- an achievement: the game's achievement window, opened at it (Cobanyte,
-  -- 2026-09-28), through the entry the game's own links use
-  -- (ShowAchievementFrameForAchievement, Blizzard_AchievementUI_Bootstrap.lua)
+  -- 2026-09-28); Recollect never loads or toggles that window itself
+  -- (UI/AchievementPrompt.lua)
   if row.what == "achievement" and Recollect.Utilities.IsPositiveID(row.achievementID) then
     Add("open", "Show Achievement", function() pcall(seams.ShowAchievement, row.achievementID) end)
   end
@@ -3088,11 +3168,28 @@ function Detail.MenuEntries(row)
   return entries
 end
 
+-- The menu's owner must be a frame: Blizzard's menu reads its strata and
+-- level (Menu.lua, MenuManagerMixin), which a font string doesn't have, so
+-- a link in the Overview's text (whose region is its font string) opened no
+-- menu in game (2026-09-28); its frame owns the menu instead
+local function MenuOwner(anchor)
+  local region = anchor
+  for _ = 1, 3 do
+    if type(region) ~= "table" then break end
+    local ok, isFrame = pcall(function() return region:IsObjectType("Frame") end)
+    if ok and isFrame then return region end
+    local okP, parent = pcall(function() return region:GetParent() end)
+    region = okP and parent or nil
+  end
+  return window
+end
+Detail.MenuOwner = MenuOwner
+
 function Detail.ShowRowMenu(row, anchor)
   local entries = Detail.MenuEntries(row)
   if #entries == 0 then return end
   local title = Data().DisplayName(row)
-  seams.ContextMenu(anchor or window, function(_, root)
+  seams.ContextMenu(MenuOwner(anchor), function(_, root)
     if type(title) == "string" and title ~= "" then root:CreateTitle(title) end
     local section
     for _, entry in ipairs(entries) do
@@ -3317,9 +3414,25 @@ end
 function Hyper.Click(frame, link, _, mouseButton, region)
   local row = Hyper.Row(link)
   if not row then return end
+  if mouseButton == "RightButton" then Hyper.lastRight = seams.Now() end
   local over = Hyper.over
   local at = type(region) == "table" and region or (over and over.link == link and over.region) or frame
   OnRowClick(row, "name", mouseButton, at)
+end
+
+-- A right-click over a link, in case the game doesn't send a text link's
+-- OnHyperlinkClick for the right button (unconfirmed; the Overview's missing
+-- menu of 2026-09-28 was its owner, a font string: Detail.MenuOwner): the
+-- frame's own mouse-up opens the menu of the link under the cursor
+-- (Hyper.over, set on hover), a frame later, so a right-click the game did
+-- deliver to the link opens it once.
+function Hyper.MouseUp(frame, mouseButton)
+  if mouseButton ~= "RightButton" or not Hyper.over then return end
+  local over, at = Hyper.over, seams.Now()
+  seams.After(0, function()
+    if Hyper.lastRight == at or Hyper.over ~= over then return end
+    Hyper.Click(frame, over.link, nil, "RightButton", over.region)
+  end)
 end
 
 -- A frame whose font strings' links are live: its hover and clicks
@@ -3328,6 +3441,7 @@ local function EnableLinks(frame)
   frame:SetScript("OnHyperlinkEnter", Hyper.Enter)
   frame:SetScript("OnHyperlinkLeave", Hyper.Leave)
   frame:SetScript("OnHyperlinkClick", Hyper.Click)
+  frame:HookScript("OnMouseUp", Hyper.MouseUp)
 end
 
 -------------------------------------------------------------------------------
@@ -3375,6 +3489,12 @@ local function BuildHeader()
   window.Flag = CobySuite_Recollect.UI.CreateButton(window, { text = "Curator Flag", size = { FLAG_WIDTH, 22 },
     point = { "RIGHT", window.Back, "LEFT", -6, 0 },
     onClick = function(self)
+      if self.join then
+        -- the curator program: its settings page says what is recorded
+        local Config = Recollect.Config
+        if Config and Config.OpenSettingsAt then Config.OpenSettingsAt("curator") end
+        return
+      end
       local provider = CuratorProvider()
       if self.itemID and provider and provider.OpenFlag then provider.OpenFlag(self.itemID) end
     end })
@@ -3539,6 +3659,51 @@ function Fold.MakeButton(parent)
   return b
 end
 
+-- The achievement button (Cobanyte, 2026-09-28: one click, no prompt): an
+-- insecure action button whose macro "/click AchievementMicroButton" clicks
+-- the micro menu's own button on the secure path, so the game loads and
+-- opens its achievement window itself (the repo's taint notes, pitfall 5; a click
+-- that runs Recollect's code, a right-click menu's included, would open it
+-- tainted); then Recollect selects the row's achievement
+-- (AchievementPrompt.AfterSecureClick). With the window already shown the
+-- macro is switched off for that click (the micro button toggles, so it
+-- would close it) and only the selection runs.
+local function AchievementButton(parent, size)
+  local b = CreateFrame("Button", nil, parent, "InsecureActionButtonTemplate")
+  b:SetSize(size, size)
+  b.Icon = b:CreateTexture(nil, "ARTWORK")
+  b.Icon:SetAllPoints()
+  b.Icon:SetTexture("Interface\\Icons\\Achievement_General")
+  b.Icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+  b:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+  b:RegisterForClicks("LeftButtonUp")
+  b:SetAttribute("useOnKeyDown", false)
+  b:SetAttribute("type", "macro")
+  b:SetAttribute("macrotext", Recollect.UI.AchievementPrompt.MACRO)
+  b:SetAttribute("shift-type*", "")
+  b:SetAttribute("ctrl-type*", "")
+  b:SetAttribute("alt-type*", "")
+  b:SetScript("PreClick", function(self)
+    self.wasShown = Recollect.UI.AchievementPrompt.seams.Shown()
+    self:SetAttribute("type", self.wasShown and "" or "macro")
+  end)
+  b:SetScript("PostClick", function(self)
+    local row = parent.data
+    if row then pcall(Recollect.UI.AchievementPrompt.AfterSecureClick, row.achievementID, self.wasShown) end
+    self:SetAttribute("type", "macro")
+  end)
+  return b
+end
+Detail.AchievementButton = AchievementButton
+
+local function AchievementButtonTooltip(owner)
+  GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
+  GameTooltip:SetText("Open in the achievement window", 1, 1, 1)
+  local gray = U.Colors.LABEL_GRAY
+  GameTooltip:AddLine("The game opens its own achievement window at this achievement.", gray[1], gray[2], gray[3], true)
+  GameTooltip:Show()
+end
+
 local function BuildBody()
   local utilities = U
   MAP.button.onClick = function(row)
@@ -3546,6 +3711,7 @@ local function BuildBody()
     if place then SetWaypoint(place) end
   end
   MAP.button.onEnter = function(b, row) WaypointTooltip(b, Data().Place(row)) end
+  MAP.button.onAltEnter = function(b) AchievementButtonTooltip(b) end
   -- a cell for every column of the widest tab (What it takes has 9)
   local maxCells = 0
   for _, columns in pairs(COLUMNS) do maxCells = math.max(maxCells, #columns) end
@@ -3553,6 +3719,7 @@ local function BuildBody()
     maxCells = maxCells, utilities = utilities, persistence = { savedVariable = "RECOLLECT_WINDOW_STATE", path = "detailColumns" },
     onRowClick = OnRowClick, onRowEnter = OnRowEnter, onRowLeave = function() GameTooltip:Hide() end,
     rowButton = function(parent) return WaypointButton(parent, MAP_HEIGHT) end,
+    rowAltButton = function(parent) return AchievementButton(parent, MAP_HEIGHT - 2) end,
     onSort = function(tabKey) ApplyView(tabKey) end })
   t.frame:SetPoint("TOPLEFT", window.HeaderEnd, "TOPLEFT", 0, -30)
   t.frame:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -PAD, 14)
@@ -3657,7 +3824,6 @@ local function Build()
     title = "Recollect: Item Details",
     icon = Recollect.ICON,
     width = WIDTH, height = HEIGHT,
-    strata = "DIALOG",
     resizable = { minWidth = 620, minHeight = 380, maxWidth = 1400, maxHeight = 240 + POOL * ROW_HEIGHT },
     escapeCloses = true,
     persist = {
@@ -3850,6 +4016,7 @@ EventUtil.RegisterOnceFrameEventAndCallback("PLAYER_LOGIN", function()
 end)
 
 Detail._test = {
+  FOR = FOR,
   seams = seams,
   Click = OnClick,
   CombatEnded = OnCombatEnded,

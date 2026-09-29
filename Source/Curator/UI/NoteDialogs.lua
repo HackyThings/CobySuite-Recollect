@@ -1,6 +1,9 @@
 -------------------------------------------------------------------------------
 -- The curator's two writing windows (curator spec D35, Cobanyte 2026-09-27):
---   Curator.FlagDialog.Open(itemID)   the details window's Curator Flag
+--   Curator.FlagDialog.Open(itemID, reason)   the details window's Curator
+--                                     Flag (reason: one chosen for a flag
+--                                     with no entries yet, "missing" for
+--                                     Request info)
 --   Curator.FeedbackDialog.Open()     /rec feedback
 -- Each is its own resizable window on the suite's shell (never
 -- StaticPopupDialogs), its size and place kept in RECOLLECT_CURATOR_DB.windows,
@@ -239,8 +242,9 @@ local function BuildFlag()
   w:Hide()
 end
 
--- Open(itemID): the flag window for an item, with its flag so far
-function FlagDialog.Open(itemID)
+-- Open(itemID, reason): the flag window for an item, with its flag so far;
+-- reason, when given, is chosen for a flag with no entries yet
+function FlagDialog.Open(itemID, reason)
   itemID = tonumber(itemID)
   if not itemID then return false end
   BuildFlag()
@@ -258,7 +262,11 @@ function FlagDialog.Open(itemID)
   flagWindow.History:SetShown(#lines > 0)
   flagWindow.Reason.value = nil
   flagWindow.Reason.DropDown:OverrideText("Choose a reason")
-  if last then flagWindow.Reason:SetValue(last.reason) end
+  if last then
+    flagWindow.Reason:SetValue(last.reason)
+  elseif reason and Notes.REASON_LABELS[reason] then
+    flagWindow.Reason:SetValue(reason)
+  end
   flagWindow.Input:SetCommittedValue(state.pending and state.pending.text or "")
   Warn(flagWindow.Problem, state.atLimit and (#state.entries > 0
     and "This flag holds as much as it can until the author collects it." or "You have as many flags waiting as Recollect keeps.") or "")

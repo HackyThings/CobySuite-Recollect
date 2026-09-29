@@ -1,6 +1,6 @@
 ## Interface: 120100
 ## Title: Recollect
-## Version: 0.0.1c
+## Version: 0.0.1d
 ## Author: Cobanyte
 ## Notes: Shows what each item in your bags, bank and warband bank is for, and whether you still need it.
 ## IconTexture: Interface\Icons\achievement_faction_goldenlotus
@@ -124,6 +124,7 @@ Source\UI\AuditPanel.lua
 Source\UI\Tooltip.lua
 Source\UI\DetailData.lua
 Source\UI\DataTable.lua
+Source\UI\AchievementPrompt.lua
 Source\UI\DetailWindow.lua
 Source\UI\Guide.lua
 Source\UI\WhatsNew.lua
@@ -156,13 +157,21 @@ Source\Curator\Recorders\EncounterLoot.lua
 Source\Curator\Recorders\QuestLoot.lua
 Source\Curator\Recorders\ContainerUse.lua
 Source\Curator\Recorders\Vignettes.lua
+Source\Curator\Recorders\NoInfo.lua
 Source\Curator\Protocol.lua
 Source\Curator\Transport.lua
 Source\Curator\Membership.lua
 Source\Curator\Sharing.lua
 Source\Curator\Ping.lua
 Source\Curator\Errors.lua
+Source\Curator\History.lua
+Source\Curator\Decode.lua
+Source\Curator\Dashboard.lua
+Source\Curator\DashboardOverview.lua
 Source\Curator\UI\TransferWindow.lua
 Source\Curator\UI\OptOutDialog.lua
 Source\Curator\UI\JoinPrompt.lua
+Source\Curator\UI\LeaveOldChannel.lua
 Source\Curator\UI\NoteDialogs.lua
+Source\Curator\UI\DashTable.lua
+Source\Curator\UI\Dashboard.lua
