@@ -4,6 +4,18 @@ All notable changes to Recollect are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [0.0.2b] - 2026-09-30
+
+### Changed
+
+- **More boss loot from Shadowlands raids.** Recollect now knows what the bosses of Sanctum of Domination and Sepulcher of the First Ones drop beyond their Encounter Journal loot, as seen in game: Ancient Anima Vessel and Anima Webbing from every boss, the Evoker conduits (Spark of Savagery, Circle of Life and others), Genesis Mote from Skolex and Lihuvim, Kel'Thuzad's Phylactery Shard and Anduin's Mourne Fragment. Each shows under "How to get more" with the boss and its raid.
+
+### Fixed
+
+- **Resizing a window no longer makes it jump to full screen.** Dragging a window's corner past the edge of the screen could grow it to its largest size in an instant, with the corner off the screen so it couldn't be made smaller again. A window's corner now stops at the screen's edges, and a window saved too big opens fitted to the screen.
+
+- **Curators: nothing stays waiting after a collection.** Findings recorded before 0.0.2a stayed in the curator dashboard's Waiting to be sent count after every collection, because they were too large to hand over in the new format. The author already has them from earlier collections, so they're now cleared when you log in. Findings saved under an older database are handed over in the same collection as your newest ones, so the count drops to 0 once the author collects, and a database update no longer puts findings the author already has back in the count.
+
 ## [0.0.2a] - 2026-09-30
 
 ### Changed
@@ -237,7 +249,8 @@ All notable changes to Recollect are documented here. Format follows [Keep a Cha
   - **Feedback:** `/rec feedback` opens a box for anything you want the author to know. It goes with your next collection too.
   - **Errors:** any Recollect error your game shows is kept and sent along, so it can be fixed. Flags, feedback and errors are read only by the author, and what the author already has is cleared when a new database arrives.
 
-[Unreleased]: https://github.com/HackyThings/CobySuite-Recollect/compare/v0.0.2a...HEAD
+[Unreleased]: https://github.com/HackyThings/CobySuite-Recollect/compare/v0.0.2b...HEAD
+[0.0.2b]: https://github.com/HackyThings/CobySuite-Recollect/releases/tag/v0.0.2b
 [0.0.2a]: https://github.com/HackyThings/CobySuite-Recollect/releases/tag/v0.0.2a
 [0.0.2]: https://github.com/HackyThings/CobySuite-Recollect/releases/tag/v0.0.2
 [0.0.1d]: https://github.com/HackyThings/CobySuite-Recollect/releases/tag/v0.0.1d

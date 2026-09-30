@@ -40,9 +40,14 @@ local Host = Curator.Host
 local Main = {}
 Curator.Main = Main
 
--- 2 since protocol 2 (security design, 2026-09-30): a store of layout 1
--- becomes a frozen block, which the author keeps only as leads
+-- 2 since protocol 2 (security design, 2026-09-30)
 local SCHEMA = 2
+-- Findings saved under a layout older than protocol 2's reach the author
+-- only as leads no data build counts, and the author already holds them
+-- from the pulls made before it, so they aren't kept: left as frozen
+-- blocks they stayed pending for good, since a block goes whole and theirs
+-- needed a large pull by hand (Cobanyte, 2026-09-30)
+local FIRST_KEPT_SCHEMA = 2
 local RECORDER_FIELDS = { "records", "confirms", "delivered", "awaiting", "contexts", "quests", "reported" }
 
 local function NewID()
@@ -52,6 +57,12 @@ local function NewID()
 end
 
 Main.SCHEMA = SCHEMA
+Main.FIRST_KEPT_SCHEMA = FIRST_KEPT_SCHEMA
+
+-- Old(schema): findings of this layout are dropped rather than frozen
+local function Old(schema)
+  return type(schema) == "number" and schema < FIRST_KEPT_SCHEMA
+end
 
 -- A block of findings as they are, labelled with what they were made under
 -- (nil when there is nothing to keep)
@@ -75,7 +86,7 @@ function Main.DB()
   if type(RECOLLECT_CURATOR_DB) ~= "table" or RECOLLECT_CURATOR_DB.schema ~= SCHEMA then
     local keep = type(RECOLLECT_CURATOR_DB) == "table" and RECOLLECT_CURATOR_DB or {}
     local frozen = type(keep.frozen) == "table" and keep.frozen or {}
-    local block = type(keep.schema) == "number" and Block(keep, keep.schema) or nil
+    local block = type(keep.schema) == "number" and not Old(keep.schema) and Block(keep, keep.schema) or nil
     if block then frozen[#frozen + 1] = block end
     RECOLLECT_CURATOR_DB = { schema = SCHEMA, id = type(keep.id) == "string" and keep.id or nil,
       intake = keep.intake, received = keep.received, notes = keep.notes, joinAsked = keep.joinAsked, noInfoNotice = keep.noInfoNotice, frozen = frozen,
@@ -204,18 +215,76 @@ function Main.IsScripted()
   return false
 end
 
--- Freeze(): the live findings into a frozen block, labelled with the
--- versions they were made under, and recording starts empty; false when
--- there was nothing to keep
+-- DropOldBlocks(): removes the frozen blocks saved under a layout older
+-- than protocol 2's (a block awaiting V goes too: V would only have deleted
+-- it); returns how many went
+function Main.DropOldBlocks()
+  local db = Main.DB()
+  local dropped = 0
+  for i = #db.frozen, 1, -1 do
+    local block = db.frozen[i]
+    if type(block) == "table" and Old(block.schema) then
+      table.remove(db.frozen, i)
+      dropped = dropped + 1
+    end
+  end
+  return dropped
+end
+
+local function DeepCopy(value)
+  if type(value) ~= "table" then return value end
+  local out = {}
+  for k, v in pairs(value) do out[k] = DeepCopy(v) end
+  return out
+end
+
+-- Split(db, field): a field's entries sorted three ways: handed over (K
+-- arrived for this very revision, V not yet: the author has it), dropped (a
+-- revision the author rejected, never sent again) and the rest, to freeze
+local function Split(db, field, sent, delivered)
+  local rest = {}
+  for key, entry in pairs(db[field]) do
+    local rev = type(entry) == "table" and entry.rev or nil
+    if rev ~= nil and db.delivered[key] == rev then
+      sent[key], delivered[key] = entry, rev
+    elseif rev == nil or entry.rejected ~= rev then
+      rest[key] = entry
+    end
+  end
+  return rest
+end
+
+-- Freeze(): the findings not handed over yet into a frozen block, labelled
+-- with the versions they were made under, and recording starts over; false
+-- when there was nothing to freeze. What the author already has stays live
+-- with its request, so V still deletes it and none of it counts as waiting
+-- again after a database update (Cobanyte, 2026-09-30: both sides at 0
+-- right after a collection); a revision the author rejected goes
 function Main.Freeze()
   local db = Main.DB()
-  local block = Block(db, SCHEMA)
-  if not block then return false end
-  db.frozen[#db.frozen + 1] = block
-  for _, field in ipairs(RECORDER_FIELDS) do db[field] = {} end
-  db.bytes = 0
+  local sentRecords, sentConfirms, delivered = {}, {}, {}
+  local records = Split(db, "records", sentRecords, delivered)
+  local confirms = Split(db, "confirms", sentConfirms, delivered)
+  local kept = next(sentRecords) ~= nil or next(sentConfirms) ~= nil
+  local oldBytes = tonumber(db.bytes) or 0
+  -- the kept findings still use the context blocks and quest entries: the
+  -- block gets its own copy of them then
+  local block = Block({ dataVersion = db.dataVersion, formatVersion = db.formatVersion, addonVersion = db.addonVersion,
+    records = records, confirms = confirms, contexts = kept and DeepCopy(db.contexts) or db.contexts,
+    quests = kept and DeepCopy(db.quests) or db.quests, bytes = oldBytes }, SCHEMA)
+  if not block and not kept then return false end
+  if block then db.frozen[#db.frozen + 1] = block end
+  if kept then
+    db.records, db.confirms, db.delivered, db.reported = sentRecords, sentConfirms, delivered, {}
+    if Curator.Context and Curator.Context.Prune then pcall(Curator.Context.Prune) end
+    if Curator.Store and Curator.Store.Recount then pcall(Curator.Store.Recount) end
+    if block then block.bytes = math.max(0, oldBytes - (tonumber(db.bytes) or 0)) end
+  else
+    for _, field in ipairs(RECORDER_FIELDS) do db[field] = {} end
+    db.bytes = 0
+  end
   Main.BumpEpoch()
-  return true
+  return block ~= nil
 end
 
 -- Findings belong to one data version and format: a new one freezes them
@@ -251,6 +320,10 @@ Host.OnLoaded(function()
     return
   end
   Main.DB()
+  local dropped = Main.DropOldBlocks()
+  if dropped > 0 then
+    Host.Log("Curator dropped %d frozen block(s) saved before protocol 2 (leads only, which the author already holds)", dropped)
+  end
   Main.CheckDataVersion()
   Host.Log("Curator mode %s; curator ID %s", Main.IsEnabled() and "on" or "off", Main.CuratorID())
 end)

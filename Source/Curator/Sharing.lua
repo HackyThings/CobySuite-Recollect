@@ -218,6 +218,19 @@ local function AddNotes(out, held, room)
   return taken, left
 end
 
+-- FrozenLeft(except): the findings and stamps of the frozen blocks still to
+-- send, other than except. S's "more" counts them, so the author's
+-- collection goes on through them by itself and leaves nothing pending
+local function FrozenLeft(except)
+  local n = 0
+  for _, block in ipairs(Curator.Store.DB().frozen) do
+    if block ~= except and not block.awaiting and not block.rejected then
+      n = n + CobySuite_Recollect.Utilities.TableCount(block.records or {}) + CobySuite_Recollect.Utilities.TableCount(block.confirms or {})
+    end
+  end
+  return n
+end
+
 local function FrozenSnapshot(block)
   local out = { protocol = Protocol.VERSION, curator = CuratorID(), frozen = true, frozenAt = block.frozenAt,
     records = Copy(block.records or {}), confirms = Copy(block.confirms or {}), contexts = Copy(block.contexts or {}),
@@ -255,7 +268,7 @@ function Sharing.Snapshot(limit, store)
       out.store = store
       local held = { block = block }
       local _, left = AddNotes(out, held, limit)
-      return out, held, left
+      return out, held, left + FrozenLeft(block)
     end
   end
   local out = { protocol = Protocol.VERSION, curator = CuratorID(), store = store, records = {}, confirms = {}, contexts = {},
@@ -290,7 +303,7 @@ function Sharing.Snapshot(limit, store)
   for index in pairs(used) do out.contexts[index] = Copy(db.contexts[index]) end
   -- the notes not sent yet (flags, feedback, errors: Curator.Notes)
   local _, notesLeft = AddNotes(out, held, limit - taken)
-  return out, held, left + notesLeft
+  return out, held, left + notesLeft + FrozenLeft()
 end
 
 local Count = CobySuite_Recollect.Utilities.TableCount

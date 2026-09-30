@@ -116,77 +116,58 @@ CobySuite_Recollect.Slash.Register({
   title = "Recollect",
   version = VERSION,
   message = function(text) Recollect.Utilities.Message(text) end,
-  commands = {
-    { name = "show", help = "Open or close the Recollect Audit", run = ToggleList },
-    {
-      name = "settings", aliases = { "config", "options" }, help = "Open the settings window",
-      run = function()
-        if Recollect.Config.ToggleSettings then Recollect.Config.ToggleSettings() end
-      end,
+  -- The suite's standard commands (show, settings, guide, changelog, debug,
+  -- test), then Recollect's own before test
+  commands = CobySuite_Recollect.Slash.StandardCommands({
+    show = ToggleList, showHelp = "Open or close the Recollect Audit",
+    settings = function()
+      if Recollect.Config.ToggleSettings then Recollect.Config.ToggleSettings() end
+    end,
+    guide = function()
+      if Recollect.UI.Guide then Recollect.UI.Guide.Toggle() end
+    end,
+    changelog = function()
+      if Recollect.UI.WhatsNew then Recollect.UI.WhatsNew.Toggle() end
+    end,
+    debug = function()
+      if Recollect.DebugWindow then Recollect.DebugWindow:Toggle() end
+    end,
+    tests = function() return Recollect.Tests end,
+    extra = {
+      {
+        name = "curator", usage = "curator [status|join|cancel|diag|ping|transport [Name-Realm]]",
+        help = "Curator mode: help build Recollect's database (the curator dashboard; status prints one line; join prints the invite link; cancel stops a collection)",
+        run = function(rest)
+          local provider = curatorProvider
+          if provider and provider.Slash then
+            provider.Slash(rest)
+          else
+            Recollect.Utilities.Message("Curator mode isn't part of this build.")
+          end
+        end,
+      },
+      {
+        name = "feedback", aliases = { "bug" },
+        help = "Write feedback for Recollect's author; it's sent with your next curator collection",
+        run = function()
+          local provider = curatorProvider
+          if provider and provider.OpenFeedback then
+            provider.OpenFeedback()
+          else
+            Recollect.Utilities.Message("Feedback travels with curator mode, which isn't part of this build.")
+          end
+        end,
+      },
+      {
+        name = "lab", help = "Open the development Lab: what the game answers in each state, as one report",
+        available = function() return Recollect.Tests ~= nil and Recollect.Tests.Lab ~= nil end,
+        run = function()
+          local tests = Recollect.Tests
+          if tests and tests.Lab then tests.Lab.Open() end
+        end,
+      },
     },
-    {
-      name = "guide", aliases = { "tutorial" }, help = "Open or close the feature guide",
-      run = function()
-        if Recollect.UI.Guide then Recollect.UI.Guide.Toggle() end
-      end,
-    },
-    {
-      name = "changelog", aliases = { "change", "whatsnew", "news" }, help = "Open or close the changelog: what changed in each version",
-      run = function()
-        if Recollect.UI.WhatsNew then Recollect.UI.WhatsNew.Toggle() end
-      end,
-    },
-    {
-      name = "debug", help = "Open or close the debug log window",
-      run = function()
-        if Recollect.DebugWindow then Recollect.DebugWindow:Toggle() end
-      end,
-    },
-    {
-      name = "curator", usage = "curator [status|join|cancel|diag|ping|transport [Name-Realm]]",
-      help = "Curator mode: help build Recollect's database (the curator dashboard; status prints one line; join prints the invite link; cancel stops a collection)",
-      run = function(rest)
-        local provider = curatorProvider
-        if provider and provider.Slash then
-          provider.Slash(rest)
-        else
-          Recollect.Utilities.Message("Curator mode isn't part of this build.")
-        end
-      end,
-    },
-    {
-      name = "feedback", aliases = { "bug" },
-      help = "Write feedback for Recollect's author; it's sent with your next curator collection",
-      run = function()
-        local provider = curatorProvider
-        if provider and provider.OpenFeedback then
-          provider.OpenFeedback()
-        else
-          Recollect.Utilities.Message("Feedback travels with curator mode, which isn't part of this build.")
-        end
-      end,
-    },
-    {
-      name = "test", usage = "test [suite]",
-      help = "Open the in-game test window, optionally running one suite",
-      available = function() return Recollect.Tests ~= nil end,
-      run = function(rest)
-        local tests = Recollect.Tests
-        if not tests then return end
-        tests.Window:Show()
-        local suite = rest and rest:match("^%s*(%S+)")
-        if suite then tests.RunSuite(suite) end
-      end,
-    },
-    {
-      name = "lab", help = "Open the development Lab: what the game answers in each state, as one report",
-      available = function() return Recollect.Tests ~= nil and Recollect.Tests.Lab ~= nil end,
-      run = function()
-        local tests = Recollect.Tests
-        if tests and tests.Lab then tests.Lab.Open() end
-      end,
-    },
-  },
+  }),
   onEmpty = ToggleList,
 })
 

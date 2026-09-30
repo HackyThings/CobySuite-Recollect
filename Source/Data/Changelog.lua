@@ -14,6 +14,18 @@
 -------------------------------------------------------------------------------
 Recollect.Data.Changelog = {
   {
+    version = "0.0.2b",
+    title = "Collections that finish",
+    date = "2026-09-30",
+    changed = {
+      "Raid loot: more Sanctum and Sepulcher boss drops, seen in game",
+    },
+    fixed = {
+      "Windows: dragging a corner past the screen no longer fills it",
+      "Curators: nothing stays waiting after the author collects",
+    },
+  },
+  {
     version = "0.0.2a",
     title = "Safer curator mode",
     date = "2026-09-30",

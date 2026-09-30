@@ -1,2 +1,2 @@
 -- Written by the release build. Identifies this embedded copy of the shared library.
-CobySuite_Recollect.BuildInfo = { embedded = true, host = "Recollect", commit = "85fe3e2", dirty = false }
+CobySuite_Recollect.BuildInfo = { embedded = true, host = "Recollect", commit = "574cab9", dirty = false }
