@@ -4,6 +4,44 @@ All notable changes to Recollect are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [0.0.2a] - 2026-09-30
+
+### Changed
+
+- **Waypoints say who is there and why you're going.** A TomTom arrow's title names the NPC and the errand, such as "use Forgotten Trinket here", "sells ...", "drops ...", "open it with ..." or "starts (quest)", instead of just "the NPC". The panel's waypoint hint and the chat line after setting one name the NPC too, once the game has read its name.
+
+- **Prices name what you pay with.** A purchase used to read "Phoenix Ash Talisman for 1 plus 20 Apexis Crystal", leaving you to guess what the 1 was; it now reads "Phoenix Ash Talisman for 1 Phoenix Feather and 20 Apexis Crystal". The same goes for the audit panel's reasons ("Buys Phoenix Ash Talisman (for 1 Phoenix Feather and other costs), which leads to ..."), USED FOR in the details window, and the Cost column's hover list.
+
+- **"How to get more" says something useful when Recollect doesn't know the source yet.** Instead of only the season line, it says that no source is recorded yet and what the item's binding means for getting another: whether another player can trade it to you or it may be on the Auction House, or whether only its source can give it. Curators also see a reminder to press Request info.
+
+- **Checkmarks and crosses show what's done at a glance.** In the item details window and the audit panel, a line or row that's done, earned, collected, known or looted shows a green check; one still to get or do shows a red cross; one out of reach for this character a gray cross; one the game can't read yet a pending mark, and one it can't read at all a warning sign. The icons are the game's own and sized to the text beside them.
+
+- **Curator mode is available only in the Americas and Oceania game region**, where the author plays: curators and the author have to reach each other in game. Elsewhere the settings still explain curator mode and say why it's unavailable, with its options grayed out; any findings already saved are kept as they are, and nothing is recorded or sent. Everything else in Recollect works everywhere.
+
+- **Curators: a new, safer way to hand findings over.** Curator mode now talks to Recollect's author in a new format, and a curator's client hands findings only to the author's own characters, never to anyone else who happens to lead the community. Findings go in smaller parts, one after another, so no single transfer is large. Curators on 0.0.2 or older have to update before the author can collect again; findings recorded before the update are kept and handed over too.
+
+- **Curators: the connection test answers only the author.** Your client replies to the curator connection test (`/rec curator ping`) only when the author runs it, and no longer joins the test's chat channel by itself when you log in.
+
+### Removed
+
+- **The prompt to leave the old curator chat channel.** Curator messages have gone by whisper since 0.0.1d; if a character is still in the old RecollectCurators channel, type `/leave RecollectCurators`.
+
+### Fixed
+
+- **A meta achievement you've earned now shows "(earned)" in green** in the item details window, like the achievements listed above it (it was gray).
+- **Curators: a collection the author turned down or kept for a closer look now says so** in the dashboard's History, and findings he turned down no longer show as waiting.
+- **Curators: the flag window shows when the author saved a flag**, not when you wrote it.
+- **Curators: the connection test says it needs the author's test session**, and its encoding check no longer reports a problem that isn't there.
+- **Curators: `/rec feedback` outside the Americas and Oceania region explains why feedback isn't available**, instead of telling you to turn curator mode on.
+- **Chat lines from curator mode no longer say "Recollect" twice.**
+- **The feature guide names your own keys** when you've changed the panel, details or waypoint key, instead of always saying Alt, Alt+D and Alt+W.
+- **A purchase that's no longer in the game names what was paid**, like the rest ("Bought X for 5 Apexis Crystal").
+- **A gray junk item is no longer described as worth gold**, and a spot with no known place is no longer called a treasure.
+- **Hovering an NPC promises a waypoint only when Recollect knows where it is.**
+- **The audit panel says what it hasn't checked in plain words** ("not checked yet: whether a recipe uses it and whether a quest needs it") instead of internal labels, and a reason that repeats its headline is shown once.
+- **Counts and plurals read right with one of something** ("1 more depends", "which you own", "Teaches an Alchemy recipe", "an heirloom"), and "How many you have" no longer lists places holding none.
+- **Curators with a long list of collections waiting for the author's confirmation** could still look offline to the author: the reply could come out two characters too long to send. It now always fits.
+
 ## [0.0.2] - 2026-09-29
 
 ### Added
@@ -199,7 +237,8 @@ All notable changes to Recollect are documented here. Format follows [Keep a Cha
   - **Feedback:** `/rec feedback` opens a box for anything you want the author to know. It goes with your next collection too.
   - **Errors:** any Recollect error your game shows is kept and sent along, so it can be fixed. Flags, feedback and errors are read only by the author, and what the author already has is cleared when a new database arrives.
 
-[Unreleased]: https://github.com/HackyThings/CobySuite-Recollect/compare/v0.0.2...HEAD
+[Unreleased]: https://github.com/HackyThings/CobySuite-Recollect/compare/v0.0.2a...HEAD
+[0.0.2a]: https://github.com/HackyThings/CobySuite-Recollect/releases/tag/v0.0.2a
 [0.0.2]: https://github.com/HackyThings/CobySuite-Recollect/releases/tag/v0.0.2
 [0.0.1d]: https://github.com/HackyThings/CobySuite-Recollect/releases/tag/v0.0.1d
 [0.0.1c]: https://github.com/HackyThings/CobySuite-Recollect/releases/tag/v0.0.1c

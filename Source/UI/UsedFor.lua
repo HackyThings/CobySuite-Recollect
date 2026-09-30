@@ -13,10 +13,10 @@
 --   Currency: Radiant Spark Dust (you have 12 Radiant Spark Dust)
 --     Spent at a vendor in Silvermoon City (55.7, 65.9)
 --   Buys at Fizz Alechux (Razorwind Shores) or Kay Stouthammer (...)   a heading
---   Decor: Brewfest Keg for 125 (not owned)
---   Mount: Spectral Steed for 165 (not owned)
+--   Decor: Brewfest Keg for 125 Brewfest Prize Token (not owned)
+--   Mount: Spectral Steed for 165 Brewfest Prize Token (not owned)
 --   Buys at Chef Dinaire (Hallowfall)
---   Darkroot Grippers for 5 plus other costs
+--   Darkroot Grippers for 5 Brewfest Prize Token and other costs
 --     Leads to Phoenix Wishwing, a pet you don't have, through "Tale of
 --     the Phoenix" (not done)
 --   COMES FROM
@@ -73,7 +73,7 @@
 -- catalog list is not repeated). Sellers come from the collection's own
 -- source text (Facts.Vendors.FromSourceText) or are named by the data, the
 -- name read live (Facts.Vendors.Describe). A purchase that takes other costs
--- too says "plus other costs". An achievement AllTheThings says the item
+-- too says "and other costs". An achievement AllTheThings says the item
 -- counts toward reads like the game's own criteria; a criterion it only
 -- links the item to reads "Linked to". A key says what it opens
 -- (Facts.Vendors.Object): where, what it holds, and whether its loot quest
@@ -137,8 +137,9 @@
 --     from the Use line (English clients, Purposes.UseEffect.GainCount).
 --     Where a Use works is left to the checks' reasons: the Use line says it
 --     beside the panel.
---   * Costs (item 9): a purchase names every other cost the data lists ("for
---     50 plus 4 Apexis Crystal and 25 gold", UsedFor.CostWords); a trade
+--   * Costs (item 9): a purchase names this item and every other cost the
+--     data lists ("for 50 Mark of Honor, 4 Apexis Crystal and 25 gold",
+--     UsedFor.TradeWords); a trade
 --     with no vendor named but its place is headed "Buys in <zone>".
 --   * A reagent's per-profession line carries the total (reagentTotal), so
 --     the panel's headline names every recipe (UI.Tooltip).
@@ -323,7 +324,7 @@ local function QuestState(questID, budget, stateless)
   if recurs then return title, 3, recurs .. ", done for now", colors[V.USEFUL], quest end
   if done then return title, 4, "done", colors[V.DONE], quest end
   if done == false then return title, 2, "not done", colors[V.USEFUL], quest end
-  return title, 1, "state unknown", U.Colors.LABEL_GRAY, quest
+  return title, 1, "can't be read", U.Colors.LABEL_GRAY, quest
 end
 
 -- What a quest rewards: the shipped table's things with their states
@@ -782,7 +783,7 @@ local function Entries(itemID, decorRelations, buyRelations, buyApplies, owner, 
     local state = owned ~= nil and (owned > 0 and "have" or "missing") or nil
     local texts = Vendors.FromSourceText(info and info.sourceText, "item", itemID)
     local seller = #texts > 0 and table.concat(texts, " or ") or nil
-    Add({ what = "decor", id = relation.id, count = relation.count or 1, state = state,
+    Add({ what = "decor", id = relation.id, count = relation.count or 1, ofItem = itemID, state = state,
       key = "decor:" .. relation.id, sellerText = seller, group = seller and ("text:" .. seller) or nil, tier = EntryTier(state) },
       texts)
   end
@@ -791,7 +792,7 @@ local function Entries(itemID, decorRelations, buyRelations, buyApplies, owner, 
     local state, name = Recollect.Purposes.Registry.CollectibleState(target, owner.faction, owner.isViewer)
     local texts = Vendors.FromSourceText(Recollect.Facts.Journals.SourceText(target.kind, target.id), "item", itemID)
     local seller = #texts > 0 and table.concat(texts, " or ") or nil
-    Add({ what = target.kind, id = target.id, name = name or (target.kind .. " " .. target.id), count = target.count or 1,
+    Add({ what = target.kind, id = target.id, name = name or (target.kind .. " " .. target.id), count = target.count or 1, ofItem = itemID,
       state = state, key = target.kind .. ":" .. target.id, sellerText = seller, group = seller and ("text:" .. seller) or nil,
       tier = EntryTier(state) }, texts)
   end
@@ -997,7 +998,7 @@ function UsedFor.PriceWords(relation)
   if count > 1 then return (", %d for %s"):format(count, words) end
   return " for " .. words
 end
-function UsedFor.CostWords(relation, itemID) return Recollect.Facts.Chains.CostWords(relation, itemID) end
+function UsedFor.TradeWords(relation, itemID) return Recollect.Facts.Chains.TradeWords(relation, itemID) end
 
 -- The first vendor of an entry's seller with a known place, for the waypoint
 local function EntryVendor(entry)
@@ -1025,7 +1026,7 @@ local function BuyLine(entry, grouped)
   name = name or (entry.what == "item" and ("item " .. (entry.thing and entry.thing.id or "?")))
     or ("%s %s"):format(entry.what, entry.thing and entry.thing.id or (entry.id or "?"))
   if entry.what == "decor" and not entry.thing then name = ItemName(entry.id) end
-  local cost = ("%d"):format(entry.count) .. (entry.relation and UsedFor.CostWords(entry.relation, entry.ofItem) or "")
+  local cost = UsedFor.TradeWords(entry.relation or { count = entry.count }, entry.ofItem)
   local text
   if grouped then
     text = ("%s%s for %s"):format(label and (label .. ": ") or "", name, cost)
@@ -1202,7 +1203,8 @@ local function OpensLine(relation, places, stateless, itemID)
   if object.mapID then
     local zone = Recollect.Facts.Vendors.ZoneName(object.mapID) or ("map " .. object.mapID)
     where = ("%s (%.1f, %.1f)"):format(zone, object.x * 100, object.y * 100)
-    place = { mapID = object.mapID, x = object.x, y = object.y, zone = zone, what = treasure and "the treasure" or "the spot" }
+    place = { mapID = object.mapID, x = object.x, y = object.y, zone = zone, what = treasure and "the treasure" or "the spot",
+      role = treasure and "opens" or "spot", itemID = itemID }
     places[#places + 1] = place
   end
   local text
@@ -1212,7 +1214,7 @@ local function OpensLine(relation, places, stateless, itemID)
     text = where and ("Used at a spot in %s"):format(where) or "Used at a spot"
   end
   local takes = (relation.count or 1) > 1 and relation.count or nil
-  if takes then text = ("%s with %d"):format(text, takes) end
+  if takes then text = ("%s: takes %d"):format(text, takes) end
   local color, tier = U.Colors.LIGHT_GRAY, nil
   if object.questID and not stateless and Recollect.Facts.Ready.Quests() then
     local ok, done = Try(Recollect.Purposes.client.IsQuestFlaggedCompleted, object.questID)
@@ -1318,6 +1320,7 @@ local function CurrencyLine(relation, places, stateless, tip)
   local desc = plain ~= "" and Cut(plain) or nil
   local vendor = Recollect.Facts.Vendors.ForCurrency(relation.id)[1]
   if vendor then
+    vendor.role, vendor.currencyID = "spend", relation.id
     places[#places + 1] = vendor
     desc = (desc and (desc .. " ") or "") .. VendorText("Spent at", vendor) .. "."
   end
@@ -1451,16 +1454,19 @@ local function Line(relation, places, budget, stateless, itemID, owner, tip)
     local who, npc = Recollect.Facts.Vendors.Describe(relation.id, "an NPC")
     if not who then return nil end
     if npc then
-      npc.what = "the NPC"
+      npc.what, npc.role, npc.itemID = "the NPC", "usedAt", itemID
       places[#places + 1] = npc
     end
-    local takes = (relation.count or 1) > 1 and (" with %d"):format(relation.count) or ""
+    local takes = (relation.count or 1) > 1 and (": takes %d"):format(relation.count) or ""
     return { text = "Used at " .. who .. takes, color = U.Colors.LIGHT_GRAY, place = npc }
   end
   if kind == "soldBy" then
     local seller, vendor = Recollect.Facts.Vendors.Describe(relation.id)
     if not seller then return nil end
-    if vendor then places[#places + 1] = vendor end
+    if vendor then
+      vendor.role, vendor.itemID = "soldBy", itemID
+      places[#places + 1] = vendor
+    end
     return { text = "Sold by " .. seller .. UsedFor.PriceWords(relation), color = U.Colors.LIGHT_GRAY, place = vendor }
   end
   if kind == "dropsFrom" then
@@ -1468,7 +1474,7 @@ local function Line(relation, places, budget, stateless, itemID, owner, tip)
     local who, npc = Recollect.Facts.Vendors.Describe(relation.id, "a creature")
     if not who then return nil end
     if npc then
-      npc.what = "the creature"
+      npc.what, npc.role, npc.itemID = "the creature", "dropsFrom", itemID
       places[#places + 1] = npc
     end
     return { text = "Drops from " .. who, color = U.Colors.LIGHT_GRAY, place = npc }
@@ -1484,7 +1490,8 @@ local function Line(relation, places, budget, stateless, itemID, owner, tip)
     local zone = object and object.mapID and Recollect.Facts.Vendors.ZoneName(object.mapID)
     -- a chest, a node or a spot on the ground: the data doesn't say which
     if not zone then return { text = "Found at a spot in the world", color = U.Colors.LIGHT_GRAY } end
-    local place = { mapID = object.mapID, x = object.x, y = object.y, zone = zone, what = "the spot" }
+    local place = { mapID = object.mapID, x = object.x, y = object.y, zone = zone, what = "the spot", role = "found",
+      itemID = itemID }
     places[#places + 1] = place
     return { text = ("Found at a spot in %s (%.1f, %.1f)"):format(zone, object.x * 100, object.y * 100),
       color = U.Colors.LIGHT_GRAY, place = place }
@@ -1503,7 +1510,7 @@ local function Line(relation, places, budget, stateless, itemID, owner, tip)
   end
   if kind == "recipeFor" then return { text = "Teaches how to make " .. ItemName(relation.id), color = U.Colors.LIGHT_GRAY } end
   if kind == "teaches" then return TeachesLine(relation, stateless) end
-  if kind == "taughtBy" then return { text = "Crafted with " .. ItemName(relation.id), color = U.Colors.LIGHT_GRAY } end
+  if kind == "taughtBy" then return { text = "Its recipe is taught by " .. ItemName(relation.id), color = U.Colors.LIGHT_GRAY } end
   if kind == "currency" then return CurrencyLine(relation, places, stateless, tip) end
   return nil
 end
@@ -1564,8 +1571,8 @@ local function RecordedLines(itemID)
   local lines = {}
   local ok, list = pcall(Recollect.Facts.Recipes.RecordedByOthers, itemID)
   for _, r in ipairs(ok and list or {}) do
-    lines[#lines + 1] = { text = ("%s's %s scan (%s) recorded %d %s using this"):format(r.name, r.profession,
-      r.scannedAt and date("%b %d", r.scannedAt) or "?", r.count, r.count == 1 and "recipe" or "recipes"),
+    lines[#lines + 1] = { text = ("%s's %s scan%s recorded %d %s using this"):format(r.name, r.profession,
+      r.scannedAt and (" (" .. date("%b %d", r.scannedAt) .. ")") or "", r.count, r.count == 1 and "recipe" or "recipes"),
       color = U.Colors.LIGHT_GRAY, tier = TIER_INFO, recorded = true }
   end
   return lines
@@ -1595,8 +1602,9 @@ local function ReagentLines(relations, full)
       for _, r in ipairs(list) do
         local ok, name = Try(seams.SpellName, r.relation.id)
         local product = r.recipe and r.recipe.product and r.recipe.product > 0 and ItemName(r.recipe.product) or nil
-        lines[#lines + 1] = { text = ("Reagent (%d) in %s%s"):format(r.relation.count or 1,
-          ok and type(name) == "string" and name or ("recipe " .. r.relation.id), product and (", which makes " .. product) or ""),
+        lines[#lines + 1] = { text = ("Reagent in %s (takes %d)%s"):format(
+          ok and type(name) == "string" and name or ("recipe " .. r.relation.id), r.relation.count or 1,
+          product and (", which makes " .. product) or ""),
           color = U.Colors.LIGHT_GRAY }
       end
     else
@@ -1686,6 +1694,7 @@ local function Assemble(lines, entries, max, pending, places, total)
           -- a route for another faction or class gives the waypoint no place
           if vendor and not entry.restricted and not vendorAdded[entry.group] then
             vendorAdded[entry.group] = true
+            vendor.role, vendor.itemID = "payment", entry.ofItem
             places[#places + 1] = vendor
           end
         end
@@ -1728,7 +1737,7 @@ local GONE_WORDS = { objective = "Objective of quest %d", questItem = "Used in q
   blackMarket = BLACK_MARKET_TEXT, tradingPost = "Offered at the Trading Post" }
 
 -- A route no longer in the game, worded for the pinned view
-local function UnavailableLine(relation, budget)
+local function UnavailableLine(relation, budget, itemID)
   local text
   if relation.kind == "buys" and relation.thing == "a" then
     local a = Recollect.Facts.Achievements.Get(relation.id)
@@ -1736,7 +1745,8 @@ local function UnavailableLine(relation, budget)
   elseif relation.kind == "buys" then
     local thing = Recollect.Facts.Buys.Resolve(relation, { isViewer = false })
     local name = thing and (Recollect.Facts.Buys.Name(thing) or (thing.what .. " " .. thing.id)) or ("thing " .. relation.id)
-    text = ("Bought %s for %d"):format(name, relation.count or 1)
+    -- the whole price, this item named (Facts.Chains.TradeWords)
+    text = ("Bought %s for %s"):format(name, UsedFor.TradeWords(relation, itemID))
   else
     local line = Build(Line, relation, {}, budget, true)
     text = line and line.text or (GONE_WORDS[relation.kind] or "%d"):format(relation.id or 0)
@@ -1968,10 +1978,12 @@ function UsedFor.Lines(itemID, stack, owner, opts)
   local Vendors = Recollect.Facts.Vendors
   local taking, selling = Vendors.ForCostItem(itemID)[1], Vendors.Selling(itemID)[1]
   if taking then
+    taking.role, taking.itemID = "payment", itemID
     takingPlaces[#takingPlaces + 1] = taking
     lines[#lines + 1] = { text = VendorText("Taken as payment by", taking), color = U.Colors.LIGHT_GRAY, place = taking }
   end
   if selling then
+    selling.role, selling.itemID = "soldBy", itemID
     sourcePlaces[#sourcePlaces + 1] = selling
     sources[#sources + 1] = { text = VendorText("Sold by", selling), color = U.Colors.LIGHT_GRAY, place = selling }
   end
@@ -2006,7 +2018,7 @@ function UsedFor.Lines(itemID, stack, owner, opts)
   local extra = { pending = pending, pendingSources = pendingSources, unavailable = {}, buys = BuySummary(tally) }
   if full then
     local none = { left = 0 }
-    for i = 1, math.min(#unavailable, FULL_LINES) do extra.unavailable[i] = Build(UnavailableLine, unavailable[i], none) end
+    for i = 1, math.min(#unavailable, FULL_LINES) do extra.unavailable[i] = Build(UnavailableLine, unavailable[i], none, itemID) end
     if #unavailable > FULL_LINES then extra.unavailable[#extra.unavailable + 1] = More(("and %d more"):format(#unavailable - FULL_LINES)) end
   end
   return uses, places[1], comesFrom, extra

@@ -40,6 +40,35 @@ local function Verdict(key, meaning)
   return U.WrapColor(color, LABELS[key]) .. ": " .. meaning
 end
 
+-- The keys as the player set them now, read each time the guide shows
+-- (review 2026-09-30: the guide named the defaults whatever was chosen);
+-- the default's words when a key is off or can't be read
+local function KeyWords(get, default)
+  local ok, key = pcall(get)
+  if not ok or type(key) ~= "string" or key == "" then return default end
+  local okT, text = pcall(CobySuite_Recollect.Utilities.FormatKeyText, key)
+  return okT and type(text) == "string" and text ~= "" and text or default
+end
+-- the panel's key ("Alt"), and whether the panel always shows
+local function PanelKey()
+  local ok, key = pcall(Recollect.PanelKeyName)
+  key = ok and key or nil
+  return (key and key ~= "always") and key or "Alt", key == "always"
+end
+local function PinKey()
+  return KeyWords(function() return Recollect.UI.DetailWindow.Key() end, "Alt+D")
+end
+local function WaypointKey()
+  return KeyWords(function() return Recollect.UI.Waypoint.Key() end, "Alt+W")
+end
+-- How to pin with the details key: a key is pressed, a click chord used on the item
+local function PinAction()
+  local key = PinKey()
+  if key:find("Click", 1, true) then return Key(key) .. " the item" end
+  return "press " .. Key(key)
+end
+Guide.KeyWords = { Panel = PanelKey, Pin = PinKey, Waypoint = WaypointKey }
+
 local SPYGLASS = ICONS .. "INV_Misc_Spyglass_02"
 local LIST = ICONS .. "INV_Misc_Note_02"
 local DETAILS = ICONS .. "INV_Misc_Note_01"
@@ -50,31 +79,37 @@ Guide.SECTIONS = {
     title = "Start here",
     icon = Recollect.ICON,
     summary = "New to Recollect? Try these three things first",
-    body = {
-      "Recollect tells you what each item you hold is for, and whether you still need it.",
-      -- A step and its caption; the caption starts at the margin (no space
-      -- indent, which can't line up with an icon in a proportional font)
-      Key("1.") .. " " .. Icon(SPYGLASS) .. " Hold " .. Key("Alt") .. " over any item in your bags\n"
-        .. Note("The audit panel opens beside its tooltip."),
-      Key("2.") .. " " .. Icon(LIST) .. " Type " .. Key("/rec") .. ", or click the " .. Icon(Recollect.ICON) .. " minimap button\n"
-        .. Note("The Recollect Audit lists everything you hold."),
-      Key("3.") .. " " .. Icon(DETAILS) .. " Press " .. Key("Alt+D") .. " while the panel shows\n"
-        .. Note("Everything about that one item, in its own window."),
-      Note("Open your bank once, so Recollect can remember what's in it."),
-    },
+    body = function()
+      local panel, always = PanelKey()
+      local pin = PinKey()
+      return {
+        "Recollect tells you what each item you hold is for, and whether you still need it.",
+        -- A step and its caption; the caption starts at the margin (no space
+        -- indent, which can't line up with an icon in a proportional font)
+        Key("1.") .. " " .. Icon(SPYGLASS) .. (always and " Point at any item in your bags\n"
+          or (" Hold " .. Key(panel) .. " over any item in your bags\n"))
+          .. Note("The audit panel opens beside its tooltip."),
+        Key("2.") .. " " .. Icon(LIST) .. " Type " .. Key("/rec") .. ", or click the " .. Icon(Recollect.ICON) .. " minimap button\n"
+          .. Note("The Recollect Audit lists everything you hold."),
+        Key("3.") .. " " .. Icon(DETAILS) .. (pin:find("Click", 1, true) and (" " .. Key(pin) .. " any item\n")
+          or (" Press " .. Key(pin) .. " while the panel shows\n"))
+          .. Note("Everything about that one item, in its own window."),
+        Note("Open your bank once, so Recollect can remember what's in it."),
+      }
+    end,
   },
   {
     key = "panel",
     title = "Reading the audit panel",
     icon = SPYGLASS,
     summary = "What you see beside the tooltip",
-    body = {
+    body = function() return {
       Bullets({
         "The verdict, in color, and the reason for it",
         Block("USED FOR") .. ": its most important uses, and where you stand",
         Block("COMES FROM") .. ": where to get more",
         Block("GUIDE NOTES") .. ": a short note Recollect researched, for a few items no data explains",
-        "A short summary: press " .. Key("Alt+D") .. " for everything, in the item's details",
+        "A short summary: " .. PinAction() .. " for everything, in the item's details",
       }),
       Bullets({
         "Works on any item: bags, bank, chat links, vendors, loot, the auction house",
@@ -82,7 +117,7 @@ Guide.SECTIONS = {
         "Gray lines are for another faction, class or race",
       }),
       Note("Prefer Shift or Ctrl, or the panel always on? Change it in /rec settings."),
-    },
+    } end,
   },
   {
     key = "verdicts",
@@ -108,7 +143,7 @@ Guide.SECTIONS = {
     title = "The Recollect Audit",
     icon = LIST,
     summary = "Everything you hold, in one list",
-    body = {
+    body = function() return {
       Bullets({
         "Open it: " .. Key("/rec") .. ", or the minimap button",
         "The top line counts your stacks by verdict",
@@ -117,11 +152,12 @@ Guide.SECTIONS = {
         "Search: the box at the top",
         "Filter: the funnel, by verdict, where it is, its uses, or why Can't tell",
         "Tabs along the bottom once another character is stored: My Items, All Characters, one per character",
-        "Hold " .. Key("Alt") .. " over a row for its panel; click a row for its details",
+        (select(2, PanelKey()) and "Point at a row for its panel" or ("Hold " .. Key((PanelKey())) .. " over a row for its panel"))
+          .. "; click a row for its details",
       }),
       Note("With the bank closed, your bank and warband bank show as of your last visit; other characters as of their last login. "
         .. "Their items get only the checks that hold for the whole account. Turn them off in /rec settings."),
-    },
+    } end,
     try = {
       { "/rec", "Open or close the Recollect Audit" },
     },
@@ -130,7 +166,7 @@ Guide.SECTIONS = {
     key = "details",
     title = "Item details",
     icon = DETAILS,
-    summary = "Alt+D on the panel, or click a row in the list",
+    summary = "Pin it from the panel, or click a row in the list",
     body = {
       Bullets({
         "Overview: what it is, what it's for, how to get more, what you have",
@@ -141,21 +177,21 @@ Guide.SECTIONS = {
         "Right-click a row for a menu: link it in chat, preview it, set a waypoint, or copy its name or Wowhead link",
         "The " .. Icon(ICONS .. "INV_Misc_Map_01") .. " Map button sets a waypoint",
       }),
-      Note("The details key can be a click instead, such as Alt+Left Click on any item: set it in /rec settings."),
+      Note("The details key can be a click instead, such as Alt-click on any item: set it in /rec settings."),
     },
   },
   {
     key = "waypoint",
     title = "Waypoints",
     icon = ICONS .. "INV_Misc_Map_01",
-    summary = "Alt+W to go where the panel points",
-    body = {
+    summary = "One key to go where the panel points",
+    body = function() return {
       Bullets({
-        "When the panel names a vendor, a treasure or an NPC, press " .. Key("Alt+W"),
+        "When the panel names a vendor, a treasure or an NPC, press " .. Key(WaypointKey()),
         "A waypoint appears on your map, or on TomTom's arrow when TomTom is installed",
       }),
       Note("Not during combat. Change the key in /rec settings."),
-    },
+    } end,
   },
   {
     key = "settings",

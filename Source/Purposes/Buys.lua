@@ -157,15 +157,15 @@ local function Looks(t, owner)
   return looks
 end
 
--- "Ceremonial Jacaranda Gown (1), Ceremonial Jacaranda Cape (1 plus 25
--- gold) and 3 more": each price worded as the panel words it
--- (Facts.Chains.CostWords, review F15)
+-- "Ceremonial Jacaranda Gown (for 1 Mark of Honor), Ceremonial Jacaranda
+-- Cape (for 1 Mark of Honor and 25 gold) and 3 more": each price worded as
+-- the panel words it (Facts.Chains.TradeWords, review F15)
 local function LookNames(missing, itemID)
   local names = {}
   for i = 1, math.min(NAMED, #missing) do
     local p = missing[i]
     local name = Recollect.Facts.Buys.Name(p.thing) or ("item " .. p.thing.id)
-    names[#names + 1] = ("%s (%d%s)"):format(name, p.relation.count or 1, Recollect.Facts.Chains.CostWords(p.relation, itemID))
+    names[#names + 1] = ("%s (for %s)"):format(name, Recollect.Facts.Chains.TradeWords(p.relation, itemID))
   end
   local more = #missing - #names
   return table.concat(names, ", ") .. (more > 0 and (" and %d more"):format(more) or "")
@@ -209,7 +209,8 @@ local function StateWords(t)
   local collectibles = t.have + t.unavailable + t.unread + t.failed + t.unassessed
   if collectibles == 0 then return t.total == 1 and "it isn't a collectible" or "none of them is a collectible" end
   if t.have == collectibles then return "you have every collectible among them" end
-  local parts = { ("you have %d of the %d collectibles among them"):format(t.have, collectibles) }
+  local parts = { ("you have %d of the %d %s among them"):format(t.have, collectibles,
+    collectibles == 1 and "collectible" or "collectibles") }
   if t.unread > 0 then parts[#parts + 1] = ("%d can't be read yet"):format(t.unread) end
   if t.failed > 0 then parts[#parts + 1] = ("%d can't be read"):format(t.failed) end
   if t.unassessed > 0 then
@@ -281,12 +282,12 @@ local function Answer(relations, owner, itemID)
   local u = Tally(untold, owner, seen)
   local mismatch = Restrictions(others, owner)
   local _, unknown = Restrictions(untold, owner)
-  local untoldWords = u.total > 0 and ("%d more depend on this character's %s, not recorded yet (log in to it once)")
-    :format(u.total, Kinds(unknown)) or nil
+  local untoldWords = u.total > 0 and ("%d more %s on this character's %s, not recorded yet (log in to it once)")
+    :format(u.total, u.total == 1 and "depends" or "depend", Kinds(unknown)) or nil
   if t.missing > 0 then
     local more = t.missing - #t.names
-    return R.Result(V.USEFUL, ("Buys %d you don't have yet: %s%s"):format(t.missing, table.concat(t.names, ", "),
-      more > 0 and (" and %d more"):format(more) or ""))
+    return R.Result(V.USEFUL, ("Buys %d %s you don't have yet: %s%s"):format(t.missing, t.missing == 1 and "thing" or "things",
+      table.concat(t.names, ", "), more > 0 and (" and %d more"):format(more) or ""))
   end
   if t.achievement then
     return R.Result(V.USEFUL, ("Counts toward \"%s\", which you haven't earned"):format(t.achievement.name or "an achievement"))
@@ -304,8 +305,8 @@ local function Answer(relations, owner, itemID)
   if open then
     local Chains, best = Recollect.Facts.Chains, summary.best
     local name = Recollect.Facts.Buys.Name(open.thing) or ("item " .. open.thing.id)
-    return R.Result(V.USEFUL, ("Buys %s (%d%s), which leads to %s"):format(name, open.relation.count or 1,
-      Chains.CostWords(open.relation, itemID), Chains.Words(best.entry, owner, best.thing, best.quests)))
+    return R.Result(V.USEFUL, ("Buys %s (for %s), which leads to %s"):format(name,
+      Chains.TradeWords(open.relation, itemID), Chains.Words(best.entry, owner, best.thing, best.quests)))
   end
   local plainWords = PlainWords(chainUnread, unfollowed)
   local otherWords = o.total > 0 and ("%d more for another %s"):format(o.total, Kinds(mismatch)) or nil

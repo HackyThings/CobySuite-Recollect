@@ -25,7 +25,11 @@
 --            entries)
 -- States: asked (starting, or waiting for your answer when prompt),
 -- sending, acknowledged (the author has it, waiting for V), saved (V: the
--- author's copy is on disk, so the findings were deleted here), lost (V: the
+-- author's copy is on disk, so the findings were deleted here), kept (V's
+-- quarantined list: the author kept it only for a closer look, so it was
+-- deleted here with no marker; never counted as delivered), rejected (V's
+-- rejected list or an X "rejected:": the author turned it down, and its
+-- findings aren't sent again unless they change), lost (V: the
 -- author's copy was lost; its findings went back to pending and travel with
 -- a later collection), cancelled (why: "you" or "author"), refused (why: the
 -- reason S carried: busy, nodata, empty, declined, pack), replaced (a new
@@ -112,8 +116,8 @@ local function Bytes(entry)
 end
 History.Bytes = Bytes
 
-local FINISHED = { saved = true, lost = true, cancelled = true, refused = true, replaced = true, interrupted = true,
-  expired = true }
+local FINISHED = { saved = true, kept = true, rejected = true, lost = true, cancelled = true, refused = true, replaced = true,
+  interrupted = true, expired = true }
 
 -- Keeps the caps: the oldest finished entries go first, then the oldest
 function History.Trim()
@@ -230,6 +234,18 @@ function History.Saved(request)
   d.notes = d.notes + (tonumber(c.notes) or 0)
   return Step(request, "saved", "saved")
 end
+-- Kept(request): the author kept it only as a lead (never delivered counts)
+function History.Kept(request)
+  local entry = Find(request)
+  if not entry or entry.state == "saved" then return nil end
+  return Step(request, "kept", "saved")
+end
+-- Rejected(request): the author turned it down for good
+function History.Rejected(request)
+  local entry = Find(request)
+  if not entry or entry.state == "saved" then return nil end
+  return Step(request, "rejected", "ended")
+end
 function History.Lost(request)
   local entry = Find(request)
   if not entry or entry.state == "saved" then return nil end
@@ -292,6 +308,7 @@ function History.Clear()
 end
 
 Host.OnLoaded(function()
+  if not Curator.Main.Available() then return end   -- dormant outside the author's region
   -- nothing runs across a reload: what was mid-way stopped with the session
   local ok, err = pcall(History.Interrupt, nil)
   if not ok then Host.Log("Curator history check failed: %s", tostring(err)) end

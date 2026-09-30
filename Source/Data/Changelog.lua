@@ -14,6 +14,25 @@
 -------------------------------------------------------------------------------
 Recollect.Data.Changelog = {
   {
+    version = "0.0.2a",
+    title = "Safer curator mode",
+    date = "2026-09-30",
+    changed = {
+      "Prices: name what you pay with, like 20 Apexis Crystal",
+      "How to get more: says when no source is known, and what binding means",
+      "Checks and crosses: show what's done or still to get at a glance",
+      "Curator mode: only in the Americas and Oceania region",
+      "Curators: findings go only to the author, in small parts",
+      "Waypoints: a TomTom arrow names the NPC and why you're going",
+    },
+    fixed = {
+      "Guide: names your own keys when you've changed them",
+      "Curators: History says when the author turned a collection down",
+      "Earned meta achievements now show green",
+      "Plain words and plurals throughout",
+    },
+  },
+  {
     version = "0.0.2",
     title = "Currency prices",
     date = "2026-09-29",

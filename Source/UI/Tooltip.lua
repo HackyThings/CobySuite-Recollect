@@ -129,7 +129,7 @@ end
 function TooltipUI.HintText(key)
   local name = KEY_NAMES[key]
   if not name then return nil end
-  return U.WrapColor(Recollect.BRAND_COLOR, "Recollect") .. ": hold " .. name .. " for details"
+  return U.WrapColor(Recollect.BRAND_COLOR, "Recollect") .. ": hold " .. name .. " for its audit"
 end
 
 -- The purposes in the order to show them: by the list's order of verdicts,
@@ -161,23 +161,15 @@ local NOT_TOLD = "Still needed? Can't tell yet"
 TooltipUI.TIP_LABEL = "Tip"
 local YOUR_CALL = "It's most likely safe to sell or delete, but that's your call."
 local JUNK_TIP = "It's most likely safe to sell to any vendor with your other junk, but that's your call."
--- Verdicts.OtherUses' words, as what isn't checked
-local UNCHECKED_WORDS = {
-  reagent = "whether a recipe uses it",
-  ["quest item"] = "whether a quest needs it",
-  ["quest info (unreadable)"] = "its quest info, which can't be read",
-}
-
--- The signs of a use no check covers, from Verdicts.Combine's note ("other
--- uses (reagent, quest item) not checked yet"); nil for any other note
-local function Unchecked(note)
-  local list = type(note) == "string" and note:match("^other uses %((.+)%) not checked yet$")
-  if not list then return nil end
+-- The signs of a use no check covers, as Verdicts.Combine lists them in
+-- result.unchecked, in words (Verdicts.UNCHECKED_WORDS); nil for a result
+-- with none
+local function Unchecked(result)
+  local list = type(result.unchecked) == "table" and result.unchecked or nil
+  if not list or #list == 0 then return nil end
   local words = {}
-  for part in (list .. ", "):gmatch("(.-), ") do
-    if part ~= "" then words[#words + 1] = UNCHECKED_WORDS[part] or part end
-  end
-  return #words > 0 and words or nil
+  for i, sign in ipairs(list) do words[i] = Recollect.Verdicts.UNCHECKED_WORDS[sign] or tostring(sign) end
+  return words
 end
 
 -- Tip(result): the Tip's words for a verdict, or nil when there is none
@@ -187,7 +179,7 @@ function TooltipUI.Tip(result)
   if result.verdict == V.JUNK then return "The game marks it as junk. " .. JUNK_TIP end
   local unchecked
   if result.verdict == V.UNKNOWN then
-    unchecked = Unchecked(result.note)
+    unchecked = Unchecked(result)
     if not unchecked then return nil end
   elseif result.verdict ~= V.DONE then
     return nil
@@ -385,6 +377,8 @@ function TooltipUI.Model(result, extra)
     if #reason > #headline and reason:sub(1, #headline) == headline then
       local rest = reason:sub(#headline + 1):gsub("^[%s,;:]+", "")
       if rest ~= "" then model.reason = (rest:gsub("^%l", string.upper)) end
+    elseif reason == headline then
+      model.reason = ""   -- the headline says it all: never painted twice
     end
   end
   -- The reason's own words never show again under COMES FROM (review F11:
@@ -464,7 +458,8 @@ function TooltipUI.HeldText(itemID)
   if held.total <= 0 then return "You have none", "None in your bags, bank or warband bank" end
   local parts = {}
   for _, place in ipairs(held.places) do
-    if not (place.worn and place.count == 0) then parts[#parts + 1] = place.words:format(place.count) end
+    -- only the places holding some ("3 in your bags; 1 in your bank"), as the details window lists them
+    if place.count > 0 then parts[#parts + 1] = place.words:format(place.count) end
   end
   return ("You have %d"):format(held.total), table.concat(parts, "; ")
 end

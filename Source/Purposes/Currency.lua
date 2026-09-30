@@ -80,7 +80,8 @@ R.Register({
     end
     if t.unread > 0 then return R.Unknown("Buys collectibles whose collection can't be read yet", nil, "loading") end
     local what = ("Buys %d %s"):format(total, total == 1 and "mount or pet" or "mounts and pets")
-    if partial then return R.Unknown(what .. ", all in your collection or not available to you; " .. PARTIAL, what, "unreadable") end
-    return R.Unknown(what .. ", all in your collection or not available to you; anything else it buys isn't checked yet", what)
+    local all = total == 1 and ", which is in your collection or not available to you" or ", all in your collection or not available to you"
+    if partial then return R.Unknown(what .. all .. "; " .. PARTIAL, what, "unreadable") end
+    return R.Unknown(what .. all .. "; anything else it buys isn't checked yet", what)
   end,
 })

@@ -61,17 +61,28 @@ end
 -- Text for the settings category and the guide
 -------------------------------------------------------------------------------
 Provider.SETTINGS_TEXT = {
-  "Recollect notes where the game shows something its database gets wrong or is missing: a vendor price, a drop, a quest reward, where an NPC stands, and any item it knows nothing about, including ones in your bags and banks. It records game IDs and map positions, with your character's class, race, level, faction, professions, zone, War Mode, Chromie Time, the instance difficulty and, where it matters, quest progress; never names, chat, gold, currencies, how many of anything you have, or anything else you carry.",
-  "You can also flag an item from its details window, or send feedback with /rec feedback: those carry the words you type. Recollect errors your game shows are kept too. Only the author reads them.",
+  "Recollect notes where the game shows something its database gets wrong or is missing: a vendor price, a drop, a quest reward, where an NPC stands, and any item it knows nothing about, including ones in your bags and banks. It records game IDs and map positions, with your character's class, race, level, faction, professions, zone, War Mode, Chromie Time, the instance difficulty and, where it matters, quest progress and how a vendor regards you (a reputation discount changes its prices); never names, chat, gold, currencies, how many of anything you have, or anything else you carry.",
+  "You can also flag an item from its details window, or send feedback with /rec feedback: those carry the words you type. Recollect's own errors are kept too, whether or not the game shows them. Only the author reads them.",
   "Recollect's author collects your findings in the background through the \"Recollect Curators\" community to improve the database. You'll see a chat message when a collection starts and ends; /rec curator shows what's waiting, what was sent, and a running collection you can cancel.",
-  "Findings are sent only from characters in the community, whose members can see your character's name and zone. Your characters share one random curator ID made by Recollect (not your Blizzard account), so other members can tell they belong to the same player.",
-  "Your findings stay under 1 MB and are deleted once collected. Turning this off stops recording and offers to delete them.",
+  "Findings are sent only from characters in the community, whose members can see your character's name and zone. Your characters share one random curator ID made by Recollect (not your Blizzard account). Only Recollect's author sees it, so he can tell your characters belong to the same player.",
+  "Your findings stay under 1 MB and are deleted once the author has saved them. Turning this off stops recording and offers to delete them.",
 }
 
 -- One status line for the settings category
+-- IsAvailable(): whether curator mode can run in this game region (Main.Available)
+function Provider.IsAvailable()
+  return Curator.Main.Available() == true
+end
+
+-- The words a player outside the author's region reads, in the settings and the guide
+Provider.REGION_TEXT = "Curator mode isn't available in your game region. It works only in the Americas and Oceania "
+  .. "region, where Recollect's author plays, because curators and the author have to reach each other in game to "
+  .. "hand findings over. Everything else in Recollect works as usual."
+
 function Provider.Status()
   local main = Curator.Main
   if not main then return "" end
+  if not main.Available() then return Provider.REGION_TEXT end
   local member = Provider.IsMember()
   local memberText = member == true and "this character is in the curator community"
     or member == false and "this character is not in the curator community yet"
@@ -86,6 +97,7 @@ end
 -- turning it on)
 function Provider.GuideBody()
   local bullet = "\226\128\162 "
+  if not Curator.Main.Available() then return { Provider.REGION_TEXT } end
   return {
     "Optional, and off until you turn it on in /rec settings, Curator.",
     table.concat({
@@ -135,8 +147,12 @@ end
 
 -- OpenFeedback(): the feedback window, or a line saying how to turn curator mode on
 function Provider.OpenFeedback()
+  if not Curator.Main.Available() then
+    Host.Print("Feedback is sent through curator mode. " .. Provider.REGION_TEXT)
+    return false
+  end
   if not Curator.Main.IsEnabled() then
-    Host.Print("Recollect: feedback is sent through curator mode. Turn it on in /rec settings, Curator, then type /rec feedback again.")
+    Host.Print("Feedback is sent through curator mode. Turn it on in /rec settings, Curator, then type /rec feedback again.")
     return false
   end
   return Curator.FeedbackDialog and Curator.FeedbackDialog.Open() or false
@@ -178,9 +194,13 @@ end
 local function Ago(at)
   if type(at) ~= "number" then return "never" end
   local seconds = math.max(0, GetServerTime() - at)
-  if seconds < 60 then return seconds .. " seconds ago" end
-  if seconds < 3600 then return math.floor(seconds / 60) .. " minutes ago" end
-  return math.floor(seconds / 3600) .. " hours ago"
+  local n, unit = seconds, "second"
+  if seconds >= 3600 then
+    n, unit = math.floor(seconds / 3600), "hour"
+  elseif seconds >= 60 then
+    n, unit = math.floor(seconds / 60), "minute"
+  end
+  return ("%d %s%s ago"):format(n, unit, n == 1 and "" or "s")
 end
 
 -- Diagnose(): the lines /rec curator diag prints, for a curator whose client
@@ -198,14 +218,16 @@ function Provider.Diagnose()
     S and S.State() or "?", tostring(main.CuratorID()))
   local community = T.Community()
   out[#out + 1] = community and ("Community: found (club %s); curator messages go by whisper; to the author: %s"):format(
-    tostring(community.clubId), M.MayPull(T.Self()) and "none needed (this character may collect)"
-      or T.RouteOf(Curator.Protocol.AUTHOR) or "every online Owner and Leader, until the author's first message")
+    tostring(community.clubId), M.IsCollector(T.Self()) and "none needed (this is one of the author's characters)"
+      or ("answers to the author's character that asks%s; anything else to every online collector character"):format(
+        S and S.lastHello and (", last " .. tostring(S.lastHello.sender)) or ""))
     or "Community: this character isn't in the Recollect Curators community"
   local authors, members, online = {}, 0, 0
   for _, entry in ipairs(M.Roster()) do
     members = members + 1
     if entry.presence == "online" then online = online + 1 end
-    if entry.role == M.ROLE.OWNER or entry.role == M.ROLE.LEADER then
+    -- who may collect: the author's own characters (Const.COLLECTORS) holding Owner or Leader
+    if M.IsCollector(entry.name) then
       authors[#authors + 1] = ("%s (%s, %s), %s"):format(entry.name, M.ROLE_NAMES[entry.role], entry.nameFrom or "?",
         tostring(entry.presence or "?"))
     end
@@ -221,7 +243,8 @@ function Provider.Diagnose()
     out[#out + 1] = ("Last presence check answered: from %s, %s"):format(S.lastHello.sender, Ago(S.lastHello.at))
   end
   local dropped = S and S.lastDropped
-  out[#out + 1] = dropped and ("Last message not answered: %s from %s, %s: %s"):format(dropped.kind, tostring(dropped.sender),
+  out[#out + 1] = dropped and ("Last message not answered: %s from %s, %s: %s"):format(
+    Curator.Protocol.KIND_WORDS[dropped.kind] or tostring(dropped.kind), tostring(dropped.sender),
     Ago(dropped.at), dropped.why) or "Last message not answered: none"
   if Curator.Ping then
     for _, line in ipairs(Curator.Ping.Lines()) do out[#out + 1] = line end
@@ -237,19 +260,28 @@ end
 -- old hidden channel, only says there is none now (0.0.1c told curators to
 -- type it).
 function Provider.Slash(rest)
+  if not Curator.Main.Available() then
+    Host.Print(Provider.REGION_TEXT)
+    return
+  end
   local word = rest and rest:match("^%s*(%S+)") or ""
   word = word:lower()
   local Sharing = Curator.Sharing
   if word == "join" then
     Provider.PrintJoinLink()
   elseif word == "channel" then
-    Host.Print("Recollect: curator messages go by whisper now, so there's no curator channel to join.")
+    Host.Print("Curator messages go by whisper now, so there's no curator channel to join.")
   elseif (word == "ping" or word == "transport") and Curator.Ping then
     -- an optional "Name-Realm" after it: the player whose answers count
     Curator.Ping.Start(rest and rest:match("^%s*%S+%s+(%S+)"))
   elseif word == "pong" and Curator.Ping then
-    if not Curator.Ping.Listen("asked with /rec curator pong") then Host.Print("Recollect: already listening for curator tests.") end
-    Host.Print("Recollect: answering curator tests (the answers are automatic; this only joins the test channel).")
+    -- a test session: this client answers other players' curator tests for Ping.LISTEN_FOR seconds
+    local minutes = math.floor(Curator.Ping.LISTEN_FOR / 60)
+    if Curator.Ping.Listen("asked with /rec curator pong") then
+      Host.Print(("Answering other players' curator tests for the next %d minutes."):format(minutes))
+    else
+      Host.Print(("Already answering curator tests; that goes on for %d more minutes from now."):format(minutes))
+    end
   elseif word == "diag" then
     for _, line in ipairs(Provider.Diagnose()) do
       Host.Print(line)

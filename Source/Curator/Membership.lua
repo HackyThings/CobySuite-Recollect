@@ -15,7 +15,11 @@
 -- (C_Club.FocusMembers, then C_Club.AreMembersReady) and outside the Chat
 -- restriction (the roster reads go secret then); the last good map stays in
 -- use meanwhile, and a refresh is redone when the restriction lifts. It is
--- refreshed on the club events. Roles: 1 Owner, 2 Leader, 3 Moderator,
+-- refreshed on the club events of this community only (joins, leaves and
+-- roles at once; presence and member details within a few seconds). Each
+-- entry keeps its GUID, every member is also kept by GUID named or not
+-- (Members), and Watch lets the author's side hear every whole read (the
+-- dev console's live roster and member watch). Roles: 1 Owner, 2 Leader, 3 Moderator,
 -- 4 Member (Enum.ClubRoleIdentifier); only Owner and Leader may pull, and
 -- only their messages are honoured as the author's.
 --
@@ -47,9 +51,12 @@ Membership.seams = {
   After = function(delay, fn) C_Timer.After(delay, fn) end,
 }
 
-local roster = {}          -- [name] = { name, role, presence, nameFrom, isSelf }
+local roster = {}          -- [name] = { name, role, presence, nameFrom, isSelf, guid }
+local byGuid = {}          -- [guid] = { guid, name (nil while unreadable), role, presence }: every member, named or not
 local rosterAt = nil       -- when the map was last read whole
 local refreshing = false
+local lastSummary = nil    -- the last "members read" log line, so an unchanged read logs nothing
+local watchers = {}        -- Watch(fn): called with Members() after every whole read
 
 local function Secret(value)
   return Host.IsSecret(value) or (issecrettable and type(value) == "table" and issecrettable(value))
@@ -95,7 +102,7 @@ end
 function Membership.Read()
   local found = Transport.Community()
   if not found then
-    roster, rosterAt = {}, nil
+    roster, byGuid, rosterAt = {}, {}, nil
     Host.Log("Curator members: not read, this character isn't in the community")
     return false
   end
@@ -106,7 +113,7 @@ function Membership.Read()
     Host.Log("Curator members: the member list can't be read now (%s)", ok and "secret or empty" or "error")
     return false
   end
-  local map, unnamed = {}, 0
+  local map, guids, unnamed = {}, {}, 0
   for _, memberId in ipairs(members) do
     local okInfo, info = pcall(Membership.seams.MemberInfo, found.clubId, memberId)
     if not okInfo or type(info) ~= "table" or Secret(info) then
@@ -115,12 +122,15 @@ function Membership.Read()
     end
     local name, from = MemberName(info)
     if not name then unnamed = unnamed + 1 end
-    if name and not Secret(info.role) then
-      map[name] = { name = name, role = info.role, presence = Membership.PRESENCE[info.presence] or "unknown", nameFrom = from,
-        isSelf = info.isSelf == true }
+    local guid = type(info.guid) == "string" and not Secret(info.guid) and info.guid ~= "" and info.guid or nil
+    local role = not Secret(info.role) and info.role or nil
+    local presence = Membership.PRESENCE[info.presence] or "unknown"
+    if name and role then
+      map[name] = { name = name, role = role, presence = presence, nameFrom = from, isSelf = info.isSelf == true, guid = guid }
     end
+    if guid then guids[guid] = { guid = guid, name = name, role = role, presence = presence } end
   end
-  roster, rosterAt, Membership.unnamed = map, GetServerTime(), unnamed
+  roster, byGuid, rosterAt, Membership.unnamed = map, guids, GetServerTime(), unnamed
   local authors, count = {}, 0
   for _, entry in pairs(map) do
     count = count + 1
@@ -130,18 +140,21 @@ function Membership.Read()
     end
   end
   table.sort(authors)
-  Host.Log("Curator members read: %d named, %d with no readable name; who may collect: %s", count, unnamed,
+  local summary = ("%d named, %d with no readable name; who may collect: %s"):format(count, unnamed,
     #authors > 0 and table.concat(authors, "; ") or "nobody")
+  if summary ~= lastSummary then Host.Log("Curator members read: %s", summary) end
+  lastSummary = summary
+  for _, fn in ipairs(watchers) do pcall(fn, Membership.Members()) end
   return true
 end
 
 -- Refresh(): asks for the roster and reads it when it is ready (tried a few
 -- times a second apart); nothing while the Chat restriction is on
 function Membership.Refresh()
-  if refreshing then return end
+  if refreshing or not Curator.Main.Available() then return end
   local found = Transport.Community()
   if not found then
-    roster, rosterAt = {}, nil
+    roster, byGuid, rosterAt = {}, {}, nil
     return
   end
   if Transport.Activity() == "lockdown" then
@@ -181,6 +194,19 @@ function Membership.Entry(name)
   return name and roster[name] or nil
 end
 
+-- GuidOf(name): a member's roster GUID as the last read gave it, or nil
+function Membership.GuidOf(name)
+  local entry = name and roster[name]
+  return entry and entry.guid or nil
+end
+
+-- IsCollector(name): whether a sender is one of the author's collector
+-- characters (Const.COLLECTORS, by roster GUID) holding Owner or Leader now
+function Membership.IsCollector(name)
+  local guid = Membership.GuidOf(name)
+  return guid ~= nil and Curator.Const.COLLECTORS[guid] == true and Membership.MayPull(name)
+end
+
 -- Roster(): a list of entries, sorted by name
 function Membership.Roster()
   local out = {}
@@ -193,17 +219,51 @@ function Membership.ReadAt()
   return rosterAt
 end
 
+-- Members(): every member of the last whole read by GUID, named or not
+-- ({ [guid] = { guid, name, role, presence } }, a copy)
+function Membership.Members()
+  local out = {}
+  for guid, entry in pairs(byGuid) do out[guid] = { guid = guid, name = entry.name, role = entry.role, presence = entry.presence } end
+  return out
+end
+
+-- Watch(fn): fn(Members()) after every whole read of the roster (never after
+-- a failed one, so a read that couldn't finish never looks like members
+-- leaving); returns a function that stops it
+function Membership.Watch(fn)
+  watchers[#watchers + 1] = fn
+  return function()
+    for i = #watchers, 1, -1 do
+      if watchers[i] == fn then table.remove(watchers, i) end
+    end
+  end
+end
+
+-- The by-GUID view of a role map a test puts in place: its entries that name a GUID
+local function GuidsOf(map)
+  local out = {}
+  for name, entry in pairs(map or {}) do
+    if type(entry) == "table" and entry.guid then
+      out[entry.guid] = { guid = entry.guid, name = entry.name or name, role = entry.role, presence = entry.presence }
+    end
+  end
+  return out
+end
+
 -- SetRoster(map): the role map, as a test scripts it
 function Membership.SetRoster(map)
   roster, rosterAt, refreshing = map or {}, GetServerTime(), false
+  byGuid = GuidsOf(roster)
 end
 
--- Swap(map, at): puts a role map in place and returns the one it replaced
--- with when it was read (a test puts the real one back with it)
-function Membership.Swap(map, at)
-  local previous, previousAt = roster, rosterAt
-  roster, rosterAt = map or {}, at
-  return previous, previousAt
+-- Swap(map, at, unnamed): puts a role map in place (with how many members
+-- had no readable name, 0 by default) and returns the one it replaced, when
+-- it was read and its unnamed count (a test puts the real one back with them)
+function Membership.Swap(map, at, unnamed)
+  local previous, previousAt, previousUnnamed = roster, rosterAt, Membership.unnamed
+  roster, rosterAt, Membership.unnamed = map or {}, at, unnamed or 0
+  byGuid = GuidsOf(roster)
+  return previous, previousAt, previousUnnamed
 end
 
 local refresh = CobySuite_Recollect.Utilities.Coalesce(0.5, function() Membership.Refresh() end)
@@ -214,14 +274,29 @@ function Membership.RefreshSoon()
   refresh:Call()
 end
 
+-- A member's presence or details changing: read again, less eagerly (a busy
+-- community sends many)
+local refreshLater = CobySuite_Recollect.Utilities.Coalesce(5, function() Membership.Refresh() end)
+
+-- The events that change the roster: true reads again soon, "later" within
+-- a few seconds. A club event about another club (the guild is one) is
+-- ignored once the community is known
 local events = {
   PLAYER_ENTERING_WORLD = true, CLUB_ADDED = true, CLUB_REMOVED = true, CLUB_MEMBER_ADDED = true,
   CLUB_MEMBER_REMOVED = true, CLUB_MEMBER_ROLE_UPDATED = true, CLUB_MEMBERS_UPDATED = true,
-  ADDON_RESTRICTION_STATE_CHANGED = true,
+  ADDON_RESTRICTION_STATE_CHANGED = true, CLUB_MEMBER_UPDATED = "later", CLUB_MEMBER_PRESENCE_UPDATED = "later",
 }
+
+-- Whether a club event concerns the community (or can't tell)
+local function Ours(event, clubId)
+  if event:sub(1, 5) ~= "CLUB_" or event == "CLUB_ADDED" or event == "CLUB_REMOVED" then return true end
+  local found = Transport.Community()
+  return not found or clubId == nil or Secret(clubId) or clubId == found.clubId
+end
 
 local frame = CreateFrame("Frame")
 for event in pairs(events) do pcall(frame.RegisterEvent, frame, event) end
-frame:SetScript("OnEvent", function()
-  refresh:Call()
+frame:SetScript("OnEvent", function(_, event, clubId)
+  if not Ours(event, clubId) then return end
+  if events[event] == "later" then refreshLater:Call() else refresh:Call() end
 end)

@@ -51,6 +51,7 @@ R.Register({
         more > 0 and (" and %d more"):format(more) or ""))
     end
     if unread > 0 then return R.Unknown("Buys decor whose owned count can't be read") end
-    return R.Unknown(("Buys %d decor, all of which you own; anything else it buys isn't checked yet"):format(owned))
+    return R.Unknown(("Buys %d decor, %s you own; anything else it buys isn't checked yet"):format(owned,
+      owned == 1 and "which" or "all of which"))
   end,
 })

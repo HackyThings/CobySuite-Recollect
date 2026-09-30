@@ -236,12 +236,14 @@ local function Rank(record)
 end
 
 local function Victim()
-  local best, key
+  -- the best key as three scalars, never a table per candidate (a full list
+  -- is scanned for every new item)
+  local best, bestRank, bestLast, bestTouched
   for id, record in pairs(Store.DB().records) do
     if IsNoInfo(record) then
-      local k = { Rank(record), record.last or 0, record.touched or 0 }
-      if not key or k[1] < key[1] or (k[1] == key[1] and (k[2] < key[2] or (k[2] == key[2] and k[3] < key[3]))) then
-        best, key = id, k
+      local rank, last, touched = Rank(record), record.last or 0, record.touched or 0
+      if not best or rank < bestRank or (rank == bestRank and (last < bestLast or (last == bestLast and touched < bestTouched))) then
+        best, bestRank, bestLast, bestTouched = id, rank, last, touched
       end
     end
   end

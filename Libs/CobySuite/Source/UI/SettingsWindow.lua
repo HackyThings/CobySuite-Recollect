@@ -1135,7 +1135,7 @@ function UI.CreateSettingsWindow(opts)
 
   window.DefaultsButton = UI.CreateButton(window, {
     size = { FOOTER_BUTTON_W, FOOTER_BUTTON_H }, text = "Defaults",
-    tooltip = "Stage the default of every setting in this window",
+    tooltip = "Put every setting in this window back to its default. Press Apply to keep them.",
     point = { "BOTTOMLEFT", 12, 12 },
     onClick = function() window.DefaultsPopup:Show() end,
   })

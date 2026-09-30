@@ -410,6 +410,7 @@ local function AddRow(out, stack, source, slot, stale)
     verdictRank = Recollect.Verdicts.RANK[result.verdict] or 9,
     reason = result.reason,
     note = result.note,
+    unchecked = result.unchecked,
     category = result.verdict == Registry.Verdict.UNKNOWN and result.category or nil,
     -- every use a check read is finished (Verdicts.Combine's settled)
     settled = result.verdict == Registry.Verdict.UNKNOWN and result.settled or nil,

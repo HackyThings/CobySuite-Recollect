@@ -34,7 +34,7 @@ Join.seams = {
 }
 
 local WIDTH, HEIGHT, PAD = 420, 190, 16
-Join.DECLINED = "Recollect: this character won't be asked again. Findings you record here are still collected "
+Join.DECLINED = "This character won't be asked again. Findings you record here are still collected "
   .. "through your characters in the Recollect Curators community; /rec curator join adds this one later."
 
 local dialog

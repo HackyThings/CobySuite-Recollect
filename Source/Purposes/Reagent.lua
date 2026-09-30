@@ -267,8 +267,9 @@ local function Judge(ctx, index, data)
   -- still to get (Protoform Sentience Crown): Useful, whatever else is unread
   local made = data and data.other > 0 and Products(ctx, data) or nil
   if made and #made.missing > 0 then
-    local result = R.Result(V.USEFUL, ("Used in %s, which make %d %s you don't have: %s; a crafting reagent %s"):format(
-      DataText(Only(data.lines, false)), #made.missing, #made.missing == 1 and "thing" or "things",
+    local result = R.Result(V.USEFUL, ("Used in %s, which %s %d %s you don't have: %s; a crafting reagent %s"):format(
+      DataText(Only(data.lines, false)), data.other == 1 and "makes" or "make", #made.missing,
+      #made.missing == 1 and "thing" or "things",
       MissingWords(made.missing), tag))
     -- A missing collectible it still makes is no gear power a past season
     -- replaced: a season result never softens it (Verdicts.Settle, review F12)

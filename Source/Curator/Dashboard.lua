@@ -197,7 +197,8 @@ function Dashboard.Waiting()
   local out = { findings = Count(pending.recs), stamps = Count(pending.confirms), notes = Curator.Notes.Counts().pending,
     older = 0 }
   for _, block in ipairs(db.frozen) do
-    if not block.awaiting then out.older = out.older + Count(block.records) + Count(block.confirms) end
+    -- a block the author turned down isn't sent again, so it doesn't wait
+    if not block.awaiting and not block.rejected then out.older = out.older + Count(block.records) + Count(block.confirms) end
   end
   out.total = out.findings + out.stamps + out.notes + out.older
   return out
@@ -228,11 +229,12 @@ Dashboard.STATES = {
   { key = "sending", label = "Sending", tooltip = "In the collection being sent now" },
   { key = "sent", label = "Sent", tooltip = "The author has it and hasn't said it's saved yet" },
   { key = "delivered", label = "Saved", tooltip = "A note the author saved (kept here until the next database)" },
+  { key = "rejected", label = "Not sent (turned down)", tooltip = "The author turned this down; it isn't sent again unless it changes" },
 }
 local STATE_LABEL = {}
 for _, state in ipairs(Dashboard.STATES) do STATE_LABEL[state.key] = state.label end
 local STATE_COLOR = { pending = U.Colors.STATUS_GOLD, sending = U.Colors.INFO_BLUE, sent = U.Colors.LIGHT_GRAY,
-  delivered = U.Colors.SAGE_GREEN }
+  delivered = U.Colors.SAGE_GREEN, rejected = U.Colors.LABEL_GRAY }
 
 local NOTE_KIND = { flag = "Flag", feedback = "Feedback", error = "Error" }
 
@@ -317,11 +319,13 @@ end
 
 local function LiveRows(out, db)
   for id, record in pairs(db.records) do
-    local state = Holds(id) and "sending" or (db.delivered[id] == record.rev and "sent") or "pending"
+    local state = Holds(id) and "sending" or (record.rejected == record.rev and "rejected")
+      or (db.delivered[id] == record.rev and "sent") or "pending"
     out[#out + 1] = RecordRow(id, record, db.contexts, state, nil)
   end
   for key, stamp in pairs(db.confirms) do
-    local state = Holds(key) and "sending" or (db.delivered[key] == stamp.rev and "sent") or "pending"
+    local state = Holds(key) and "sending" or (stamp.rejected == stamp.rev and "rejected")
+      or (db.delivered[key] == stamp.rev and "sent") or "pending"
     out[#out + 1] = StampRow(key, stamp, db.contexts, state, nil)
   end
 end
@@ -330,7 +334,7 @@ local function FrozenRows(out, db)
   local sharing = Curator.Sharing
   for _, block in ipairs(db.frozen) do
     local state = (sharing and sharing.HoldsBlock and sharing.HoldsBlock(block)) and "sending"
-      or (block.awaiting and "sent") or "pending"
+      or (block.rejected and "rejected") or (block.awaiting and "sent") or "pending"
     local older = tostring(block.dataVersion or "?")
     for id, record in pairs(type(block.records) == "table" and block.records or {}) do
       if type(record) == "table" then out[#out + 1] = RecordRow(id, record, block.contexts, state, older) end
@@ -423,7 +427,8 @@ local function SawText(row)
   if row.source == "note" then return (tostring(row.noteText or ""):gsub("\n", " ")) end
   if row.source == "stamp" then
     if (row.total or 0) > 0 then return ("%d of %d match"):format(row.matched or 0, row.total) end
-    return ("%s match"):format(Plural(row.matched or 0, "entry", "entries"))
+    local n = row.matched or 0
+    return n == 1 and "1 entry matches" or ("%d entries match"):format(n)
   end
   return Decode.Value(row.decoded, row.value, Dashboard.Name)
 end
@@ -536,7 +541,6 @@ function Dashboard.FindingTooltip(row)
   Add("Last seen", Dashboard.When(row.last))
   Add("Game build", row.build and tostring(row.build) or nil)
   if row.older then Add("Recorded under database", row.older) end
-  Add("Fact", row.fact)
   return { title = Subject(row), note = StateWords(row), lines = lines }
 end
 
@@ -545,7 +549,7 @@ end
 -------------------------------------------------------------------------------
 local REFUSED = { busy = "another collection was running", nodata = "your database files failed their check",
   empty = "nothing was waiting", declined = "you declined", pack = "it couldn't be packed",
-  toolarge = "it was too large to send" }
+  toolarge = "it was too large to send", large = "what's left needs a bigger collection, which the author starts by hand" }
 
 -- HistoryState(entry): its state in words, and its color
 function Dashboard.HistoryState(entry)
@@ -560,9 +564,13 @@ function Dashboard.HistoryState(entry)
     end
     return "Sending", C.STATUS_GOLD
   elseif state == "acknowledged" then
-    return "Delivered, waiting for the author to save it", C.INFO_BLUE
+    return "Sent; waiting for the author to save it", C.INFO_BLUE
   elseif state == "saved" then
     return "Saved by the author", C.SAGE_GREEN
+  elseif state == "kept" then
+    return "Kept by the author for a closer look; removed here", C.LIGHT_GRAY
+  elseif state == "rejected" then
+    return "Turned down by the author; not sent again unless it changes", C.CAUTION_ORANGE
   elseif state == "lost" then
     return "Lost on the author's side; sent again later", C.CAUTION_ORANGE
   elseif state == "cancelled" then
@@ -603,7 +611,7 @@ Dashboard.HISTORY_COLUMNS = {
     sortValue = function(row) return row.at or 0 end, tooltip = "When the author asked" },
   { key = "by", label = "Collected by", width = 170, text = function(row)
       local by = tostring(row.by or "?")
-      if row.entry.mode == "t" then by = by .. " (test)" end
+      if Curator.Protocol.IsTest(row.entry.mode) then by = by .. " (test)" end
       return by
     end, tooltip = "The author's character that asked for it" },
   { key = "state", label = "How it went", width = 240, stretch = true, text = function(row) return (Dashboard.HistoryState(row.entry)) end,
@@ -644,7 +652,11 @@ function Dashboard.HistoryTooltip(row)
   end
   table.sort(types, function(a, b) if a.n ~= b.n then return a.n > b.n end return a.label < b.label end)
   for i, t in ipairs(types) do
-    if i > 6 then Add("", ("and %d more kinds"):format(#types - 6)) break end
+    if i > 6 then
+      local more = #types - 6
+      Add("", more == 1 and "and 1 more kind" or ("and %d more kinds"):format(more))
+      break
+    end
     Add("  " .. t.label, tostring(t.n))
   end
   Add("Confirmations", Numbered(c.stamps))
@@ -657,7 +669,6 @@ function Dashboard.HistoryTooltip(row)
   Add("Saved", Dashboard.When(entry.saved))
   Add("Ended", Dashboard.When(entry.ended))
   if entry.localOnly then Add("", "Collected on this client (you are the author)") end
-  Add("Request", tostring(entry.request or ""))
   return { title = "Collection by " .. tostring(entry.by or "?"), lines = lines }
 end
 

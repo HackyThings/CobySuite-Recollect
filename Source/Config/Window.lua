@@ -50,15 +50,37 @@ local function CuratorText(index)
   return text or ""
 end
 
+-- Whether curator mode can run in this game region (the provider says;
+-- true for a provider from before it could tell)
+local function CuratorAvailable()
+  local provider = CuratorProvider()
+  if not provider then return false end
+  if type(provider.IsAvailable) ~= "function" then return true end
+  local ok, available = pcall(provider.IsAvailable)
+  return ok and available == true
+end
+
 local function BuildCurator(panel)
   panel:Section("Curator mode")
   panel:Description("Curator mode isn't part of this build.", {
     visibleWhen = function() return not HasCurator() end,
   })
+  -- outside the author's game region the section still explains curator
+  -- mode, says why it's unavailable and grays its controls (Cobanyte,
+  -- 2026-09-30)
+  panel:Description("", {
+    visibleWhen = function() return HasCurator() and not CuratorAvailable() end,
+    refresh = function(row)
+      local provider = CuratorProvider()
+      local gold = U.Colors.STATUS_GOLD
+      row.Text:SetTextColor(gold[1], gold[2], gold[3])
+      row.Text:SetText(provider and provider.REGION_TEXT or "")
+    end,
+  })
   panel:Checkbox{
     key = "curator_enabled", label = "Help build Recollect's database (curator mode)",
     tooltip = "Off by default. While on, Recollect records where the game disagrees with its database, for its author to collect.",
-    visibleWhen = HasCurator,
+    visibleWhen = HasCurator, enabledWhen = CuratorAvailable,
   }
   -- The opt-in paragraphs in white: they are what a player agrees to, not a
   -- side note in the descriptions' dim gray (Cobanyte, 2026-09-26)
@@ -76,6 +98,7 @@ local function BuildCurator(panel)
     key = "curator_ask", label = "Ask me before each collection",
     tooltip = "Off by default: collections run in the background with a chat message when one starts and ends.",
     visibleWhen = function(get) return HasCurator() and get("curator_enabled") == true end,
+    enabledWhen = CuratorAvailable,
   }
   panel:Description("", {
     visibleWhen = HasCurator,
@@ -89,7 +112,8 @@ local function BuildCurator(panel)
     tooltip = "Prints the community's invite link in chat; click it there to open Blizzard's join window.",
     visibleWhen = function(get)
       local provider = CuratorProvider()
-      return provider ~= nil and get("curator_enabled") == true and provider.IsMember and provider.IsMember() == false
+      return provider ~= nil and CuratorAvailable() and get("curator_enabled") == true and provider.IsMember
+        and provider.IsMember() == false
     end,
     onClick = function()
       local provider = CuratorProvider()

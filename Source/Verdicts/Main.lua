@@ -73,6 +73,14 @@ end
 -- Combine(purposes, otherUses): the verdict for a list of purpose results.
 -- A Can't tell whose every purpose is done or settled carries settled = true
 -- and the category "finished", so it is never listed as "no check covers it"
+-- The signs of other uses no check covers (OtherUses), in words: the note
+-- a Combine result carries, and the Tip's "Not checked" (UI.Tooltip)
+Verdicts.UNCHECKED_WORDS = {
+  reagent = "whether a recipe uses it",
+  ["quest item"] = "whether a quest needs it",
+  ["quest info (unreadable)"] = "its quest info, which can't be read",
+}
+
 function Verdicts.Combine(purposes, otherUses)
   if #purposes == 0 then
     return { verdict = V.UNKNOWN, reason = "No check covers this item yet", purposes = purposes, category = "unsupported" }
@@ -110,9 +118,14 @@ function Verdicts.Combine(purposes, otherUses)
   end
   local reason = table.concat(reasons, "; ")
   if otherUses and #otherUses > 0 then
-    local note = "other uses (" .. table.concat(otherUses, ", ") .. ") not checked yet"
+    -- in words ("not checked yet: whether a recipe uses it"), the signs kept
+    -- as they are in unchecked for the Tip
+    local words = {}
+    for i, sign in ipairs(otherUses) do words[i] = Verdicts.UNCHECKED_WORDS[sign] or sign end
+    local list = #words > 1 and (table.concat(words, ", ", 1, #words - 1) .. " and " .. words[#words]) or words[1]
+    local note = "not checked yet: " .. list
     local unreadable = otherUses[#otherUses] == "quest info (unreadable)"
-    return { verdict = V.UNKNOWN, reason = reason .. "; " .. note, note = note, purposes = purposes,
+    return { verdict = V.UNKNOWN, reason = reason .. "; " .. note, note = note, unchecked = otherUses, purposes = purposes,
       category = unreadable and "unreadable" or "unsupported" }
   end
   return { verdict = (first[V.JUNK] and V.JUNK) or (first[V.OUTDATED] and V.OUTDATED) or (first[V.LOWER] and V.LOWER) or V.DONE,

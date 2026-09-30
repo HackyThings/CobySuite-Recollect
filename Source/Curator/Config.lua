@@ -47,15 +47,20 @@ end
 -- Constants (curator spec: Roles and the community, Protocol, Footprint)
 Curator.Const = {
   CLUB_NAME = "Recollect Curators",
+  -- The game region curator mode works in (GetCurrentRegionName; security
+  -- design S5, probe P4 2026-09-30): the author's. Whispers and communities
+  -- never cross regions, so anywhere else it stays dormant
+  REGION = "US",
+  -- The author's collector characters by roster GUID (security design B,
+  -- T9; Cobanyte, 2026-09-30: every Leader is one of his alts): a curator's
+  -- client takes a request, acknowledgement or saved report only from one of
+  -- these holding Owner or Leader, so another Leader can never collect or
+  -- delete a curator's findings. Figment, Tanklite, Ripples-Maelstrom
+  COLLECTORS = { ["Player-57-0D5F5D9C"] = true, ["Player-57-0C26250E"] = true, ["Player-163-0B84962E"] = true },
   STREAM_NAME = "General",  -- the community's stream: curators' chat (Cobanyte, 2026-09-26); the traffic goes by whisper
   CLUB_ID = 503127671,     -- the "Recollect Curators" community (a number in game; compared as text); nil: found by name
   TICKET_ID = "jKPlgr0hzZD", -- the public invite ticket: never expires, unlimited uses (made 2026-09-26)
   PREFIX = "RecollectCur",  -- at most 16 bytes
-  -- The old hidden channel (0.0.1c) the curator traffic went on until it
-  -- moved to whispers (2026-09-28): the receiver still reads it from 0.0.1c
-  -- clients, and UI/LeaveOldChannel.lua asks a character still in it to
-  -- leave.
-  CHANNEL_NAME = "RecollectCurators",
   CAP_BYTES = 1024 * 1024, -- the recorder fields of RECOLLECT_CURATOR_DB (D17)
   AWAITING_DAYS = 30,      -- acknowledged collections not confirmed saved are dropped after this
   RECEIVED_DAYS = 30,      -- the author's received list is pruned after this

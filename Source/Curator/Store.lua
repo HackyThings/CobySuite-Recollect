@@ -48,11 +48,25 @@
 -- at most CONFIRMED_CAP sources; stamps with no total (loot and the like,
 -- counted for drop rates) are never limited.
 --
+-- Confirmation by tier (security design B, review TRUST-01, 2026-09-30):
+-- the author's V says which saved requests he received as Trusted (a pinned
+-- Moderator or his own character). Only those set confirmed; a saved one
+-- received as General sets generalConfirmed[source] = round instead, which
+-- holds back stamps only while this client has no pin hint (pinned: the
+-- last Q said the author pinned the character that answered it, so a pinned
+-- Moderator can still send a fresh, Trusted stamp in the same round). Same
+-- cap and rounds as confirmed.
+--
 -- Delivery: delivered[id or key] = rev when that revision was acknowledged
 -- (K); it goes in the next pull while its rev differs. awaiting[requestID] =
--- { at, recs = { [id] = rev }, confirms = { [key] = rev } } until a V says
--- the author's copy was saved (then the unchanged ones are deleted) or lost
--- (then they are pending again); dropped after AWAITING_DAYS.
+-- { at, recs = { [id] = rev }, confirms = { [key] = rev }, quarantined = {
+-- [id or key] = true } } until a V disposes of it (protocol 2's
+-- dispositions): saved (the unchanged ones are deleted, markers set except
+-- for what the author's K named quarantined), quarantined (deleted with no
+-- marker at all), rejected (kept, but that revision is never sent again:
+-- rejected = rev on the record or stamp, until it changes) or lost (pending
+-- again); dropped after AWAITING_DAYS. An X "rejected:" for a running
+-- collection rejects what it held the same way.
 --
 -- bytes estimates every recorder field: records (with their variants),
 -- stamps, delivered and reported marks, awaiting requests, context blocks and quest
@@ -106,6 +120,7 @@ local function Normalize(db)
   if type(db.nextRev) ~= "number" then db.nextRev = 1 end
   if type(db.frozen) ~= "table" then db.frozen = {} end
   if type(db.confirmed) ~= "table" then db.confirmed = {} end
+  if type(db.generalConfirmed) ~= "table" then db.generalConfirmed = {} end
   return db
 end
 
@@ -399,13 +414,23 @@ end
 
 -- Wanted(source, positions, total): whether a visit's stamp is still wanted
 -- (spec D36): always for a source with no total; otherwise not once this
--- account's confirmation of this round was saved, nor for a settled source
--- that matched in full
+-- account's Trusted confirmation of this round was saved, nor its General
+-- one unless the author's last request said this character is pinned, nor
+-- for a settled source that matched in full
 function Store.Wanted(source, positions, total)
   if (tonumber(total) or 0) <= 0 then return true end
   local round, settled = Store.Round(source)
-  if (Store.DB().confirmed[source] or 0) >= round then return false end
+  local db = Store.DB()
+  if (db.confirmed[source] or 0) >= round then return false end
+  if db.pinned ~= true and (db.generalConfirmed[source] or 0) >= round then return false end
   return not (settled and #positions >= total)
+end
+
+-- SetPinned(on): the author's hint in each request (Q): whether he pinned
+-- the character that answered it. A hint only: the author classifies every
+-- collection from his own list, whatever this says
+function Store.SetPinned(on)
+  Store.DB().pinned = on == true or nil
 end
 
 -- Confirm(source, positions, total, ctxIndex): a visit to a source where the
@@ -446,10 +471,10 @@ function Store.Pending()
   local db = Store.DB()
   local out = { recs = {}, confirms = {} }
   for id, record in pairs(db.records) do
-    if db.delivered[id] ~= record.rev then out.recs[id] = record.rev end
+    if db.delivered[id] ~= record.rev and record.rejected ~= record.rev then out.recs[id] = record.rev end
   end
   for key, stamp in pairs(db.confirms) do
-    if db.delivered[key] ~= stamp.rev then out.confirms[key] = stamp.rev end
+    if db.delivered[key] ~= stamp.rev and stamp.rejected ~= stamp.rev then out.confirms[key] = stamp.rev end
   end
   return out
 end
@@ -459,14 +484,21 @@ local function Mark(db, key, rev)
   db.delivered[key] = rev
 end
 
--- Acknowledged(requestID, snapshot): K arrived for a snapshot (Pending's
--- shape); those revisions count as delivered and wait for V
-function Store.Acknowledged(requestID, snapshot)
+-- Acknowledged(requestID, snapshot, quarantined): K arrived for a snapshot
+-- (Pending's shape); those revisions count as delivered and wait for V.
+-- quarantined lists the record IDs and stamp keys the author set apart
+-- (their context or quest entry was malformed): they get no marker on V
+function Store.Acknowledged(requestID, snapshot, quarantined)
   local db = Store.DB()
   for id, rev in pairs(snapshot.recs or {}) do Mark(db, id, rev) end
   for key, rev in pairs(snapshot.confirms or {}) do Mark(db, key, rev) end
   if db.awaiting[requestID] then db.bytes = db.bytes - AwaitingBytes(db.awaiting[requestID]) end
-  local entry = { at = GetServerTime(), recs = snapshot.recs or {}, confirms = snapshot.confirms or {} }
+  local set
+  for _, key in ipairs(quarantined or {}) do
+    set = set or {}
+    set[tostring(key)] = true
+  end
+  local entry = { at = GetServerTime(), recs = snapshot.recs or {}, confirms = snapshot.confirms or {}, quarantined = set }
   db.awaiting[requestID] = entry
   db.bytes = db.bytes + AwaitingBytes(entry)
 end
@@ -479,16 +511,22 @@ local function DropAwaiting(db, requestID)
   return entry
 end
 
--- Saved(requestID): V says the author's copy is saved; unchanged records and
--- stamps of that request are deleted, changed ones stay pending
-function Store.Saved(requestID)
+-- Saved(requestID, trusted, quiet): V says the author's copy is saved;
+-- unchanged records and stamps of that request are deleted, changed ones
+-- stay pending. Markers (reported, confirmed or generalConfirmed by
+-- trusted) are set for all but what K named quarantined, and for nothing
+-- when quiet (V's quarantined list: the author kept it only as a lead)
+function Store.Saved(requestID, trusted, quiet)
   local db = Store.DB()
   local entry = DropAwaiting(db, requestID)
   if not entry then return false end
   local marks = Count(db.reported)
+  local apart = entry.quarantined or {}
   for id, rev in pairs(entry.recs) do
     local record = db.records[id]
-    if record and record.rev == rev then
+    if record and record.rev == rev and (quiet or apart[tostring(id)]) then
+      RemoveRecord(db, id)
+    elseif record and record.rev == rev then
       -- an item with no information the author now has: not recorded again
       -- under this data version (NoInfo), within the marks' cap
       local fact = record.fact
@@ -503,7 +541,7 @@ function Store.Saved(requestID)
   for key, rev in pairs(entry.confirms) do
     local stamp = db.confirms[key]
     if stamp and stamp.rev == rev then
-      Store.MarkConfirmed(stamp)
+      if not (quiet or apart[tostring(key)]) then Store.MarkConfirmed(stamp, false, trusted) end
       RemoveStamp(db, key)
     end
   end
@@ -511,13 +549,45 @@ function Store.Saved(requestID)
   return true
 end
 
--- MarkConfirmed(stamp, frozen): the author saved this account's
+-- Quarantined(requestID): V says the author kept it only as a lead
+function Store.Quarantined(requestID)
+  return Store.Saved(requestID, false, true)
+end
+
+-- Rejected(snapshot): the author refused these revisions for good (V's
+-- rejected list, or an X "rejected:"); they stay, but aren't sent again
+-- until they change
+function Store.Rejected(snapshot)
+  local db = Store.DB()
+  for id, rev in pairs(snapshot and snapshot.recs or {}) do
+    local record = db.records[id]
+    if record and record.rev == rev then record.rejected = rev end
+    Unmark(db, id)
+  end
+  for key, rev in pairs(snapshot and snapshot.confirms or {}) do
+    local stamp = db.confirms[key]
+    if stamp and stamp.rev == rev then stamp.rejected = rev end
+    Unmark(db, key)
+  end
+end
+
+-- RejectedRequest(requestID): V's rejected list for a request waiting for it
+function Store.RejectedRequest(requestID)
+  local db = Store.DB()
+  local entry = DropAwaiting(db, requestID)
+  if not entry then return false end
+  Store.Rejected(entry)
+  return true
+end
+
+-- MarkConfirmed(stamp, frozen, trusted): the author saved this account's
 -- confirmation of a source with a shipped listing, in the round the stamp was
--- made in (spec D36). A live stamp with no round is from this data version,
--- whose round the data names now; a frozen one with none (made before stamps
--- kept their round) marks nothing, since the data it was made under may have
--- named an earlier round
-function Store.MarkConfirmed(stamp, frozen)
+-- made in (spec D36), as Trusted (confirmed) or General (generalConfirmed).
+-- A live stamp with no round is from this data version, whose round the
+-- data names now; a frozen one with none (made before stamps kept their
+-- round) marks nothing, since the data it was made under may have named an
+-- earlier round
+function Store.MarkConfirmed(stamp, frozen, trusted)
   if type(stamp) ~= "table" or type(stamp.source) ~= "string" or (tonumber(stamp.total) or 0) <= 0 then return end
   local db = Store.DB()
   local round = tonumber(stamp.round)
@@ -525,8 +595,9 @@ function Store.MarkConfirmed(stamp, frozen)
     if frozen then return end
     round = Store.Round(stamp.source)
   end
-  if db.confirmed[stamp.source] == nil and Count(db.confirmed) >= Curator.Const.CONFIRMED_CAP then return end
-  if (db.confirmed[stamp.source] or 0) < round then db.confirmed[stamp.source] = round end
+  local marks = trusted and db.confirmed or db.generalConfirmed
+  if marks[stamp.source] == nil and Count(marks) >= Curator.Const.CONFIRMED_CAP then return end
+  if (marks[stamp.source] or 0) < round then marks[stamp.source] = round end
 end
 
 -- Lost(requestID): V says the author's copy was lost; its records are sent again
@@ -541,21 +612,52 @@ end
 
 -- A frozen block's delivery: K marks it awaiting its request, V deletes it
 -- whole, a lost V (or none within AWAITING_DAYS) makes it pending again
-function Store.FrozenAcknowledged(block, requestID)
+-- quarantined: the stamp keys K set apart, which get no marker on V (review STORE-01)
+function Store.FrozenAcknowledged(block, requestID, quarantined)
   block.awaiting, block.awaitingAt = requestID, GetServerTime()
+  local set
+  for _, key in ipairs(quarantined or {}) do
+    set = set or {}
+    set[tostring(key)] = true
+  end
+  block.quarantined = set
 end
 
--- FrozenSaved(requestID) / FrozenLost(requestID): true when a block had it
-function Store.FrozenSaved(requestID)
+-- FrozenSaved(requestID, trusted, quiet) / FrozenLost(requestID) /
+-- FrozenRejected(requestID): true when a block had it. A quarantined block
+-- (quiet: any block of an older layout, which the author keeps only as
+-- leads) is deleted with no marker; a rejected one stays, never sent again
+function Store.FrozenSaved(requestID, trusted, quiet)
   local db = Store.DB()
   for i, block in ipairs(db.frozen) do
     if block.awaiting == requestID then
-      for _, stamp in pairs(type(block.confirms) == "table" and block.confirms or {}) do Store.MarkConfirmed(stamp, true) end
+      if not quiet then
+        local apart = type(block.quarantined) == "table" and block.quarantined or {}
+        for key, stamp in pairs(type(block.confirms) == "table" and block.confirms or {}) do
+          if not apart[tostring(key)] then Store.MarkConfirmed(stamp, true, trusted) end
+        end
+      end
       table.remove(db.frozen, i)
       return true
     end
   end
   return false
+end
+
+function Store.FrozenRejected(requestID)
+  for _, block in ipairs(Store.DB().frozen) do
+    if block.awaiting == requestID then
+      Store.RejectBlock(block)
+      return true
+    end
+  end
+  return false
+end
+
+-- RejectBlock(block): a frozen block the author refused for good (an X
+-- "rejected:" for the collection carrying it)
+function Store.RejectBlock(block)
+  block.awaiting, block.awaitingAt, block.rejected = nil, nil, true
 end
 
 function Store.FrozenLost(requestID)
@@ -568,10 +670,10 @@ function Store.FrozenLost(requestID)
   return false
 end
 
--- NextFrozen(): the oldest block not waiting for V, or nil
+-- NextFrozen(): the oldest block not waiting for V nor rejected, or nil
 function Store.NextFrozen()
   for _, block in ipairs(Store.DB().frozen) do
-    if not block.awaiting then return block end
+    if not block.awaiting and not block.rejected then return block end
   end
   return nil
 end
@@ -624,7 +726,7 @@ function Store.Counts()
   -- frozen blocks not yet acknowledged count as pending, whole
   out.frozen, out.frozenPending = #db.frozen, 0
   for _, block in ipairs(db.frozen) do
-    if not block.awaiting then
+    if not block.awaiting and not block.rejected then
       local n = Count(block.records or {}) + Count(block.confirms or {})
       out.frozenPending = out.frozenPending + n
       out.pending = out.pending + n

@@ -39,8 +39,8 @@ local function Finish(delete)
   end
   Curator.Sharing.SendLeaving()
   if dialog then dialog:Hide() end
-  Host.Print(delete and "Recollect: curator mode is off and your findings were deleted."
-    or "Recollect: curator mode is off. Your findings are kept, through database updates too, until you delete them or turn it back on and they are collected.")
+  Host.Print(delete and "Curator mode is off and your findings were deleted."
+    or "Curator mode is off. Your findings are kept, through database updates too, until you delete them or turn it back on and they are collected.")
 end
 
 local function Build()
@@ -76,12 +76,12 @@ end
 function OptOut.Show()
   Build()
   if not dialog then
-    Host.Print("Recollect: curator mode is off. " .. LEAVE_TEXT)
+    Host.Print("Curator mode is off. " .. LEAVE_TEXT)
     Curator.Sharing.SendLeaving()
     return
   end
   local label = dialog.Delete.text
-  if label and label.SetText then label:SetText(("Also delete my current findings (%d)"):format(FindingsCount())) end
+  if label and label.SetText then label:SetText(("Also delete my findings (%d), notes and collection history"):format(FindingsCount())) end
   dialog.Delete:SetChecked(false)
   dialog:Show()
 end

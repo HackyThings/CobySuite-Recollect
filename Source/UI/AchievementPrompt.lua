@@ -110,7 +110,7 @@ local function Build()
   dialog.Body:SetWordWrap(true)
   -- the shared button's look on an insecure action button: its click runs
   -- the macro on the secure path, once, on release, never with a modifier
-  -- (the pattern of Curator/UI/LeaveOldChannel.lua, verified in game)
+  -- (the pattern of the old channel's leave prompt, verified in game 2026-09-28)
   dialog.Open = CobySuite_Recollect.UI.CreateButton(dialog, { text = "Open achievements", size = { 150, U.ButtonSize.MEDIUM.height },
     point = { "BOTTOMLEFT", dialog, "BOTTOMLEFT", PAD, 14 }, template = "UIPanelButtonTemplate, InsecureActionButtonTemplate" })
   dialog.Open:RegisterForClicks("LeftButtonUp")

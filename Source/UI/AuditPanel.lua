@@ -137,9 +137,21 @@ local function Texture(color, alpha)
     tex = frame:CreateTexture(nil, "ARTWORK")
     textures[texturesUsed] = tex
   end
+  tex:SetDesaturated(false)   -- a pooled texture may have been a grayed state icon
+  tex:SetVertexColor(1, 1, 1, 1)
   tex:SetColorTexture(color[1], color[2], color[3], alpha or 1)
   tex:ClearAllPoints()
   tex:Show()
+  return tex
+end
+
+-- A line's state icon (UI.Icons) from the same pool, or nil when it has none
+local STATE_ICON = 12
+local function StateIcon(kind)
+  if not kind or not Recollect.UI.Icons.ATLAS[kind] then return nil end
+  local tex = Texture(U.Colors.LIGHT_GRAY)
+  Recollect.UI.Icons.Paint(tex, kind)
+  tex:SetSize(STATE_ICON, STATE_ICON)
   return tex
 end
 
@@ -417,9 +429,15 @@ local function PaintLines(title, lines, y, contentWidth)
   y = y - Block(U.Fonts.SMALL, U.Colors.STATUS_GOLD, title, PAD, y, contentWidth) - LINE_GAP
   local x, w = PAD + BULLET_INDENT, contentWidth - BULLET_INDENT
   for _, line in ipairs(lines) do
-    local dot = Texture(line.color or U.Colors.LIGHT_GRAY)
-    dot:SetSize(BULLET, BULLET)
-    dot:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD + 2, y - 4)
+    -- a line that states a check or a cross shows its icon in the bullet's place (UI.Icons)
+    local icon = StateIcon(Recollect.UI.Icons.FromLine(line))
+    if icon then
+      icon:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD - 1, y + 1)
+    else
+      local dot = Texture(line.color or U.Colors.LIGHT_GRAY)
+      dot:SetSize(BULLET, BULLET)
+      dot:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD + 2, y - 4)
+    end
     y = y - Block(U.Fonts.SMALL, U.Colors.LIGHT_GRAY, Panel.LineText(line), x, y, w, LINE_LINES) - LINE_GAP - 1
   end
   return y

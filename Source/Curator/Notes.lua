@@ -199,8 +199,8 @@ function Notes.SaveFlag(itemID, reason, text)
   end
   local state = Notes.Flag(itemID)
   if state.atLimit then
-    return nil, #entries > 0 and "This flag has as much information as it can hold until the author collects it."
-      or ("You have %d flags waiting to be collected, the most Recollect keeps."):format(Notes.LIMITS.FLAGGED_ITEMS)
+    return nil, #entries > 0 and "This flag holds as much as it can until Recollect's next database update."
+      or ("You have %d flagged items, the most Recollect keeps until its next database update."):format(Notes.LIMITS.FLAGGED_ITEMS)
   end
   notes.flags[itemID] = flag or { entries = entries }
   local first = entries[1]
@@ -248,7 +248,7 @@ function Notes.SaveFeedback(text)
     return Copy(last)
   end
   if #notes.feedback >= Notes.LIMITS.FEEDBACK then
-    return nil, ("You have %d pieces of feedback waiting to be collected, the most Recollect keeps."):format(Notes.LIMITS.FEEDBACK)
+    return nil, ("You have %d pieces of feedback, the most Recollect keeps until its next database update."):format(Notes.LIMITS.FEEDBACK)
   end
   local entry = NewEntry(notes, { text = clean })
   notes.feedback[#notes.feedback + 1] = entry
@@ -337,6 +337,8 @@ local function SetState(notes, keys, from, to, request)
   Each(notes, function(key, _, entry)
     if keys[key] == entry.rev and (from == nil or entry.state == from) then
       entry.state, entry.request = to, request
+      -- when the author saved it (the flag window says so; `at` is when it was written)
+      if to == "delivered" then entry.deliveredAt = GetServerTime() end
       changed = true
     end
   end)

@@ -117,7 +117,7 @@ local function V() return Recollect.Purposes.Registry.Verdict end
 Data.TABS = {
   { key = "overview", label = "Overview" },
   { key = "buys", label = "Buys" },
-  { key = "quests", label = "Quests & achievements" },
+  { key = "quests", label = "Quests and achievements" },
   { key = "crafting", label = "Crafting" },
   { key = "sources", label = "Comes from" },
   { key = "takes", label = "What it takes" },
@@ -299,7 +299,7 @@ MAKERS.madeFrom = function(relation)
 end
 
 MAKERS.taughtBy = function(relation)
-  return { tab = "sources", what = "item", kindLabel = "Crafted with", id = relation.id, itemID = relation.id }
+  return { tab = "sources", what = "item", kindLabel = "Recipe item", id = relation.id, itemID = relation.id }
 end
 
 MAKERS.soldBy = function(relation)
@@ -445,11 +445,11 @@ local function AddExtras(job)
   end
   for _, vendor in ipairs(Vendors().ForCostItem(itemID)) do
     Push(job, { tab = "quests", kind = "payment", what = "npc", kindLabel = "Takes it as payment", id = vendor.npcID,
-      npcID = vendor.npcID, filterState = "none", tier = Parts().TIER_INFO })
+      npcID = vendor.npcID, of = itemID, filterState = "none", tier = Parts().TIER_INFO })
   end
   for _, vendor in ipairs(Vendors().Selling(itemID)) do
     Push(job, { tab = "sources", kind = "sold", what = "npc", kindLabel = "Sold by", id = vendor.npcID,
-      npcID = vendor.npcID, filterState = "none", tier = Parts().TIER_INFO })
+      npcID = vendor.npcID, of = itemID, filterState = "none", tier = Parts().TIER_INFO })
   end
   -- What crafting it takes: every required reagent of the recipes that make
   -- it, from the game's own schematic (read live, as the Lab's dump reads it)
@@ -630,8 +630,9 @@ end
 local RESOLVE = {}
 
 -- A followed plain purchase that leads to a collectible still missing
-local KIND_NAME = { toy = "toy", mount = "mount", pet = "pet", decor = "decor item", ensemble = "ensemble",
-  heirloom = "heirloom", recipe = "recipe", illusion = "illusion", achievement = "achievement" }
+-- each with its article ("an heirloom": no vowel test gets that one right)
+local KIND_NAME = { toy = "a toy", mount = "a mount", pet = "a pet", decor = "a decor item", ensemble = "an ensemble",
+  heirloom = "an heirloom", recipe = "a recipe", illusion = "an illusion", achievement = "an achievement" }
 
 local function Chain(row, owner, budget)
   local summary = Recollect.Facts.Chains.Summary(row.id, owner, budget, row.of)
@@ -649,8 +650,8 @@ RESOLVE.buys = function(row, owner, budget)
       local summary = Chain(row, owner, budget)
       local best = summary and summary.best
       if best and best.state == "open" then
-        local kind = best.thing and KIND_NAME[best.thing.what] or "collectible"
-        Set(row, "missing", ("Leads to a%s %s you lack"):format(kind:find("^[aeiou]") and "n" or "", kind),
+        local kind = best.thing and KIND_NAME[best.thing.what] or "a collectible"
+        Set(row, "missing", ("Leads to %s you lack"):format(kind),
           Colors()[V().USEFUL], "missing")
       end
     end
@@ -801,7 +802,7 @@ RESOLVE.currency = function(row, owner)
   row.name = info.name
   row.icon = row.icon or info.iconFileID
   local quantity = owner.isViewer and CobySuite_Recollect.Utilities.IsFiniteNumber(info.quantity) and info.quantity or nil
-  Set(row, "held", quantity and ("You hold %d"):format(quantity) or nil, Colors()[V().USEFUL], "none")
+  Set(row, "held", quantity and ("You have %d"):format(quantity) or nil, Colors()[V().USEFUL], "none")
 end
 
 -- A recipe's own state for the logged-in character; a recipe of a system
@@ -1188,6 +1189,7 @@ local function QuestPlace(questID)
   local giver = Relations().QuestGiver(questID)
   if not giver then return nil end
   return { mapID = giver.mapID, x = giver.x, y = giver.y, npcID = giver.npcID, what = "where the quest starts",
+    role = "questStart", questID = questID,
     zone = Vendors().ZoneName(giver.mapID) or ("map " .. giver.mapID) }
 end
 
@@ -1197,6 +1199,10 @@ local function ObjectPlace(objectID)
   return { mapID = object.mapID, x = object.x, y = object.y, what = #object.contents > 0 and "the treasure" or "the spot",
     zone = Vendors().ZoneName(object.mapID) or ("map " .. object.mapID) }
 end
+
+-- A row's label as the reason its place is visited (UI.Waypoint's roles)
+local ROW_ROLES = { ["Used at"] = "usedAt", ["Sold by"] = "soldBy", ["Drops from"] = "dropsFrom",
+  ["Takes it as payment"] = "payment", ["Found at"] = "found", Treasure = "opens", Spot = "spot" }
 
 -- Where the row's thing is, whoever it is for (kept on the row)
 local function RawPlace(row)
@@ -1216,6 +1222,11 @@ local function RawPlace(row)
     if vendor then place = NpcPlace(vendor.npcID) end
   elseif row.questID then
     place = QuestPlace(row.questID)
+  end
+  if place and not place.role then
+    -- why the trip, for the pin's title (UI.Waypoint.Title)
+    place.role = ROW_ROLES[row.kindLabel] or (row.npcs and "payment") or (row.currencyID and "spend") or nil
+    place.itemID, place.currencyID = row.of, row.currencyID
   end
   row.place = place or false
   return place
@@ -1308,7 +1319,7 @@ function Data.Name(row)
     end
   elseif what == "object" then
     local place = Data.Place(row)
-    if not place then return "A treasure" end
+    if not place then return row.kindLabel == "Spot" and "A spot" or "A treasure" end
     return (row.kindLabel == "Spot" and "A spot in " or "A treasure in ") .. PlaceWords(place), true
   elseif what == "quest" then
     return nil   -- Resolve sets it once the quest answers

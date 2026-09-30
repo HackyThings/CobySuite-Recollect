@@ -40,7 +40,9 @@ local Host = Curator.Host
 local Main = {}
 Curator.Main = Main
 
-local SCHEMA = 1
+-- 2 since protocol 2 (security design, 2026-09-30): a store of layout 1
+-- becomes a frozen block, which the author keeps only as leads
+local SCHEMA = 2
 local RECORDER_FIELDS = { "records", "confirms", "delivered", "awaiting", "contexts", "quests", "reported" }
 
 local function NewID()
@@ -77,7 +79,9 @@ function Main.DB()
     if block then frozen[#frozen + 1] = block end
     RECOLLECT_CURATOR_DB = { schema = SCHEMA, id = type(keep.id) == "string" and keep.id or nil,
       intake = keep.intake, received = keep.received, notes = keep.notes, joinAsked = keep.joinAsked, noInfoNotice = keep.noInfoNotice, frozen = frozen,
-      history = keep.history, windows = keep.windows, confirmed = keep.confirmed,
+      history = keep.history, windows = keep.windows, confirmed = keep.confirmed, generalConfirmed = keep.generalConfirmed,
+      knownMembers = keep.knownMembers,
+      receipts = keep.receipts, registry = keep.registry,
       dataVersion = keep.dataVersion, formatVersion = keep.formatVersion, addonVersion = keep.addonVersion }
     if block then
       Host.Log("Curator saved data of layout %s kept as a frozen block (%s), made under data %s", tostring(keep.schema),
@@ -108,11 +112,23 @@ local queue = {}   -- { { fn, epoch } }, oldest first
 
 Main.seams = {
   Clock = function() return debugprofilestop() end,
+  Region = function() return GetCurrentRegionName() end,
 }
 
--- Opted in (the setting)
+-- Available(): whether curator mode can run here at all: this client's game
+-- region is the author's (Const.REGION; Cobanyte, 2026-09-30: "Only ones
+-- that can connect with me"). Curators and the author reach each other only
+-- in game, and whispers and communities never cross regions; anywhere else
+-- curator mode stays dormant, its saved findings kept as they are. A region
+-- that can't be read is not available (yet)
+function Main.Available()
+  local ok, region = pcall(Main.seams.Region)
+  return ok and type(region) == "string" and not Host.IsSecret(region) and region == Curator.Const.REGION
+end
+
+-- Opted in (the setting), where curator mode is available
 function Main.IsEnabled()
-  return Curator.Config.Get("curator_enabled") == true
+  return Main.Available() and Curator.Config.Get("curator_enabled") == true
 end
 
 -- Opted in and able to compare: the shipped data's files agree and are a
@@ -229,6 +245,11 @@ end
 
 Host.OnLoaded(function()
   Curator.Config.InitializeData()
+  if not Main.Available() then
+    -- dormant: no curator ID made, no findings frozen or migrated, nothing sent
+    Host.Log("Curator mode is not available in this game region: dormant")
+    return
+  end
   Main.DB()
   Main.CheckDataVersion()
   Host.Log("Curator mode %s; curator ID %s", Main.IsEnabled() and "on" or "off", Main.CuratorID())

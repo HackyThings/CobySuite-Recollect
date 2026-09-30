@@ -231,11 +231,13 @@ end
 -------------------------------------------------------------------------------
 -- Routes: which character a message to an addressee is whispered to
 -------------------------------------------------------------------------------
--- Route(to, name): whisper what goes to this addressee (Protocol.AUTHOR, a
--- curator ID) to this character from now on; set only once a message from
--- that character passed the check its side makes
+-- Route(to, name): whisper what goes to this curator ID to this character
+-- from now on (the route test's and the suites' own use). Never the
+-- author's address, everyone's or anything that isn't a curator ID: every
+-- reply goes to its sender by name (security design B), and a claimed
+-- curator ID never steers another message
 function Transport.Route(to, name)
-  if type(to) ~= "string" or to == "" or to == Protocol.ALL then return end
+  if not Protocol.IsCuratorID(to) then return end
   if type(name) ~= "string" or Host.IsSecret(name) or name == "" then return end
   if name == Transport.Self() then return end   -- this client's own messages reach it by LOCAL_ECHO
   if routes[to] ~= name then Host.Log("Curator route: messages to %s are whispered to %s", to, name) end
@@ -266,17 +268,18 @@ end
 -- offline prints "No player named ..." in the sender's chat):
 --   test mode: this character itself (D23), through the server and back
 --   Protocol.ALL: every online member but this character
---   Protocol.AUTHOR: every online member who may collect (Owner, Leader)
+--   Protocol.AUTHOR: every online collector character (Const.COLLECTORS,
+--     holding Owner or Leader)
 --   anything else (a curator ID with no route yet): nobody
 function Transport.Recipients(mode, to)
   local me = Transport.Self()
-  if mode == Protocol.TEST then return me and { me } or {} end
+  if Protocol.IsTest(mode) then return me and { me } or {} end
   if to ~= Protocol.ALL and to ~= Protocol.AUTHOR then return {} end
   local M = Curator.Membership
   local out = {}
   for _, entry in ipairs(M and M.Roster() or {}) do
     if not entry.isSelf and entry.name ~= me and entry.presence == "online" and Transport.Whisperable(entry.name)
-        and (to == Protocol.ALL or M.MayPull(entry.name)) then
+        and (to == Protocol.ALL or M.IsCollector(entry.name)) then
       out[#out + 1] = entry.name
     end
   end
@@ -427,7 +430,7 @@ end
 -- whispered still reaches this client's own handlers (the author answering
 -- their own presence check), and onSent(nil) runs a frame later.
 function Transport.Enqueue(text, tag, onSent, first, target)
-  if type(text) ~= "string" then return false end
+  if type(text) ~= "string" or not Curator.Main.Available() then return false end
   local kind = text:sub(1, 1)
   local items
   if target ~= nil and target ~= Transport.Self() and Transport.Whisperable(target) then
@@ -465,7 +468,7 @@ end
 -- EnqueueLocal(text, onSent): hands a message to this client's own
 -- receiver a frame later, never through the server; onSent(0) first
 function Transport.EnqueueLocal(text, onSent)
-  if type(text) ~= "string" then return false end
+  if type(text) ~= "string" or not Curator.Main.Available() then return false end
   local kind = text:sub(1, 1)
   tally.handed[kind] = (tally.handed[kind] or 0) + 1
   if Transport.OnSent then pcall(Transport.OnSent, text, RESULT.SUCCESS, true) end
@@ -492,6 +495,14 @@ end
 function Transport.SendThen(onSent, kind, mode, to, ...)
   local text = Protocol.Encode(kind, mode, to, ...)
   return Transport.Enqueue(text, nil, onSent, kind ~= "D")
+end
+
+-- SendTo(target, onSent, kind, mode, to, ...): Send to one character by its
+-- name ("Name-Realm", as chat gave it), never through a route a claimed
+-- curator ID set; onSent as SendThen
+function Transport.SendTo(target, onSent, kind, mode, to, ...)
+  local text = Protocol.Encode(kind, mode, to, ...)
+  return Transport.Enqueue(text, nil, onSent, kind ~= "D", target)
 end
 
 function Transport.Drop(tag)
@@ -547,24 +558,17 @@ function Transport.Receive(prefix, text, channel, sender, ...)
     local key = tostring(channel)
     tally.raw[key] = (tally.raw[key] or 0) + 1
   end
-  if prefix ~= Curator.Const.PREFIX then return false end
+  if prefix ~= Curator.Const.PREFIX or not Curator.Main.Available() then return false end
   -- a route test (/rec curator ping): counted above by chat type, handled by Ping.lua's own receivers
   if type(text) == "string" and text:sub(1, 4) == "RCT~" then return false end
-  if channel == "CHANNEL" then
-    -- the old hidden channel (a 0.0.1c client still sends there; TODO with
-    -- LeaveOldChannel.lua: drop once no such client is left) or none (the
-    -- loopback); the channel's name comes 4th after the sender
-    local name = select(4, ...)
-    local ours = Curator.Const.CHANNEL_NAME:lower()
-    if type(name) == "string" and name ~= "" and not name:lower():find(ours, 1, true) then
-      Host.Log("Curator message from %s ignored: it came on the channel %s, not %s", tostring(sender), name, Curator.Const.CHANNEL_NAME)
-      return false
-    end
-  elseif channel ~= "WHISPER" then
+  -- whispers only: the old hidden channel is gone (security design T11,
+  -- 2026-09-30), and every other chat type is ignored
+  if channel ~= "WHISPER" then
     Host.Log("Curator message from %s ignored: it came by %s, not a whisper", tostring(sender), tostring(channel))
     return false
   end
-  local msg = Protocol.Decode(text)
+  -- protocol 2 exactly, else an older client's R, O or L, read only as a sighting
+  local msg = Protocol.Decode(text) or Protocol.DecodeLegacy(text)
   local from = Transport.Canonical(sender)
   if not msg or not from then
     Host.Log("Curator message from %s couldn't be read (%d bytes)", tostring(sender), type(text) == "string" and #text or 0)
@@ -583,7 +587,7 @@ end
 -- Echo(text): a message this client just sent, handed to its own receiver
 -- as sent by this character (LOCAL_ECHO)
 function Transport.Echo(text)
-  local msg = Protocol.Decode(text)
+  local msg = Protocol.Decode(text) or Protocol.DecodeLegacy(text)
   local me = Transport.Self()
   if not msg or not me then return false end
   msg.sender, msg.self = me, true
@@ -626,7 +630,9 @@ end
 -------------------------------------------------------------------------------
 -- Events
 -------------------------------------------------------------------------------
-pcall(Transport.seams.Register, Curator.Const.PREFIX)
+-- only where curator mode is available (Main.Available): elsewhere its
+-- messages aren't even listened for
+if Curator.Main.Available() then pcall(Transport.seams.Register, Curator.Const.PREFIX) end
 
 -- A club added, removed or changed: find the community again
 local function Changed()

@@ -44,8 +44,9 @@ end
 -- Where an entry stands, in words
 function Shared.StateText(entry)
   if entry.state == "delivered" then
-    local when = entry.at and Seam("Date", entry.at)
-    return when and ("delivered " .. when) or "delivered"
+    -- when the author saved it; an entry from before that was kept says so without a date
+    local when = entry.deliveredAt and Seam("Date", entry.deliveredAt)
+    return when and ("saved by the author " .. when) or "saved by the author"
   elseif entry.state == "sent" then
     return "sent, waiting for the author to save it"
   end
@@ -61,7 +62,7 @@ function Shared.HistoryLines(entries, withReason, most)
   end
   local lines = {}
   local from = math.max(1, #sent - (most or 3) + 1)
-  if from > 1 then lines[#lines + 1] = ("%d earlier entries"):format(from - 1) end
+  if from > 1 then lines[#lines + 1] = from == 2 and "1 earlier entry" or ("%d earlier entries"):format(from - 1) end
   for i = from, #sent do
     local entry = sent[i]
     local what = withReason and (Notes.REASON_LABELS[entry.reason] or "?") or nil
@@ -211,7 +212,7 @@ local function SaveFlag()
     return
   end
   flagWindow:Hide()
-  Host.Print("Recollect: your flag is saved; it goes to the author with your next curator collection.")
+  Host.Print("Your flag is saved; it goes to the author with your next curator collection.")
 end
 
 local function RemoveFlag()
@@ -249,7 +250,7 @@ function FlagDialog.Open(itemID, reason)
   if not itemID then return false end
   BuildFlag()
   if not flagWindow then
-    Host.Print("Recollect: the Curator Flag window opens when combat ends.")
+    Host.Print("The Curator Flag window opens when combat ends.")
     return false
   end
   flagItem = itemID
@@ -269,7 +270,8 @@ function FlagDialog.Open(itemID, reason)
   end
   flagWindow.Input:SetCommittedValue(state.pending and state.pending.text or "")
   Warn(flagWindow.Problem, state.atLimit and (#state.entries > 0
-    and "This flag holds as much as it can until the author collects it." or "You have as many flags waiting as Recollect keeps.") or "")
+    and "This flag holds as much as it can until Recollect's next database update."
+    or "You have as many flagged items as Recollect keeps until its next database update.") or "")
   PaintFlag()
   flagWindow:Show()
   flagWindow:Raise()
@@ -300,7 +302,7 @@ local function SaveFeedback()
     return
   end
   feedbackWindow:Hide()
-  Host.Print("Recollect: thank you. Your feedback goes to the author with your next curator collection.")
+  Host.Print("Thank you. Your feedback goes to the author with your next curator collection.")
 end
 
 local function RemoveFeedback()
@@ -327,14 +329,14 @@ end
 function FeedbackDialog.Open()
   BuildFeedback()
   if not feedbackWindow then
-    Host.Print("Recollect: the feedback window opens when combat ends.")
+    Host.Print("The feedback window opens when combat ends.")
     return false
   end
   local state = Notes.Feedback()
   local lines = Shared.HistoryLines(state.entries, false, 2)
   feedbackWindow.History:SetText(table.concat(lines, "\n"))
   feedbackWindow.Input:SetCommittedValue(state.pending and state.pending.text or "")
-  Warn(feedbackWindow.Problem, state.atLimit and "You have as much feedback waiting as Recollect keeps." or "")
+  Warn(feedbackWindow.Problem, state.atLimit and "You have as much feedback as Recollect keeps until its next database update." or "")
   PaintFeedback()
   feedbackWindow:Show()
   feedbackWindow:Raise()

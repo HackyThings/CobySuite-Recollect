@@ -227,13 +227,88 @@ function Context.BaseSet(entry)
   return set
 end
 
--- A base's quest IDs as the plain text a collection carries: ascending,
--- comma separated
+-- Ranges (protocol 2, security design C, reviews PAY-01 and PAY-02): a
+-- set of quest IDs as the runs a collection carries. Runs of consecutive
+-- IDs, ascending, comma separated, each "g" or "g.l" in base 36: g the gap
+-- from the end of the run before (from 0 for the first), l how many IDs the
+-- run has after its first. 7,077 completed quests were 2,858 runs (probe
+-- P7). ParseRanges bounds a text before a single ID is made: how many runs
+-- (RANGE_RUNS), how many IDs they add up to (RANGE_IDS), every ID within
+-- 1..RANGE_MAX, each number at most RANGE_DIGITS long; a tiny text can't
+-- stand for millions of IDs.
+Context.RANGE_RUNS = 20000
+Context.RANGE_IDS = 100000
+Context.RANGE_MAX = 2147483648
+Context.RANGE_DIGITS = 7
+
+local DIGITS36 = "0123456789abcdefghijklmnopqrstuvwxyz"
+local function Base36(n)
+  if n == 0 then return "0" end
+  local out = {}
+  while n > 0 do
+    local d = n % 36
+    table.insert(out, 1, DIGITS36:sub(d + 1, d + 1))
+    n = (n - d) / 36
+  end
+  return table.concat(out)
+end
+
+-- RangesText(list): ascending IDs (repeats dropped) as runs
+function Context.RangesText(list)
+  local out, last, start, prev = {}, 0, nil, nil
+  local function Close()
+    if not start then return end
+    local gap, extra = start - last, prev - start
+    out[#out + 1] = extra > 0 and (Base36(gap) .. "." .. Base36(extra)) or Base36(gap)
+    last = prev
+  end
+  for _, id in ipairs(list) do
+    if prev == nil or id > prev then
+      if start and id == prev + 1 then
+        prev = id
+      else
+        Close()
+        start, prev = id, id
+      end
+    end
+  end
+  Close()
+  return table.concat(out, ",")
+end
+
+-- ParseRanges(text): the runs as { { first, count }, ... } and how many IDs
+-- they hold, or nil and why; nothing is expanded
+function Context.ParseRanges(text)
+  if type(text) ~= "string" then return nil, "not text" end
+  if text == "" then return {}, 0 end
+  if #text > Context.RANGE_RUNS * (2 * Context.RANGE_DIGITS + 2) then return nil, "too long" end
+  local runs, total, last = {}, 0, 0
+  for token in (text .. ","):gmatch("([^,]*),") do
+    if #runs >= Context.RANGE_RUNS then return nil, "too many runs" end
+    local gapText, extraText = token:match("^(%w+)%.(%w+)$")
+    if not gapText then gapText = token:match("^(%w+)$") end
+    if not gapText or #gapText > Context.RANGE_DIGITS or (extraText and #extraText > Context.RANGE_DIGITS) then
+      return nil, "a malformed run"
+    end
+    local gap, extra = tonumber(gapText:lower(), 36), extraText and tonumber(extraText:lower(), 36) or 0
+    if not gap or not extra or (gap < 1) then return nil, "a malformed run" end
+    local first = last + gap
+    local count = extra + 1
+    total = total + count
+    if total > Context.RANGE_IDS then return nil, "too many IDs" end
+    if first < 1 or first + count - 1 > Context.RANGE_MAX then return nil, "an ID out of range" end
+    runs[#runs + 1] = { first, count }
+    last = first + count - 1
+  end
+  return runs, total
+end
+
+-- A base's quest IDs as a collection carries them (RangesText)
 function Context.BaseText(entry)
   local list = {}
   for questID in pairs(Context.BaseSet(entry)) do list[#list + 1] = questID end
   table.sort(list)
-  return table.concat(list, ",")
+  return Context.RangesText(list)
 end
 
 -- A turn-in or a reset changes the set: the next QuestRef makes a new delta

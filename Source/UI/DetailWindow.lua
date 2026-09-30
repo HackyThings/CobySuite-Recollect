@@ -104,7 +104,7 @@ local SECTION_GAP = 10
 -- room above a group's title inside a section (Group), the lines under it,
 -- WHAT YOU HAVE's tiles (width, height, gap, icon), and an achievement's
 -- progress bar (width, height)
-local LAYOUT = { GROUP_GAP = 8, GROUP_INDENT = 12, TILE_W = 128, TILE_H = 38, TILE_GAP = 6, TILE_ICON = 24,
+local LAYOUT = { STATE_ICON = 12, GROUP_GAP = 8, GROUP_INDENT = 12, TILE_W = 128, TILE_H = 38, TILE_GAP = 6, TILE_ICON = 24,
   BAR_W = 220, BAR_H = 4, TILES_MIN = 6, TILES_GAP = 6 }
 local MAP_BUTTONS = 16
 local MAP_WIDTH = 18     -- the waypoint button: the world map's own pin
@@ -314,7 +314,7 @@ end
 -- The kinds of source a new player looks for first
 local SOURCE_ORDER = { ["Drops from"] = 1, ["Boss loot"] = 2, ["Zone drop"] = 3, ["World drop"] = 4, ["Sold by"] = 5,
   ["Crafted by"] = 6, ["Found at"] = 7, Reward = 8, Achievement = 9, Renown = 10, ["Choice reward"] = 11,
-  ["Trading Post"] = 12, ["Made from"] = 13, ["Crafted with"] = 14, ["Black Market"] = 15 }
+  ["Trading Post"] = 12, ["Made from"] = 13, ["Recipe item"] = 14, ["Black Market"] = 15 }
 local MAX_SUMMARY = 5
 
 -------------------------------------------------------------------------------
@@ -473,7 +473,7 @@ local function RowLink(row, name, into)
   return into
 end
 
--- The names of a purchase's other costs as links, as UI.UsedFor.CostWords
+-- The names of a purchase's other costs as links, as UI.UsedFor.TradeWords
 -- words them (an item by its name, a currency by its own)
 local function CostLinks(row, links)
   for i, cost in ipairs(Data().Costs(row) or {}) do
@@ -491,18 +491,18 @@ local function CostLinks(row, links)
   return links
 end
 
--- A purchase: "Item: Phoenix Ash Talisman for 1 plus other costs, at Zektar
--- (Spires of Arak): leads to Phoenix Wishwing, a pet you don't have,
--- through "Tale of the Phoenix" (not done)"; every other cost the data
--- lists is named ("for 50 plus 1 Apexis Crystal and 25 gold", item 9), and
+-- A purchase: "Item: Phoenix Ash Talisman for 1 Phoenix Feather and other
+-- costs, at Zektar (Spires of Arak): leads to Phoenix Wishwing, a pet you
+-- don't have, through "Tale of the Phoenix" (not done)"; every other cost
+-- the data lists is named ("for 50 Mark of Honor, 1 Apexis Crystal and 25
+-- gold", item 9), and
 -- a trade with no vendor named says where it is ("in Blade's Edge
 -- Mountains")
 local function BuyRowLine(row, label, name, links)
   local data = Data()
-  local okCost, cost = pcall(Recollect.UI.UsedFor.CostWords, row.relation, row.of)
-  cost = okCost and type(cost) == "string" and cost or ""
-  if cost == "" and row.plus then cost = " plus other costs" end
-  local text = ("%s: %s for %d%s"):format(label, name, row.count or 1, cost)
+  local okCost, cost = pcall(Recollect.UI.UsedFor.TradeWords, row.relation or { count = row.count, plus = row.plus }, row.of)
+  if not okCost or type(cost) ~= "string" or cost == "" then cost = ("%d of this item"):format(row.count or 1) end
+  local text = ("%s: %s for %s"):format(label, name, cost)
   CostLinks(row, links)
   local seller = data.Where(row)
   if seller then
@@ -564,7 +564,8 @@ local function RowLine(row, withPlace)
       HeardLinks(heard, links)
     end
   end
-  return { text = text, color = row.stateColor or U.Colors.LIGHT_GRAY, place = place, links = links, cut = cut }
+  return { text = text, color = row.stateColor or U.Colors.LIGHT_GRAY, place = place, links = links, cut = cut,
+    icon = Recollect.UI.Icons.FromRow(row) }
 end
 
 -- A reagent (Cobanyte, 2026-09-24): which professions use it and in how
@@ -1044,7 +1045,8 @@ function FOR.Explain(model, j, itemID)
       -- were; a guide note says what the data can't)
       local okN, notes = pcall(Recollect.Facts.Notes.For, itemID)
       if okN and type(notes) == "table" and #notes > 0 then
-        sentences[#sentences + 1] = "What it's for comes from a guide note below, not confirmed in game yet."
+        sentences[#sentences + 1] = notes[1].confirmed and "What it's for comes from a guide note below."
+          or "What it's for comes from a guide note below, not confirmed in game yet."
       else
         sentences[#sentences + 1] = "Recollect knows no use for it yet."
       end
@@ -1199,11 +1201,16 @@ local function MetaLine(metaID)
   progress = okP and progress or nil
   local name = progress and progress.name
   if type(name) ~= "string" or name == "" then return nil end
-  local okW, words = pcall(Recollect.Facts.Achievements.ProgressWords, progress)
+  local okW, words, open = pcall(Recollect.Facts.Achievements.ProgressWords, progress)
   local bar = type(progress.done) == "number" and type(progress.total) == "number" and progress.total > 1
     and { done = progress.done, total = progress.total } or nil
-  return { text = ("%s (%s)"):format(name, okW and words or "can't be read"), color = U.Colors.LIGHT_GRAY, bar = bar,
-    links = HeardLinks({ { kind = "achievement", id = metaID, text = name } }) }
+  -- colored as the achievement rows above it: earned green, still to do as useful, unreadable gray
+  local colors, V = Recollect.UI.VerdictColors, Recollect.Purposes.Registry.Verdict
+  local color = U.Colors.LIGHT_GRAY
+  if okW and open == false then color = colors[V.DONE] elseif okW and open == true then color = colors[V.USEFUL] end
+  return { text = ("%s (%s)"):format(name, okW and words or "can't be read"), color = color, bar = bar,
+    links = HeardLinks({ { kind = "achievement", id = metaID, text = name } }),
+    icon = Recollect.UI.Icons.FromOpen(okW and open or nil) }
 end
 
 local function AchievementLines(j)
@@ -1362,6 +1369,39 @@ local function GetTiles(rows)
   return tiles
 end
 
+-- What HOW TO GET MORE says when the data names no way to get the item
+-- (Cobanyte, 2026-09-30: the season line alone told a new player nothing):
+-- that none is recorded yet, what its binding means for getting another
+-- (Enum.ItemBind: 0 none, 1 on pickup, 2 on equip, 3 on use, 4 quest, 7 to
+-- 9 warband), read from the item itself, and for a curator the Request info
+-- button that asks the author. Kept on Detail, not a local: this file's main
+-- chunk is at Lua 5.1's local limit
+Detail.BIND_WORDS = {
+  [0] = "It doesn't bind, so another player can trade it to you, and it may be on the Auction House.",
+  [1] = "It binds when picked up, so it only ever comes from its source, never from another player.",
+  [2] = "It binds only once equipped, so another player can trade it to you, and it may be on the Auction House.",
+  [3] = "It binds only once used, so another player can trade it to you, and it may be on the Auction House.",
+  [4] = "It's a quest item: it comes from its quest, and no one can trade it to you.",
+  [7] = "It's bound to your Warband: any of your characters can use it, but no other player can trade it to you.",
+  [8] = "It's bound to your Warband: any of your characters can use it, but no other player can trade it to you.",
+  [9] = "It's bound to your Warband until equipped: any of your characters can use it, but no other player can trade it to you.",
+}
+function Detail.NoSourceLines(itemID)
+  local lines = { Plain("No way to get it is recorded yet: Recollect's database doesn't say where it drops, who sells it or what gives it.") }
+  local okFacts, facts = pcall(Recollect.Facts.Item.Get, itemID)
+  local bind = okFacts and type(facts) == "table" and tonumber(facts.bindType) or nil
+  if bind and Detail.BIND_WORDS[bind] then lines[#lines + 1] = Plain(Detail.BIND_WORDS[bind]) end
+  local provider = Recollect.CuratorProvider and Recollect.CuratorProvider() or nil
+  if provider and type(provider.FlagState) == "function" then
+    local okState, state = pcall(provider.FlagState, itemID)
+    if okState and type(state) == "table" and state.noInfo then
+      lines[#lines + 1] = Plain("As a curator, press Request info (top right) to ask Recollect's author to find out where it comes from.",
+        U.Colors.STATUS_GOLD)
+    end
+  end
+  return lines
+end
+
 -- HOW TO GET MORE: the season tag and the patch that removed it first, then
 -- its sources, the ones this character can use first, then the kinds a new
 -- player looks for first, the rest in a container (Fold), then how many
@@ -1400,6 +1440,10 @@ local function GetLines(j, model, itemID)
       goneSources == 1 and "way to get it is" or "ways to get it are"), U.Colors.LABEL_GRAY)
   end
   lines.summary = GetSummary(rows, removed, goneSources)
+  if #rows == 0 and not removed and not craftTally and goneSources == 0 and Recollect.Utilities.IsPositiveID(itemID) then
+    for _, line in ipairs(Detail.NoSourceLines(itemID)) do lines[#lines + 1] = line end
+    lines.summary = "No way to get it recorded yet"
+  end
   if craftTally then
     lines.summary = lines.summary and (lines.summary .. "; " .. craftTally:gsub("^%u", string.lower)) or craftTally
   end
@@ -1521,7 +1565,8 @@ local function HaveLines(itemID)
         tip = { title = "Worn", lines = {}, empty = place.count > 0 and ("%d equipped on this character"):format(place.count)
           or "None equipped" }
       else
-        tip = PlaceTip(place.label, where[place.label] or where.Bags, place.count > 0 and nil or ("None in your " .. place.label:lower()))
+        tip = PlaceTip(place.label, where[place.label] or where.Bags, place.count > 0 and nil
+          or (place.words:gsub("^%%d ", "None ")))
       end
       tiles[#tiles + 1] = { label = place.label, count = place.count, icon = PLACE_ICONS[place.label] or PLACE_ICONS.Bags, tip = tip }
       words[#words + 1] = ("%s: %d"):format(place.label, place.count)
@@ -1821,7 +1866,10 @@ local function Font(template, color)
   return fs
 end
 
-local function Dot(color, x, y)
+-- Dot(color, x, y, icon): a line's bullet, or its state icon (UI.Icons) in
+-- the bullet's place, as tall as the line's text, when it states a check or
+-- a cross
+local function Dot(color, x, y, icon)
   texturesUsed = texturesUsed + 1
   local tex = textures[texturesUsed]
   if not tex then
@@ -1830,11 +1878,17 @@ local function Dot(color, x, y)
   end
   tex:SetTexCoord(0, 1, 0, 1)
   tex:SetDesaturated(false)
+  tex:SetVertexColor(1, 1, 1, 1)
   tex:SetAlpha(1)
-  tex:SetColorTexture(color[1], color[2], color[3], 1)
-  tex:SetSize(BULLET, BULLET)
   tex:ClearAllPoints()
-  tex:SetPoint("TOPLEFT", window.Overview.Child, "TOPLEFT", x, y)
+  if Recollect.UI.Icons.Paint(tex, icon) then
+    tex:SetSize(LAYOUT.STATE_ICON, LAYOUT.STATE_ICON)
+    tex:SetPoint("TOPLEFT", window.Overview.Child, "TOPLEFT", x - 3, y + 5)
+  else
+    tex:SetColorTexture(color[1], color[2], color[3], 1)
+    tex:SetSize(BULLET, BULLET)
+    tex:SetPoint("TOPLEFT", window.Overview.Child, "TOPLEFT", x, y)
+  end
   tex:Show()
 end
 
@@ -2172,7 +2226,8 @@ local function PaintOverview()
         h, fs = Block(U.Fonts.DATA, line.textColor or U.Colors.LABEL_GRAY, text, left + INDENT, y, textWidth)
         y = y - (mapped and math.max(h, LINE_MAP) or h) - 1
       else
-        Dot(line.color or U.Colors.LIGHT_GRAY, left + 2, y - 4)
+        -- a line that states a check or a cross shows its icon where the bullet goes (UI.Icons)
+        Dot(line.color or U.Colors.LIGHT_GRAY, left + 2, y - 4, line.icon)
         h, fs = Block(U.Fonts.SMALL, U.Colors.LIGHT_GRAY, Hyper.Line(line, "o"), left + INDENT, y, textWidth)
         y = y - (mapped and math.max(h, LINE_MAP) or h) - LINE_GAP
         local bar = line.bar
@@ -2295,6 +2350,7 @@ local NAME = { key = "name", label = "Name", width = 240,
 local KIND = { key = "kind", label = "Kind", width = 110, text = function(row) return row.kindLabel or "" end, color = Gray,
   sort = function(row) return Lower(row.kindLabel) end }
 local STATUS = { key = "status", label = "Status", width = 130, text = function(row) return row.stateText or "" end,
+  markup = function(row) return Recollect.UI.Icons.Markup(Recollect.UI.Icons.FromRow(row)) end,
   color = function(row) return row.stateColor or U.Colors.LIGHT_GRAY end,
   sort = function(row) return ("%d %s"):format(row.tier or 2, Lower(row.stateText) or "~") end }
 -- The waypoint button (its click and hover are set in BuildBody)
@@ -2368,9 +2424,9 @@ function Detail.CostLines(row)
   end
   local unlisted = type(row.relation) == "table" and row.relation.unlisted or nil
   if unlisted == "gold" then
-    lines[#lines + 1] = { text = "plus a gold price not recorded", note = true }
+    lines[#lines + 1] = { text = "and a gold price not recorded", note = true }
   elseif unlisted == "costs" or (row.plus and #lines <= 1) then
-    lines[#lines + 1] = { text = #lines > 1 and "and other costs not listed" or "plus other costs not listed", note = true }
+    lines[#lines + 1] = { text = "and other costs not listed", note = true }
   end
   return lines
 end
@@ -2404,7 +2460,7 @@ local PRODUCT = { key = "product", label = "Makes", width = 150,
     local text = Data().ProductText(row)
     return text and ("%d %s"):format(row.tier or 2, text:lower()) or nil
   end,
-  tooltip = "What the recipe makes, as the game counts it: collected or not; the filter's still to get follows it" }
+  tooltip = "What the recipe makes, as the game counts it: collected or not; the Still to get or do filter follows what it makes" }
 
 -- The last column fills what the others leave, with no divider of its own
 -- to drag (Cobanyte, 2026-09-28); the Map button sits beside the place it
@@ -2460,7 +2516,7 @@ local KIND_WORDS = {
   ["World drop"] = "Drops anywhere in the world", ["Sold by"] = "Vendors that sell it", ["Crafted by"] = "Recipes that craft it",
   ["Found at"] = "Spots it's found at", Reward = "Quest rewards", ["Choice reward"] = "Quest rewards you choose",
   Renown = "Renown rewards", ["Trading Post"] = "Trading Post", ["Made from"] = "Items it's made from",
-  ["Crafted with"] = "Recipe items that teach it", ["Black Market"] = "Black Market",
+  ["Recipe item"] = "Recipe items that teach it", ["Black Market"] = "Black Market",
   Use = "What using it takes", Combine = "What combining it takes", ["To craft"] = "What crafting it takes",
   Item = "Other items",
 }
@@ -2470,7 +2526,7 @@ local KIND_DEFS = {
     "Currency", "Endeavor" },
   crafting = { "Combines into", "Makes", "Reagent", "Teaches", "Teaches how to make", "Your recipes", "Alt's scan" },
   sources = { "Drops from", "Boss loot", "Zone drop", "World drop", "Sold by", "Crafted by", "Found at", "Reward",
-    "Achievement", "Renown", "Choice reward", "Trading Post", "Made from", "Crafted with", "Black Market" },
+    "Achievement", "Renown", "Choice reward", "Trading Post", "Made from", "Recipe item", "Black Market" },
   takes = { "Use", "Combine", "To craft" },
 }
 
@@ -2709,6 +2765,11 @@ local FLAG_TIPS = {
 -- mode off the same place offers the curator program (Cobanyte,
 -- 2026-09-28): "Want to be a curator?", a click opens the Curator settings.
 function Detail.FlagButton(model, provider)
+  -- outside the author's game region there is nothing to flag or join
+  if provider and type(provider.IsAvailable) == "function" then
+    local okA, available = pcall(provider.IsAvailable)
+    if okA and available == false then return nil end
+  end
   if model and provider and type(provider.IsEnabled) == "function" then
     local okE, on = pcall(provider.IsEnabled)
     if okE and on == false then
@@ -2802,7 +2863,8 @@ local function StrongKind(facts, R)
   if class == R.CLASS_HOUSING then return "Decor for your house", true end
   if facts.equipLoc and SLOT_WORDS[facts.equipLoc] then return SLOT_WORDS[facts.equipLoc], true end
   if class == R.CLASS_RECIPE then
-    return subName and subName ~= "" and ("Teaches a %s recipe"):format(subName) or "Teaches a recipe", true
+    return subName and subName ~= "" and ("Teaches %s %s recipe"):format(R.Article(subName):lower(), subName)
+      or "Teaches a recipe", true
   end
   if class == R.CLASS_QUEST then return "A quest item" end
   if class == R.CLASS_GLYPH then return "A glyph: it changes how one of your spells looks or works", true end
@@ -2842,7 +2904,7 @@ local function WeakKind(facts, R)
   if class == R.CLASS_REAGENT or (class == R.CLASS_MISC and sub == CLASS.MISC_REAGENT) then return "A reagent" end
   if class == R.CLASS_CONTAINER then return "A container" end
   if class == R.CLASS_ENHANCEMENT then return "An item enhancement: it improves a piece of gear", true end
-  if class == R.CLASS_MISC and sub == CLASS.MISC_JUNK and facts.quality == 0 then return "Junk, worth a little gold at a vendor" end
+  if class == R.CLASS_MISC and sub == CLASS.MISC_JUNK and facts.quality == 0 then return "A gray junk item" end
   return nil
 end
 
@@ -2918,7 +2980,7 @@ KEEP_ICONS = {
   keep = { atlas = "ui-journeys-greatvault-lock" },
   check = { file = "Interface\\DialogFrame\\UI-Dialog-Icon-AlertNew" },
   unknown = { file = "Interface\\Icons\\INV_Misc_QuestionMark" },
-  info = { file = "Interface\Icons\INV_Misc_Bag_08" },
+  info = { file = "Interface\\Icons\\INV_Misc_Bag_08" },
 }
 
 function Detail.Keep(model)
@@ -2961,7 +3023,7 @@ function Detail.Keep(model)
   end
   if verdict == V.OUTDATED or verdict == V.LOWER then
     return { word = verdict == V.OUTDATED and "Replaced" or "Lower level", color = colors[verdict], icon = KEEP_ICONS.check,
-      why = reason or "You have something better." }
+      why = reason or (verdict == V.OUTDATED and "It has been replaced." or "It's below what you wear.") }
   end
   return { word = "Can't tell yet", color = colors[V.UNKNOWN] or U.Colors.LABEL_GRAY, icon = KEEP_ICONS.unknown,
     why = model.recovery or whole or "Recollect can't read enough about it yet." }
@@ -3026,7 +3088,7 @@ local function PaintBand()
         if place.count > 0 then found[#found + 1] = place.words:format(place.count) end
       end
       text = ("%s  %s"):format(U.WrapColor(Hex(gold), ("You have %d:"):format(held.total)),
-        U.WrapColor(Hex(light), table.concat(found, "; ") .. ". Open one of your copies for whether you still need it."))
+        U.WrapColor(Hex(light), table.concat(found, "; ") .. ". Hover one of your copies to see whether you still need it."))
     elseif held then
       text = U.WrapColor(Hex(gold), "You don't have this item.")
     else
@@ -3104,7 +3166,7 @@ local function SetWaypoint(place, provider)
   local ok, why = Recollect.UI.Waypoint.Set(place, provider)
   if ok then
     Recollect.Utilities.Message(("%s waypoint set to %s in %s."):format(why == "TomTom" and "TomTom" or "Map",
-      place.what or "the place", place.zone or "that zone"))
+      Recollect.UI.Waypoint.PlaceName(place), place.zone or "that zone"))
   else
     Recollect.Utilities.Message.Warn("No waypoint: " .. tostring(why) .. ".")
   end
@@ -3343,7 +3405,9 @@ function Detail.NpcFacts(row)
     local n = okO and type(object) == "table" and type(object.contents) == "table" and #object.contents or 0
     if n > 0 then out[#out + 1] = ("A treasure holding %d %s"):format(n, n == 1 and "item" or "items") end
   end
-  if Data().Wowhead(row) then out[#out + 1] = "Right-click for a waypoint and its Wowhead link" end
+  if Data().Wowhead(row) then
+    out[#out + 1] = Data().Place(row) and "Right-click for a waypoint and its Wowhead link" or "Right-click for its Wowhead link"
+  end
   return out
 end
 
@@ -3805,7 +3869,7 @@ local function BuildCopy()
   local gold = U.Colors.STATUS_GOLD
   title:SetTextColor(gold[1], gold[2], gold[3])
   box.Field = CobySuite_Recollect.UI.CreateCopyField(box, { height = U.EditBoxHeight.INLINE,
-    point = { "TOPLEFT", box, "TOPLEFT", 18, -30 }, tooltip = "Select the link so Ctrl+C copies it" })
+    point = { "TOPLEFT", box, "TOPLEFT", 18, -30 }, tooltip = "Select the text so Ctrl+C copies it" })
   box.Field:SetPoint("RIGHT", box, "RIGHT", -12, 0)
   box.Field:HookScript("OnEditFocusLost", function() box:Hide() end)
   -- the copy happens on the key press itself; the box goes once it's done

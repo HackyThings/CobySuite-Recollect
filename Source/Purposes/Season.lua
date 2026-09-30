@@ -282,7 +282,9 @@ local function PastSeason(ctx, tag)
       parts[#parts + 1] = ("%d %s this character can't collect"):format(looked.uncollectable,
         looked.uncollectable == 1 and "has a look" or "have looks")
     end
-    if looked.more > 0 then parts[#parts + 1] = ("%d more aren't checked"):format(looked.more) end
+    if looked.more > 0 then
+      parts[#parts + 1] = ("%d more %s checked"):format(looked.more, looked.more == 1 and "isn't" or "aren't")
+    end
     local category = (looked.unread > 0 and "unreadable") or (looked.loading > 0 and "loading") or nil
     return R.Unknown(("%s; whether the gear it makes has an appearance you haven't collected isn't settled: %s"):format(facts,
       table.concat(parts, ", ")), nil, category)

@@ -353,7 +353,16 @@ local SHIPPED = {
     return #out > 0 and table.concat(out, ", ") or tostring(shipped)
   end,
   ["black-market"] = function() return "Listed as no longer offered" end,
-  ["trading-post"] = function(shipped) return "Listed for another month (" .. tostring(shipped) .. ")" end,
+  ["trading-post"] = function(shipped)
+    -- the months the data lists it for, in words (a U code is U<yyyymm>, U0 no month named)
+    local months = {}
+    for code in tostring(shipped):gmatch("U(%d+)") do
+      local year, month = code:match("^(%d%d%d%d)(%d%d)$")
+      local m = MONTHS[tonumber(month or 0)]
+      months[#months + 1] = m and (m .. " " .. year) or "a month not named"
+    end
+    return #months > 0 and ("Listed for " .. table.concat(months, ", ")) or "Listed for another month"
+  end,
   ["encounter"] = function() return "Another boss" end,
 }
 

@@ -164,7 +164,7 @@ local function SectionButtons(parent)
     { key = "join", text = "Join the community", width = 150, tip = "Prints the community's invite link in chat; click it there",
       onClick = function() P.PrintJoinLink() end },
     { key = "test", text = "Test the connection", width = 150,
-      tip = "Runs the connection test with the author's character (about five minutes); the report goes to chat",
+      tip = "Runs the connection test with the author's character (about five minutes); the report goes to chat. It works only while the author has a test session open, so ask in the community first",
       onClick = function() Window.RunTest() end },
     { key = "review", text = "Review the request", width = 150, tip = "Allow or decline the author's request",
       onClick = function() if Curator.TransferWindow then Curator.TransferWindow.Open() end end },
@@ -592,14 +592,14 @@ end
 -- Actions
 -------------------------------------------------------------------------------
 function Window.OpenSettings()
-  if not Host.OpenSettings("curator") then Host.Print("Recollect: /rec settings, then Curator.") end
+  if not Host.OpenSettings("curator") then Host.Print("Type /rec settings, then choose Curator.") end
 end
 
 -- The connection test against the author's character, when known
 function Window.RunTest()
   local author = Dashboard.AuthorName()
   if not (author and Curator.Ping) then
-    Host.Print("Recollect: the connection test needs the author's character; it's known once the author's client has been in touch this session.")
+    Host.Print("The connection test needs the author's character; it's known once the author's client has been in touch this session.")
     return false
   end
   return Curator.Ping.Start(author)

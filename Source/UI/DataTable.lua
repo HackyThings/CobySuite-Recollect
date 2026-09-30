@@ -23,6 +23,8 @@
 --   t:AddView(key, columns, { minStretch, sortKey, ascending })
 --     columns = { { key, label, width, stretch, justify, tooltip, sortable,
 --       text = function(row) -> string, color = function(row) -> { r, g, b },
+--       markup = function(row) -> string,   (inline markup painted before the
+--         text, such as a state icon, UI.Icons; never part of text)
 --       bar = function(row) -> 0 to 1 or nil,   (a progress bar behind the
 --         cell's text, as wide as that share of the column)
 --       barColor = { r, g, b, a },
@@ -318,7 +320,8 @@ function Table:MeasureColumn(key, c, limit)
   for i = 1, math.min(#view.rows, limit or MEASURE_ROWS) do
     local ok, text = pcall(col.text, view.rows[i])
     if ok and type(text) == "string" and text ~= "" then
-      fs:SetText(text)
+      local okMark, mark = pcall(col.markup or function() return "" end, view.rows[i])
+      fs:SetText((okMark and type(mark) == "string" and mark or "") .. text)
       local w = fs:GetUnboundedStringWidth() or 0
       if w > widest then widest = w end
     end
@@ -422,7 +425,8 @@ function Table:Paint()
       for c = 1, self.maxCells do
         local col, text = columns[c], frame.cells[c]
         if col and not col.button then
-          text:SetText(col.text and col.text(data) or "")
+          -- a column's markup (a state icon, UI.Icons) goes before its text, on screen only
+          text:SetText((col.markup and col.markup(data) or "") .. (col.text and col.text(data) or ""))
           local color = col.color and col.color(data) or U.Colors.HIGHLIGHT_WHITE
           text:SetTextColor(color[1], color[2], color[3])
         end

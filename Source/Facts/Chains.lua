@@ -33,8 +33,8 @@
 -- SetNamer(fn) lets the panel hear each name the words use (fn(kind, id,
 -- name, quality): an item, a quest's title, a thing, a currency), so it can
 -- color them as the game colors their links; it returns the namer it replaced.
--- CostWords(relation, itemID) words what a purchase costs besides the item
--- ("plus 4 Apexis Crystal and 25 gold"), PriceWords(costs) a seller's whole
+-- TradeWords(relation, itemID) words what a purchase costs in all, this
+-- item first ("50 Mark of Honor and 25 gold"), PriceWords(costs) a seller's whole
 -- price ("350 Honor and 10 gold"), and GoldWords(copper) a gold price: the
 -- one wording the checks' reasons and the panel share (review F15).
 -------------------------------------------------------------------------------
@@ -396,28 +396,32 @@ function Chains.PriceWords(costs)
   return JoinAnd(parts)
 end
 
--- What a purchase costs besides this item, worded (item 9): " plus 4 Apexis
--- Crystal and 25 gold", each name heard as a link; "plus other costs" when
--- the data says there are some but not which, and "not listed" / "a gold
--- price not recorded" when the data says part of the price is unknown, so
--- a price never reads as whole when it isn't. "" for a trade that takes
--- only this item
-function Chains.CostWords(relation, itemID)
+-- What a purchase costs in all, worded (item 9): "1 Phoenix Feather and 20
+-- Apexis Crystal", this item first with how many the trade takes, then
+-- every other cost, each name heard as a link (Cobanyte, 2026-09-30: "for 1
+-- plus 20 Apexis Crystal" left a new player guessing what the 1 was);
+-- "other costs" when the data says there are some but not which, and "not
+-- listed" / "a gold price not recorded" when the data says part of the
+-- price is unknown, so a price never reads as whole when it isn't. "" with
+-- no relation
+function Chains.TradeWords(relation, itemID)
   if type(relation) ~= "table" then return "" end
+  local count = tonumber(relation.count) or 1
+  local okName, name = pcall(Recollect.Facts.Item.Name, itemID)
+  name = IsPositiveID(itemID) and okName and type(name) == "string" and name or nil
+  local parts = { name and ("%d %s"):format(count, Named("item", itemID, name)) or ("%d of this item"):format(count) }
   local ok, costs = pcall(Relations().Costs, relation, itemID)
-  local parts = {}
   for i, cost in ipairs(ok and type(costs) == "table" and costs or {}) do
     if i > 1 then parts[#parts + 1] = CostPart(cost) end
   end
   if relation.unlisted == "costs" then
-    parts[#parts + 1] = #parts > 0 and "other costs not listed" or "other costs"
+    parts[#parts + 1] = #parts > 1 and "other costs not listed" or "other costs"
   elseif relation.unlisted == "gold" then
     parts[#parts + 1] = "a gold price not recorded"
-  elseif #parts == 0 and relation.plus then
-    parts[1] = "other costs"
+  elseif #parts == 1 and relation.plus then
+    parts[2] = "other costs"
   end
-  if #parts == 0 then return "" end
-  return " plus " .. JoinAnd(parts)
+  return JoinAnd(parts)
 end
 
 Chains._test = {

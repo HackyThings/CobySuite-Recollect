@@ -96,7 +96,7 @@ end
 
 local function AsOfText(entry)
   if entry.live then return "live" end
-  if type(entry.asOf) == "number" then return date("%m-%d %H:%M", entry.asOf) end
+  if type(entry.asOf) == "number" then return date("%b %d %H:%M", entry.asOf) end
   return "?"
 end
 

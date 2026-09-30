@@ -57,6 +57,13 @@ local seams = {
   end,
   Bind = function(owner, key) SetOverrideBindingClick(owner, true, key, BUTTON_NAME) end,
   Clear = function(owner) ClearOverrideBindings(owner) end,
+  NpcName = function(npcID) return Recollect.Facts.Vendors.NpcName(npcID) end,
+  ItemName = function(itemID) return Recollect.Facts.Item.Name(itemID) end,
+  CurrencyName = function(currencyID)
+    local info = Recollect.Purposes.client.GetCurrencyInfo(currencyID)
+    return type(info) == "table" and info.name or nil
+  end,
+  QuestTitle = function(questID) return C_QuestLog.GetTitleForQuestID(questID) end,
 }
 
 local target = nil        -- the waypoint the key sets now
@@ -77,6 +84,56 @@ function Waypoint.KeyText(key)
   return CobySuite_Recollect.Utilities.FormatKeyText(key)
 end
 
+-- A place names itself and why it was picked: npcID (an NPC's), role (a
+-- ROLE_WORDS key), itemID or currencyID (what the trip is for) and questID
+-- (a quest start's). Names are read when asked for, so one that loaded after
+-- the panel showed is used
+local ROLE_WORDS = {
+  usedAt = "use %s here",
+  soldBy = "sells %s",
+  dropsFrom = "drops %s",
+  payment = "takes %s as payment",
+  spend = "spend %s here",
+  opens = "open it with %s",
+  spot = "use %s here",
+  found = "find %s here",
+}
+-- A place whose name isn't read yet, by what the panel calls it
+local NOUNS = { ["the NPC"] = "An NPC", ["the vendor"] = "A vendor", ["the creature"] = "A creature",
+  ["the treasure"] = "A treasure", ["the spot"] = "A spot", ["where the quest starts"] = "A quest giver" }
+
+local function Named(read, id)
+  if id == nil then return nil end
+  local ok, name = Try(read, id)
+  return ok and type(name) == "string" and name ~= "" and name or nil
+end
+
+-- What the hint and the chat line call the place: its NPC's name once read,
+-- else "the vendor", "the NPC", "the treasure" and the like
+function Waypoint.PlaceName(waypoint)
+  return Named(seams.NpcName, waypoint.npcID) or waypoint.what or "the vendor"
+end
+
+-- The pin's title (TomTom shows it; the game's own pin has none): who or
+-- what is there, then why: "Grimgrin: use Forgotten Trinket here", "A
+-- treasure: open it with Forgotten Trinket", "Kalia: starts The Last Stand"
+function Waypoint.Title(waypoint)
+  local head = Named(seams.NpcName, waypoint.npcID) or NOUNS[waypoint.what or "the vendor"] or waypoint.what
+  if waypoint.role == "questStart" then
+    local quest = Named(seams.QuestTitle, waypoint.questID)
+    return quest and ("%s: starts %s"):format(head, quest) or head
+  end
+  local words = waypoint.role and ROLE_WORDS[waypoint.role]
+  if not words then return head end
+  local subject
+  if waypoint.role == "spend" then
+    subject = Named(seams.CurrencyName, waypoint.currencyID)   -- the currency, not the item worth it
+  else
+    subject = Named(seams.ItemName, waypoint.itemID)
+  end
+  return subject and ("%s: %s"):format(head, words:format(subject)) or head
+end
+
 -- The panel's line for a waypoint, or nil when the key is off; afterCombat
 -- when combat keeps the key from being bound until it ends
 function Waypoint.HintText(waypoint, afterCombat)
@@ -84,7 +141,7 @@ function Waypoint.HintText(waypoint, afterCombat)
   if not key or type(waypoint) ~= "table" then return nil end
   local zone = waypoint.zone or ("map " .. tostring(waypoint.mapID))
   local when = afterCombat and " after combat" or ""
-  return ("%s%s: waypoint to %s in %s"):format(Waypoint.KeyText(key), when, waypoint.what or "the vendor", zone)
+  return ("%s%s: waypoint to %s in %s"):format(Waypoint.KeyText(key), when, Waypoint.PlaceName(waypoint), zone)
 end
 
 -- The position on mapID, or on the nearest parent map that takes a waypoint:
@@ -130,7 +187,7 @@ function Waypoint.Set(waypoint, provider)
   if tomtom and tonumber(waypoint.mapID) and tonumber(waypoint.x) and tonumber(waypoint.y) then
     local tomtom = seams.TomTom()
     local ok = pcall(tomtom.AddWaypoint, tomtom, waypoint.mapID, waypoint.x, waypoint.y,
-      { title = waypoint.what or "Recollect", from = "Recollect", persistent = false })
+      { title = Waypoint.Title(waypoint), from = "Recollect", persistent = false })
     if ok then return true, "TomTom" end
   end
   local mapID, x, y = Waypoint.Placeable(waypoint.mapID, waypoint.x, waypoint.y)
@@ -193,7 +250,7 @@ local function OnClick()
   if not target then return end
   local ok, why = Waypoint.Set(target)
   if ok then
-    Recollect.Utilities.Message(("Waypoint set to %s in %s."):format(target.what or "the vendor", target.zone or "that zone"))
+    Recollect.Utilities.Message(("Waypoint set to %s in %s."):format(Waypoint.PlaceName(target), target.zone or "that zone"))
   else
     Recollect.Utilities.Message.Warn("No waypoint: " .. tostring(why) .. ".")
   end

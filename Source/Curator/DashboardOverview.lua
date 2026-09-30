@@ -83,8 +83,9 @@ function Dashboard.Recording()
   return "on", "Recording while you play."
 end
 
--- Standing(): what this character is to curator mode: "author" (Owner or
--- Leader: it collects), "curator" (a member), "outside" (not in the
+-- Standing(): what this character is to curator mode: "author" (one of the
+-- author's collector characters: Membership.IsCollector), "curator" (a
+-- member), "outside" (not in the
 -- community) or "unknown" (the community or its member list can't be read
 -- yet, so nothing is said either way)
 function Dashboard.Standing()
@@ -93,13 +94,16 @@ function Dashboard.Standing()
   if member == nil then return "unknown" end
   local M = Curator.Membership
   if not M.ReadAt() then return "unknown" end
-  if M.MayPull(Curator.Transport.Self()) then return "author" end
+  if M.IsCollector(Curator.Transport.Self()) then return "author" end
   return "curator"
 end
 
--- AuthorName(): the author's character this client heard from, or nil
+-- AuthorName(): the author's character this client last heard from (a
+-- presence check that passed Sharing.FromAuthor), or nil; protocol 2 keeps
+-- no route to the author, every answer goes to the character that asked
 function Dashboard.AuthorName()
-  return Curator.Transport.RouteOf(Curator.Protocol.AUTHOR)
+  local hello = Curator.Sharing and Curator.Sharing.lastHello
+  return hello and hello.sender or nil
 end
 
 -- The newest collection in the history and when it came, or nil
@@ -111,8 +115,8 @@ end
 
 -- The store's size against its cap: { share, bytes, cap, text }
 function Dashboard.SizeInfo()
-  local counts = Curator.Store.Counts()
-  local bytes = (counts.bytes or 0) + Curator.Store.FrozenBytes()
+  -- the store's own counter (Store.Counts copies it, after a walk of every finding)
+  local bytes = (Curator.Store.DB().bytes or 0) + Curator.Store.FrozenBytes()
   local cap = Curator.Const.CAP_BYTES
   local share = math.max(0, math.min(1, bytes / cap))
   return { share = share, bytes = bytes, cap = cap, text = ("%s of %s"):format(Dashboard.Size(bytes), Dashboard.Size(cap)) }
@@ -136,7 +140,7 @@ local function Stats(ctx)
   if latest then
     local state, color = Dashboard.HistoryState(latest)
     lastTile = Tile("last", ICONS.collections, Dashboard.Ago(at), "Last collection",
-      Tip("Last collection", ("%s, by %s."):format(state, tostring(latest.by or "?")), {
+      Tip("Last collection", ("%s. Collected by %s."):format(state, tostring(latest.by or "?")), {
         { "When", Dashboard.When(at) }, { "It held", Plural(Held(latest.contents), "finding") } }), color)
   else
     lastTile = Tile("last", ICONS.collections, "None yet", "Last collection", Tip("Last collection",
@@ -148,8 +152,8 @@ local function Stats(ctx)
         { "Findings", tostring(waiting.findings) }, { "Confirmations", tostring(waiting.stamps) },
         { "Your notes", tostring(waiting.notes) }, { "From older databases", tostring(waiting.older) } }),
       waiting.total > 0 and C.STATUS_GOLD or nil, waiting.total == 0),
-    Tile("delivered", ICONS.delivered, delivered, "Delivered",
-      Tip("Delivered", ("Saved by the author since %s, in %s."):format(since ~= "" and since or "now",
+    Tile("delivered", ICONS.delivered, delivered, "Saved by the author",
+      Tip("Saved by the author", ("Saved by the author since %s, in %s."):format(since ~= "" and since or "now",
         Plural(d.collections, "collection")), {
         { "Findings", tostring(d.findings) }, { "Confirmations", tostring(d.stamps) }, { "Your notes", tostring(d.notes) } }),
       delivered > 0 and C.SAGE_GREEN or nil, delivered == 0),
@@ -162,10 +166,12 @@ local function RecordingText(ctx)
   local total = ctx.waiting.total
   if ctx.standing == "author" then
     if total == 0 then return "Recording. Nothing waits; this character is the author, so you collect your own findings." end
-    return ("Recording. %s wait for you to collect them: this character is the author."):format(Plural(total, "finding"))
+    return ("Recording. %s %s for you to collect %s: this character is the author."):format(Plural(total, "finding"),
+      total == 1 and "waits" or "wait", total == 1 and "it" or "them")
   end
   if total == 0 then return "Recording. Nothing waits to be sent yet." end
-  return ("Recording. %s wait for the author's next collection."):format(Plural(total, "finding"))
+  return ("Recording. %s %s for the author's next collection."):format(Plural(total, "finding"),
+    total == 1 and "waits" or "wait")
 end
 
 local function StatusSection(ctx)
@@ -193,8 +199,8 @@ local function StatusSection(ctx)
     section.icon, section.color = ICONS.problem, C.LABEL_GRAY
     section.text = "Curator mode is off: nothing is recorded."
     if ctx.waiting.total > 0 then
-      lines[#lines + 1] = Line(("%s you recorded earlier stay here, unsent, until you turn it on again."):format(
-        Plural(ctx.waiting.total, "finding")), C.LABEL_GRAY)
+      lines[#lines + 1] = Line(("%s you recorded earlier %s here, unsent, until you turn it on again."):format(
+        Plural(ctx.waiting.total, "finding"), ctx.waiting.total == 1 and "stays" or "stay"), C.LABEL_GRAY)
     end
     section.buttons = { "settings" }
   elseif recording == "paused" then
@@ -261,14 +267,17 @@ local function ByKind(db)
   local out = { addition = { 0, 0 }, conflict = { 0, 0 }, notseen = { 0, 0 }, noinfo = { 0, 0 } }
   for id, record in pairs(db.records) do
     local noInfo = type(record.fact) == "string" and record.fact:find("^ni:") ~= nil
-    local slot = out[noInfo and "noinfo" or record.kind]
+    -- one the author turned down neither waits nor was sent: not counted
+    local slot = record.rejected ~= record.rev and out[noInfo and "noinfo" or record.kind] or nil
     if slot then
       if db.delivered[id] == record.rev then slot[2] = slot[2] + 1 else slot[1] = slot[1] + 1 end
     end
   end
   local stamps = { 0, 0 }
   for key, stamp in pairs(db.confirms) do
-    if db.delivered[key] == stamp.rev then stamps[2] = stamps[2] + 1 else stamps[1] = stamps[1] + 1 end
+    if stamp.rejected == stamp.rev then
+      -- turned down by the author: not counted
+    elseif db.delivered[key] == stamp.rev then stamps[2] = stamps[2] + 1 else stamps[1] = stamps[1] + 1 end
   end
   return out, stamps
 end
@@ -290,9 +299,11 @@ end
 local function OlderLine(db)
   local versions, n = {}, 0
   for _, block in ipairs(db.frozen) do
-    n = n + U.TableCount(type(block.records) == "table" and block.records or {})
-      + U.TableCount(type(block.confirms) == "table" and block.confirms or {})
-    versions[#versions + 1] = tostring(block.dataVersion or "?")
+    if not block.rejected then   -- a block the author turned down isn't sent again
+      n = n + U.TableCount(type(block.records) == "table" and block.records or {})
+        + U.TableCount(type(block.confirms) == "table" and block.confirms or {})
+      versions[#versions + 1] = tostring(block.dataVersion or "?")
+    end
   end
   if #versions == 0 then return nil end
   local text = n == 1 and "1 finding from an older database (%s) is kept as it was; it goes whole, with a collection of its own."
@@ -313,7 +324,7 @@ local function WaitingSection(ctx)
     { "confirmed", ICONS.confirmed, stamps, "Confirmed", "What the game showed that matches the database." },
     { "flags", ICONS.flag, notes.flag, "Flags", "Items you flagged from their details window." },
     { "feedback", ICONS.feedback, notes.feedback, "Feedback", "What you wrote with /rec feedback." },
-    { "errors", ICONS.error, notes.error, "Errors", "Recollect errors your game showed; they go to the author too." },
+    { "errors", ICONS.error, notes.error, "Errors", "Recollect's own errors, whether or not the game showed them; they go to the author too." },
     { "older", ICONS.older, older, "Older databases", "Findings made under an earlier database, kept as they were and sent whole." },
   }
   local tiles, none, sent = {}, {}, 0
@@ -364,7 +375,7 @@ local function CollectionsSection()
     local state, color = Dashboard.HistoryState(entry)
     local held = Held(entry.contents)
     lines[#lines + 1] = Line(("%s: %s%s, by %s%s"):format(Dashboard.Ago(entry.started or entry.asked), state,
-      held > 0 and (" (" .. Plural(held, "finding") .. ")") or "", tostring(entry.by or "?"), entry.mode == "t" and " (test)" or ""),
+      held > 0 and (" (" .. Plural(held, "finding") .. ")") or "", tostring(entry.by or "?"), Curator.Protocol.IsTest(entry.mode) and " (test)" or ""),
       color, true)
   end
   if #entries == 0 then
@@ -395,9 +406,9 @@ local function CharacterLine(ctx)
   local faction = Dashboard.Seam("Faction")
   faction = type(faction) == "string" and (faction .. ", ") or ""
   if ctx.standing == "outside" then return ("This character: %s, %snot in the Recollect Curators community."):format(me, faction) end
-  if ctx.standing == "unknown" then return ("This character: %s, %sthe community's member list isn't read yet."):format(me, faction) end
+  if ctx.standing == "unknown" then return ("This character: %s, %sthe community's member list hasn't been read yet."):format(me, faction) end
   local role = M.RoleOf(T.Self())
-  return ("This character: %s, %s%sin Recollect Curators."):format(me, faction, role and (M.ROLE_NAMES[role] .. " ") or "")
+  return ("This character: %s, %s%s Recollect Curators."):format(me, faction, role and (M.ROLE_NAMES[role] .. " of") or "in")
 end
 
 local function MembersLine()
@@ -406,7 +417,8 @@ local function MembersLine()
   for _, entry in ipairs(M.Roster()) do
     members = members + 1
     if entry.presence == "online" then online = online + 1 end
-    if entry.role == M.ROLE.OWNER or entry.role == M.ROLE.LEADER then
+    -- who may collect: the author's own characters (Membership.IsCollector)
+    if M.IsCollector(entry.name) then
       authors[#authors + 1] = ("%s (%s)"):format(entry.name, entry.presence == "online" and "online" or "offline")
     end
   end
@@ -430,7 +442,7 @@ local function ConnectionSection(ctx)
   else
     summary = "The author hasn't been in touch this session"
     lines[#lines + 1] = Line("The author hasn't been in touch this session. Until then, what goes to the author is whispered"
-      .. " to every Owner and Leader who is online.", C.LIGHT_GRAY)
+      .. " to each of Recollect's author's characters that is online.", C.LIGHT_GRAY)
   end
   local members = MembersLine()
   if members then lines[#lines + 1] = Line(members, C.LIGHT_GRAY) end
@@ -439,12 +451,13 @@ local function ConnectionSection(ctx)
     Sum(counts.sent), PACE[T.Activity()] or tostring(T.Activity())), C.LIGHT_GRAY)
   if S.lastDropped then
     local d = S.lastDropped
-    lines[#lines + 1] = Line(("Last message not answered: %s from %s (%s): %s."):format(tostring(d.kind), tostring(d.sender),
+    lines[#lines + 1] = Line(("Last message not answered: %s from %s (%s): %s."):format(
+      Curator.Protocol.KIND_WORDS[d.kind] or tostring(d.kind), tostring(d.sender),
       Dashboard.Ago(d.at), tostring(d.why)), C.CAUTION_ORANGE)
   end
   if ctx.standing == "author" then
-    lines[#lines + 1] = Line("The connection test runs from a curator's game, naming your character: /rec curator ping Name-Realm.",
-      C.LABEL_GRAY, false, true)
+    lines[#lines + 1] = Line("To test a curator's connection, type /rec curator pong to open a test session, then the curator runs"
+      .. " /rec curator ping Name-Realm with your character's name.", C.LABEL_GRAY, false, true)
   elseif Curator.Ping then
     buttons = { "test" }
     if not author then
@@ -477,8 +490,8 @@ Dashboard.RECORDED = {
   "Where the game and Recollect's database differ: vendor goods and prices, drops, quest rewards and givers, recipes, combines, where NPCs stand, the Black Market and the Trading Post",
   "Items Recollect's database knows nothing about, wherever you see them, your bags and banks included: the item's ID and where you saw it",
   "Confirmations: what the game showed that matches the database, so the author knows it still holds",
-  "Game IDs only, with your character's class, race, level, faction, professions, zone and, where it matters, quest progress",
-  "Your notes: items you flag, feedback you write, and Recollect's own errors; only the author reads them",
+  "Game IDs only, with your character's class, race, level, faction, professions, zone, War Mode, Chromie Time, the instance difficulty and, where it matters, quest progress and how a vendor regards you (a reputation discount changes its prices)",
+  "Your notes: items you flag, feedback you write, and Recollect's own errors, whether or not the game showed them; only the author reads them",
 }
 Dashboard.NEVER = {
   "Names, chat, gold, currencies, how many of anything you have, anything else you carry, or who you play with",

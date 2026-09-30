@@ -46,7 +46,7 @@ local INTRO_TEXT = "Every item you hold: what it's for, and whether you still ne
 local FOOTER_TEXT = "Outdated: the facts say it has been replaced. Lower level: gear below what you wear, not "
   .. "shown to be from an earlier season. Junk: the game's label for gray items with a vendor price. Purpose done: "
   .. "every use Recollect checks is finished. Can't tell: not confirmed yet. Not checked yet: reputation tokens, and "
-  .. "secrets not in Recollect's list."
+  .. "hidden uses (secrets) Recollect doesn't list yet."
 UI.ListTexts = { intro = INTRO_TEXT, footer = FOOTER_TEXT }   -- read by the suites
 
 local window, header, scrollBox, funnel
@@ -556,7 +556,7 @@ end
 
 function UI.ToggleList()
   if not window then
-    Recollect.Utilities.Message.Warn("The list opens after login finishes; try again in a moment.")
+    Recollect.Utilities.Message.Warn("The Recollect Audit opens once login finishes; try again in a moment.")
     return
   end
   -- The first show makes the row frames, which never happens in combat

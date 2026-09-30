@@ -100,7 +100,7 @@ Recollect.Data.Notes = {
     items = { 246771 },   -- Radiant Echo
     text = "Starts a Worldsoul Memory in Khaz Algar in Radiant Echo mode, a solo 5-minute fight whose rewards are The War "
       .. "Within Season 3 Valorstones and Coffer Keys; 5 saved open a mode that spends them together.",
-    howMany = "1 per run; 5 for the Many Radiant Echoes mode, forum posters say",
+    howMany = "1 per run; 5 for the Many Radiant Echoes mode",
     where = "A Worldsoul Memory in Khaz Algar",
     confirmInGame = "At a Worldsoul Memory in Khaz Algar, talk to the event: a Radiant Echo option shows, or doesn't once "
       .. "Season 3's mode is gone.",
@@ -119,8 +119,7 @@ Recollect.Data.Notes = {
   {
     items = { 267051 },   -- Dark Particle
     text = "Traded at Maren Silverwing in Silvermoon City: 100 buy a Field Accolade Pouch, and Field Accolades buy Champion "
-      .. "and Hero catch-up gear. The vendor beside her takes 150 for a Bulging Field Pouch of appearances (per "
-      .. "AllTheThings).",
+      .. "and Hero catch-up gear. The vendor beside her takes 150 for a Bulging Field Pouch of appearances.",
     howMany = "100 per Field Accolade Pouch; 150 per Bulging Field Pouch",
     where = "Silvermoon City, the Ritual Site hub (48.2, 49.6)",
     from = "Void Assault events and Ritual Sites",
@@ -209,8 +208,8 @@ Recollect.Data.Notes = {
   {
     items = { 166971 },   -- Empty Energy Cell
     text = "Filled at Mechagon's Charging Station: contributing an Energy Cell to the station fills your empty cells. The "
-      .. "station is one of Mechagon's rotating projects and isn't up every day; forum players say access costs 250 Spare "
-      .. "Parts and one charged Energy Cell for two hours.",
+      .. "station is one of Mechagon's rotating projects and isn't up every day; access is said to cost 250 Spare Parts "
+      .. "and one charged Energy Cell for two hours.",
     where = "The Charging Station in Mechagon, when it is the day's project",
     confirmInGame = "On a day the Charging Station is up in Mechagon, talk to it with Empty Energy Cells in your bags: they "
       .. "become Energy Cells.",

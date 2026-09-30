@@ -120,13 +120,16 @@ end
 -- Changes(before, after): the items gone down and gone up, each { id, n },
 -- by item ID
 function Bags.Changes(before, after)
-  local down, up, ids = {}, {}, {}
-  for id in pairs(before) do ids[id] = true end
-  for id in pairs(after) do ids[id] = true end
-  for id in pairs(ids) do
+  local down, up = {}, {}
+  -- every ID once: those held before, then those only held after
+  local function Compare(id)
     local change = (after[id] or 0) - (before[id] or 0)
     if change < 0 then down[#down + 1] = { id = id, n = -change } end
     if change > 0 then up[#up + 1] = { id = id, n = change } end
+  end
+  for id in pairs(before) do Compare(id) end
+  for id in pairs(after) do
+    if before[id] == nil then Compare(id) end
   end
   table.sort(down, function(a, b) return a.id < b.id end)
   table.sort(up, function(a, b) return a.id < b.id end)

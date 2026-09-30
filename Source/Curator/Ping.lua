@@ -25,11 +25,13 @@
 --      rate (a pull's pace), then a reverse burst: the other side sends 40
 --      back as fast as it can.
 --   4. The report.
--- The author's side answers all of it with no command: an Owner or Leader's
--- client joins the custom test channel after login (tried 20, 40 and 60
--- seconds in, as the member list may not be read yet) and on the first test
--- message it gets; any other client answers on the route a message came by
--- but never joins a channel. /rec curator pong joins it by hand.
+-- Who answers (security design T12, 2026-09-30): a curator's client answers
+-- the author's test messages (an Owner's or Leader's) on the route they came
+-- by, and never joins a channel; the author's client answers anyone's only
+-- while the author has a test session open (/rec curator pong joins the
+-- custom test channel and opens one for LISTEN_FOR seconds). Nothing opens
+-- a session by itself, and a report sent back counts only while the client's
+-- own test runs.
 --
 -- The routes (Ping.ROUTES): the community channel by number, number as
 -- text, name, and the logged send; the custom channel by number, name, and
@@ -56,6 +58,7 @@ Ping.PAYLOAD = 200
 Ping.QUIET = 4
 Ping.LISTEN_FOR = 1800
 Ping.MAX_TARGETS = 10
+Ping.BURST_COOLDOWN = 600   -- seconds between two reverse bursts for one sender
 
 -- arrives: the chat type a route's message is received as (the receiver
 -- adds " logged" for a logged send); a message claiming another route is
@@ -357,15 +360,16 @@ function Ping.LocalTests()
   end)
   Timed("encoding library", function()
     local E = C_EncodingUtil
-    return E and ("C_EncodingUtil present: CBOR %s, compress %s, Base64 %s"):format(tostring(E.SerializeCBOR ~= nil),
-      tostring(E.CompressString ~= nil), tostring(E.EncodeBase64 ~= nil)) or "C_EncodingUtil missing"
+    return E and ("C_EncodingUtil present: CBOR %s, Base64 %s"):format(tostring(E.SerializeCBOR ~= nil),
+      tostring(E.EncodeBase64 ~= nil)) or "C_EncodingUtil missing"
   end)
   Timed("sample pack", function()
     local sample = { curator = "x", records = { r1 = { fact = "v:1:i:2:sold", value = "1", kind = "addition", rev = 1, ctx = { 2 } } },
       confirms = {}, contexts = { { class = 1 } }, quests = {} }
     local payload, why = P.Pack(sample)
     if not payload then return "pack failed: " .. tostring(why) end
-    local back = P.Unpack(payload)
+    -- a round trip of this client's own sample: no preflight scan to run (that is the author's, on what he receives)
+    local back = P.Unpack(payload, function() return true end)
     return ("%d bytes packed, unpacked %s"):format(#payload, back and back.records and back.records.r1 and "intact" or "BROKEN")
   end)
   Timed("this character's collection", function()
@@ -393,11 +397,12 @@ function Ping.LocalTests()
   Timed("members", function()
     local authors = {}
     for _, entry in ipairs(M.Roster()) do
-      if entry.role == M.ROLE.OWNER or entry.role == M.ROLE.LEADER then
+      -- who may collect: the author's own characters (Membership.IsCollector)
+      if M.IsCollector(entry.name) then
         authors[#authors + 1] = ("%s %s %s"):format(entry.name, M.ROLE_NAMES[entry.role], entry.presence)
       end
     end
-    return ("%d read, may this character collect: %s; who may collect: %s"):format(#M.Roster(), tostring(M.MayPull(T.Self())),
+    return ("%d read, may this character collect: %s; who may collect: %s"):format(#M.Roster(), tostring(M.IsCollector(T.Self())),
       #authors > 0 and table.concat(authors, ", ") or "nobody")
   end)
   Timed("whisper to self", function()
@@ -544,7 +549,7 @@ local function Finish()
   state.running = false
   for _, line in ipairs(Ping.Environment()) do Log("Curator test environment (end): %s", line) end
   local lines = Ping.Lines()
-  Host.Print("Recollect curator test finished. Summary:")
+  Host.Print("Curator test finished. Summary:")
   for _, line in ipairs(lines) do
     Host.Print("  " .. line)
     Log("Curator test report: %s", line)
@@ -575,7 +580,7 @@ local function Decide()
   local names = {}
   for _, route in ipairs(working) do names[#names + 1] = route .. " (" .. Ping.ROUTES[route].label .. ")" end
   Log("Curator test: working routes %s; best %d", table.concat(names, ", "), working[1])
-  Host.Print("Recollect curator test: some routes work; testing how much they carry (a few minutes)...")
+  Host.Print("Curator test: some routes work; testing how much they carry (a few minutes)...")
   local steps = {}
   for _, route in ipairs(working) do
     for _, step in ipairs(RouteSteps(route)) do steps[#steps + 1] = step end
@@ -589,8 +594,9 @@ end
 -- Recollect client answers test pings and another member's answer proves
 -- nothing about the one being tested
 function Ping.Start(target)
+  if not Curator.Main.Available() then return false end
   if state.running then
-    Host.Print("Recollect: the curator test is already running; it prints its summary when done.")
+    Host.Print("The curator test is already running; it prints its summary when done.")
     return false
   end
   Ping.Reset()
@@ -620,30 +626,42 @@ function Ping.Start(target)
       Finish()
     end
   end)
-  Host.Print("Recollect curator test started: it tries 13 ways to reach the author, then measures the ones that work, "
-    .. "and prints a summary in about 5 minutes. Keep playing (out of instances); nothing to click.")
+  Host.Print("Curator test started: it tries 13 ways to reach the author, then measures the ones that work, "
+    .. "and prints a summary in about 5 minutes. Keep playing (out of instances); nothing to click. It works only while "
+    .. "Recollect's author has a test session open, so ask in the community first.")
   return true
 end
 
--- Listen(why): join the custom test channel (by itself only on a client
--- that may collect, after login and on the first test message it gets;
--- /rec curator pong asks for it by hand)
+-- Listen(why): a test session (/rec curator pong): for LISTEN_FOR seconds
+-- this client answers other players' test messages. Joins the custom test
+-- channel when it isn't joined yet; true when a session begins, false when
+-- one was already open (it then runs LISTEN_FOR seconds from now). A
+-- session that ended leaves the channel joined, so the next one only opens
+-- the session again
+local sessionID = 0
 function Ping.Listen(why)
-  if CustomIndex() then return false end
+  local already = state.listening == true
   state.listening = true
-  Seam("Join", Ping.CHANNEL)
-  Log("Curator test: joined %s to answer tests (%s)", Ping.CHANNEL, tostring(why or "asked"))
-  -- After LISTEN_FOR the listen is only marked over (state.listening, which
-  -- no answer checks: test messages are still answered), and the channel is
+  sessionID = sessionID + 1
+  local id = sessionID
+  if not CustomIndex() then
+    Seam("Join", Ping.CHANNEL)
+    Log("Curator test: joined %s to answer tests (%s)", Ping.CHANNEL, tostring(why or "asked"))
+  end
+  Log("Curator test: answering others' tests for %d seconds (%s)", Ping.LISTEN_FOR, tostring(why or "asked"))
+  -- After LISTEN_FOR the session is over (state.listening: others' tests are
+  -- no longer answered), and the channel is
   -- never left from here: LeaveChannelByName from a timer is a blocked
   -- action (a curator's error report, 2026-09-28, ADDON_ACTION_BLOCKED). The
-  -- test channel is a temporary one, dropped at logout
+  -- test channel is a temporary one, dropped at logout. A later Listen
+  -- replaces this session's end (sessionID)
   Ping.seams.After(Ping.LISTEN_FOR, function()
-    if state.running then return end
+    if id ~= sessionID or state.running then return end
     state.listening = false
-    Log("Curator test: stopped answering on %s (it stays joined until logout)", Ping.CHANNEL)
+    Log("Curator test: the test session is over; others' tests are no longer answered (%s stays joined until logout)",
+      Ping.CHANNEL)
   end)
-  return true
+  return not already
 end
 
 -------------------------------------------------------------------------------
@@ -693,6 +711,14 @@ local function ReverseBurst(route, from, replyTarget, count)
     Log("Curator test route %d: %s asked for another reverse burst while one is still going; ignored", route, from)
     return
   end
+  local last = state.burstAt and state.burstAt[from]
+  if last and Now() - last < Ping.BURST_COOLDOWN then
+    Log("Curator test route %d: %s asked for another reverse burst within %d seconds; ignored", route, from,
+      Ping.BURST_COOLDOWN)
+    return
+  end
+  state.burstAt = state.burstAt or {}
+  state.burstAt[from] = Now()
   bursting[from] = true
   local pad = string.rep("r", Ping.PAYLOAD)
   local counter, seq = {}, 0
@@ -795,10 +821,14 @@ handlers.RBURST = function(route, fields, from, replyTarget, via, text)
   if state.reverse then state.reverse.entry = entry end
 end
 
+-- The test messages that make the receiver send something back
+local ANSWERED = { PING = true, SIZE = true, BYTES = true, BURST = true, PULLTEST = true }
+
 -- Received(text, chatType, sender, channelName, replyTarget): a test message
 -- from another client (replyTarget: whom a targeted route answers)
 function Ping.Received(text, chatType, sender, channelName, replyTarget)
   if type(text) ~= "string" or text:sub(1, #Ping.MARK) ~= Ping.MARK then return false end
+  if not Curator.Main.Available() then return true end
   local fields = {}
   for field in (text:sub(#Ping.MARK + 1) .. "~"):gmatch("([^~]*)~") do fields[#fields + 1] = field end
   local tag, route = fields[1], tonumber(fields[2])
@@ -826,10 +856,21 @@ function Ping.Received(text, chatType, sender, channelName, replyTarget)
       Ping.ROUTES[route].label, via)
     return true
   end
-  -- only a client that may collect joins the test channel by itself: another
-  -- guild member with Recollect still answers, but is never joined to a channel
-  if not state.running and not CustomIndex() and Curator.Membership.MayPull(Curator.Transport.Self()) then
-    Ping.Listen("a test message arrived from " .. from)
+  -- Who may make this client send (security design T12, 2026-09-30): a
+  -- message asking for an answer is answered when the author (an Owner or
+  -- Leader) sent it, or while this client, the author's own, has a test
+  -- session open (Ping.Listen, /rec curator pong, LISTEN_FOR seconds); one
+  -- that only reports back counts only while this client's own test runs
+  if ANSWERED[tag] then
+    local mine = state.listening and Curator.Membership.MayPull(Curator.Transport.Self())
+    if not (Curator.Membership.MayPull(from) or mine) then
+      Log("Curator test %s from %s not answered: only the author's tests are, or anyone's while the author has "
+        .. "a test session open", tostring(tag), from)
+      return true
+    end
+  elseif not state.running then
+    Log("Curator test %s from %s ignored: no test of this client's is running", tostring(tag), from)
+    return true
   end
   local ok, err = pcall(handlers[tag], route, rest, from, replyTarget or from, via, text)
   if not ok then Log("Curator test handler %s failed: %s", tag, tostring(err)) end
@@ -901,31 +942,11 @@ end
 -- the author's client joining the test channel after login
 -------------------------------------------------------------------------------
 local frame = CreateFrame("Frame")
-for _, event in ipairs({ "CHAT_MSG_ADDON", "CHAT_MSG_ADDON_LOGGED", "BN_CHAT_MSG_ADDON", "PLAYER_ENTERING_WORLD" }) do
+for _, event in ipairs({ "CHAT_MSG_ADDON", "CHAT_MSG_ADDON_LOGGED", "BN_CHAT_MSG_ADDON" }) do
   pcall(frame.RegisterEvent, frame, event)
-end
-local joinTries = { 20, 40, 60 }
-local loginJoinStarted = false
-
-local function TryLoginJoin(i)
-  if CustomIndex() then return end
-  local me = Curator.Transport.Self()
-  if Curator.Membership.MayPull(me) then
-    pcall(Ping.Listen, ("this character may collect (login try %d)"):format(i))
-  elseif i < #joinTries then
-    Ping.seams.After(joinTries[i + 1] - joinTries[i], function() TryLoginJoin(i + 1) end)
-  else
-    Host.Log("[answering] Curator test: %s may not collect, so it doesn't join the test channel", tostring(me))
-  end
 end
 
 frame:SetScript("OnEvent", function(_, event, prefix, text, chatType, sender, ...)
-  if event == "PLAYER_ENTERING_WORLD" then
-    if loginJoinStarted then return end
-    loginJoinStarted = true
-    Ping.seams.After(joinTries[1], function() TryLoginJoin(1) end)
-    return
-  end
   for _, value in ipairs({ prefix, text, chatType, sender }) do
     if Host.IsSecret(value) then return end
   end
