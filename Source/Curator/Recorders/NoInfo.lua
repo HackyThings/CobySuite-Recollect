@@ -32,7 +32,8 @@
 -- Sweeps run in Main.Defer jobs of NOINFO_SLICE items, out of combat.
 --
 -- Once per item and place per session (the epoch empties the set), and not
--- again under this data version once delivered (the store's reported set).
+-- again once delivered, under this data version or a later one (the store's
+-- reported set).
 -- An item whose quality isn't loaded is asked for and held (at most
 -- NOINFO_PENDING, for NOINFO_PENDING_SECONDS) until ITEM_DATA_LOAD_RESULT.
 -- Past NOINFO_CAP live ni: records, a new item removes one first: a bag or

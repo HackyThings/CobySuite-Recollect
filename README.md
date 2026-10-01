@@ -74,9 +74,9 @@ It records only game IDs and positions, with your character's class, race, level
 - **Curator Flag** on the details window reports a problem with an item, with your own words if you like. On an item Recollect knows nothing about it reads **Request info**.
 - `/rec feedback` sends a note to the author (with curator mode on). Recollect's own errors are sent too. Only the author reads these.
 - The author collects findings through the "Recollect Curators" community (`/rec curator join` prints the invite). Members can see each other's character names and zones. Collections travel as hidden whispers, on any realm; they never show in your chat and take no chat channel slot. A character outside the community is asked once whether to join.
-- Your game hands findings only to the author's own characters, never to anyone else in the community, in small parts one after another. Curators on Recollect 0.0.2 or older have to update before the author can collect again; findings saved before the update are kept and handed over too.
+- Your game hands findings only to the author's own characters, never to anyone else in the community, in small parts one after another. Curators on Recollect 0.0.2 or older have to update before the author can collect again. Findings from before 0.0.2a are cleared when you update, since the author already has them from earlier collections.
 - You'll see a chat line when a collection starts and ends; turn on **Ask me before each collection** to be asked first, and `/rec curator cancel` stops one. Findings stay under 1 MB and are deleted once the author has saved them.
-- Once a trusted curator has confirmed that a place matches the database and the author has approved it, Recollect stops sending matches for it; differences are always sent. Findings the author has already ruled out aren't recorded.
+- Once a trusted curator has confirmed that a place or a vendor's goods match the database and the author has approved it, Recollect stops sending matches for it; differences are always sent. Findings the author has already ruled out aren't recorded, and an item the author already has isn't sent again, even after a database update.
 - Findings not collected yet survive updates. Turning curator mode off offers to delete them.
 
 `/rec curator` opens the curator dashboard:

@@ -35,8 +35,9 @@
 --   never repeats a revision an old acknowledgement names.
 --
 -- reported["ni:<item>"] = true: an item with no information whose record a
--- V deleted (the author has it), so it isn't recorded again under this data
--- version (at most NOINFO_REPORTED_CAP marks; Main.Freeze empties it).
+-- V deleted, live or in a frozen block (the author has it), so it isn't
+-- recorded again, under this data version or a later one (at most
+-- NOINFO_REPORTED_CAP marks; only Main.ClearFindings empties it).
 --
 -- confirmed[source] = round: this account's confirmation of a source with a
 -- shipped listing (a stamp with a total) that a V saved, in that round (spec
@@ -511,6 +512,19 @@ local function DropAwaiting(db, requestID)
   return entry
 end
 
+-- MarkReported(db, fact, marks): an item with no information the author
+-- now has isn't recorded again (NoInfo), within the marks' cap; marks is
+-- how many there are, and the new count is returned
+local function MarkReported(db, fact, marks)
+  if type(fact) ~= "string" or not fact:find("^ni:") or db.reported[fact]
+    or marks >= Curator.Const.NOINFO_REPORTED_CAP then
+    return marks
+  end
+  db.reported[fact] = true
+  db.bytes = db.bytes + MARK_BYTES
+  return marks + 1
+end
+
 -- Saved(requestID, trusted, quiet): V says the author's copy is saved;
 -- unchanged records and stamps of that request are deleted, changed ones
 -- stay pending. Markers (reported, confirmed or generalConfirmed by
@@ -527,14 +541,7 @@ function Store.Saved(requestID, trusted, quiet)
     if record and record.rev == rev and (quiet or apart[tostring(id)]) then
       RemoveRecord(db, id)
     elseif record and record.rev == rev then
-      -- an item with no information the author now has: not recorded again
-      -- under this data version (NoInfo), within the marks' cap
-      local fact = record.fact
-      if type(fact) == "string" and fact:find("^ni:") and not db.reported[fact] and marks < Curator.Const.NOINFO_REPORTED_CAP then
-        db.reported[fact] = true
-        db.bytes = db.bytes + MARK_BYTES
-        marks = marks + 1
-      end
+      marks = MarkReported(db, record.fact, marks)
       RemoveRecord(db, id)
     end
   end
@@ -635,6 +642,11 @@ function Store.FrozenSaved(requestID, trusted, quiet)
         local apart = type(block.quarantined) == "table" and block.quarantined or {}
         for key, stamp in pairs(type(block.confirms) == "table" and block.confirms or {}) do
           if not apart[tostring(key)] then Store.MarkConfirmed(stamp, true, trusted) end
+        end
+        -- its items with no information, as a live V marks them
+        local marks = Count(db.reported)
+        for id, record in pairs(type(block.records) == "table" and block.records or {}) do
+          if type(record) == "table" and not apart[tostring(id)] then marks = MarkReported(db, record.fact, marks) end
         end
       end
       table.remove(db.frozen, i)

@@ -14,6 +14,21 @@
 -------------------------------------------------------------------------------
 Recollect.Data.Changelog = {
   {
+    version = "0.0.3",
+    title = "More sources, fewer repeats",
+    date = "2026-09-30",
+    changed = {
+      "Delve chests: what the Bountiful Coffer and Trunk hold",
+      "Crafted consumables: every quality rank names its recipe",
+      "Hearty foods: name Cooking's Hearty Food recipe",
+      "Raid conduits: marked Evoker only",
+      "Curators: places already confirmed aren't recorded again",
+    },
+    fixed = {
+      "Curators: a database update no longer resends known items",
+    },
+  },
+  {
     version = "0.0.2b",
     title = "Collections that finish",
     date = "2026-09-30",

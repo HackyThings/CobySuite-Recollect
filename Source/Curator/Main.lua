@@ -7,8 +7,8 @@
 --   addonVersion, dataVersion, formatVersion (what the findings were made against),
 --   records, confirms, delivered, awaiting, contexts, quests, reported, bytes
 --     (the recorder fields, capped at 1 MB; Curator.Store owns their shape;
---     reported marks the items with no information already delivered under
---     this data version, Recorders/NoInfo.lua),
+--     reported marks the items with no information already delivered, kept
+--     across data versions, Recorders/NoInfo.lua),
 --   noInfoNotice (the server time from which bag and bank sweeps may run:
 --     set when curator mode is turned on from a build whose settings text
 --     names them, or when the one-time chat line was shown; kept through a
@@ -274,15 +274,19 @@ function Main.Freeze()
     quests = kept and DeepCopy(db.quests) or db.quests, bytes = oldBytes }, SCHEMA)
   if not block and not kept then return false end
   if block then db.frozen[#db.frozen + 1] = block end
+  -- the reported marks stay: an item the author already has isn't sent
+  -- again after a database update (Cobanyte, 2026-09-30: only what changed
+  -- since the last send); one the new data knows isn't recorded anyway
   if kept then
-    db.records, db.confirms, db.delivered, db.reported = sentRecords, sentConfirms, delivered, {}
+    db.records, db.confirms, db.delivered = sentRecords, sentConfirms, delivered
     if Curator.Context and Curator.Context.Prune then pcall(Curator.Context.Prune) end
-    if Curator.Store and Curator.Store.Recount then pcall(Curator.Store.Recount) end
-    if block then block.bytes = math.max(0, oldBytes - (tonumber(db.bytes) or 0)) end
   else
-    for _, field in ipairs(RECORDER_FIELDS) do db[field] = {} end
-    db.bytes = 0
+    for _, field in ipairs(RECORDER_FIELDS) do
+      if field ~= "reported" then db[field] = {} end
+    end
   end
+  if Curator.Store and Curator.Store.Recount then pcall(Curator.Store.Recount) end
+  if block and kept then block.bytes = math.max(0, oldBytes - (tonumber(db.bytes) or 0)) end
   Main.BumpEpoch()
   return block ~= nil
 end
@@ -297,11 +301,8 @@ function Main.CheckDataVersion()
   if had ~= nil then
     local frozen = Main.Freeze()
     if not frozen then
-      -- nothing to freeze, but what belongs to the old data version goes
-      -- still: the unknown items it reported may be unknown again, and work
-      -- begun under it is dropped (the epoch)
-      db.reported = {}
-      if Curator.Store and Curator.Store.Recount then pcall(Curator.Store.Recount) end
+      -- nothing to freeze, but work begun under the old data version is
+      -- dropped (the epoch); the reported marks stay, as in Freeze
       Main.BumpEpoch()
     end
     if Curator.Notes then Curator.Notes.OnDataVersionChanged() end

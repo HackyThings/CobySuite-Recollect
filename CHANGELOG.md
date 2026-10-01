@@ -4,6 +4,22 @@ All notable changes to Recollect are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [0.0.3] - 2026-09-30
+
+### Changed
+
+- **More items say where they come from.** Midnight delve reward chests now show what curators found in them: the Bountiful Coffer's Drum of Renewed Bonds and Galerider's Mail Skirt, and the Bountiful Heavy Trunk's Pyrewalker's Mantle and Amani Blueflame Chandelier. The Apex Cache shows as a reward of the Vaults of Atal'Utek weekly, and Phaseblade's Edges and Phasebolt Thrower as drops of Nexus-Captain Leth'ir, Naigtal's world boss.
+
+- **Every quality rank of a crafted consumable says how it's made.** Rank 1 potions, flasks and runes used to show nothing while rank 2 named its recipe: Potion of Recklessness, Light's Potential, Flask of the Magisters, Concentrated Silvermoon Health Potion, Vantus Rune: Tides and Algari Mana Oil now all do. The Hearty foods (Hearty Spiced Biscuits, Champion's Bento, Felberry Figs and Sun-Seared Lumifin) name Cooking's Hearty Food recipe.
+
+- **The Shadowlands conduits that Sanctum of Domination and Sepulcher of the First Ones bosses drop are marked Evoker only,** so other classes no longer see those drops as meant for them.
+
+- **Curators: places and a vendor already confirmed aren't recorded again.** 17 NPC places and Silvermoon's crest bundle vendor are settled, so curator mode stops sending the same confirmation for them; a curator who finds one of them somewhere else still reports it.
+
+### Fixed
+
+- **Curators: a database update no longer sends the same items again.** Items Recollect knows nothing about yet were handed over once, then sent again after every database update, so the Waiting to be sent count came back after the author collected. Once the author has an item, it isn't sent again.
+
 ## [0.0.2b] - 2026-09-30
 
 ### Changed
@@ -249,7 +265,8 @@ All notable changes to Recollect are documented here. Format follows [Keep a Cha
   - **Feedback:** `/rec feedback` opens a box for anything you want the author to know. It goes with your next collection too.
   - **Errors:** any Recollect error your game shows is kept and sent along, so it can be fixed. Flags, feedback and errors are read only by the author, and what the author already has is cleared when a new database arrives.
 
-[Unreleased]: https://github.com/HackyThings/CobySuite-Recollect/compare/v0.0.2b...HEAD
+[Unreleased]: https://github.com/HackyThings/CobySuite-Recollect/compare/v0.0.3...HEAD
+[0.0.3]: https://github.com/HackyThings/CobySuite-Recollect/releases/tag/v0.0.3
 [0.0.2b]: https://github.com/HackyThings/CobySuite-Recollect/releases/tag/v0.0.2b
 [0.0.2a]: https://github.com/HackyThings/CobySuite-Recollect/releases/tag/v0.0.2a
 [0.0.2]: https://github.com/HackyThings/CobySuite-Recollect/releases/tag/v0.0.2
