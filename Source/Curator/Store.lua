@@ -632,8 +632,9 @@ end
 
 -- FrozenSaved(requestID, trusted, quiet) / FrozenLost(requestID) /
 -- FrozenRejected(requestID): true when a block had it. A quarantined block
--- (quiet: any block of an older layout, which the author keeps only as
--- leads) is deleted with no marker; a rejected one stays, never sent again
+-- (quiet: one on V's quarantined list, which the author keeps only as
+-- leads, such as one with more set apart than K can name) is deleted with
+-- no marker; a rejected one stays, never sent again
 function Store.FrozenSaved(requestID, trusted, quiet)
   local db = Store.DB()
   for i, block in ipairs(db.frozen) do
@@ -713,8 +714,8 @@ end
 
 -- Counts(): records, stamps, pending (records and stamps not yet
 -- delivered), bytes (the whole store, against the cap), pendingBytes (the
--- pending ones as the store counts them, before packing and compression:
--- what a pull would send, less the contexts it carries along), byKind
+-- pending ones as the store counts them, before packing: what a pull would
+-- send, less the contexts it carries along), byKind
 -- ({ [kind] = n }), noInfo (the live "ni:" records, also counted in
 -- byKind.addition), frozen and frozenPending
 function Store.Counts()

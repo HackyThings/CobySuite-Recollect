@@ -3,8 +3,12 @@
 --
 -- On every interaction with an NPC (gossip, a quest window, a trainer) it
 -- notes where the player stands and hands it to Compare.Position: near any
--- shipped place (within Compare.POSITION_TOLERANCE) is a confirmation, far
--- from every one a conflict carrying the character's quest state (phased NPCs).
+-- shipped place (within Compare.POSITION_TOLERANCE on the same map, or
+-- Compare.WORLD_TOLERANCE yards in world coordinates on another map) is a
+-- confirmation; far from every place on the sighting's map, a conflict
+-- carrying the character's quest state (phased NPCs); with no place on that
+-- map, an addition. When nothing matched and a place can't be translated,
+-- nothing is recorded.
 -- An NPC the data has no position for is added only by the recorders that
 -- know the NPC matters (Vendor, and Quest for givers and turn-ins): nothing
 -- ships an index of every NPC the data mentions yet, and recording every

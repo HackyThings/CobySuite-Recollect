@@ -1,9 +1,9 @@
 -------------------------------------------------------------------------------
 -- Purpose: a recipe item (item class 9)
 --
--- Only the tooltip says whether this character knows a recipe with the
--- profession window closed ("Already known"), so recipes are checked in the
--- bags, where the tooltip is read live. A red line means a requirement this
+-- This check reads whether this character knows a recipe from its tooltip
+-- ("Already known"), which only a live read keeps current, so recipes are
+-- checked in the bags. A red line means a requirement this
 -- character does not meet (profession, skill, reputation): Unknown. Known is
 -- done only for a copy no other character could use.
 -------------------------------------------------------------------------------

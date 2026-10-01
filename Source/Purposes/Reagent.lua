@@ -24,8 +24,10 @@
 --   the recipe index doesn't read (Protoform      Protoform Synthesis
 --   Synthesis, Junkyard Tinkering, a gathering    recipes", no window to
 --   profession's), nothing they make missing      open: never Outdated
---   older, the data's recipes all in professions  Unknown: the unread window
---   read or not had, one not read yet             is unrelated, so none named
+--   older, the data's recipes all in professions  Unknown: the unread windows
+--   read or not had, one not read yet             are unrelated, so the reason
+--                                                 names them only as not read,
+--                                                 with no window to open
 --   older trade goods (item class 7), every one
 --   of your crafting professions read, none of
 --   them uses it                                  Outdated (with the binding:

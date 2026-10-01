@@ -103,8 +103,10 @@
 -- recipeFor, teaches), then where it comes from (Relations.SOURCE: madeFrom,
 -- craftedBy, taughtBy, reward, choice, achievementReward, soldBy,
 -- renownReward, blackMarket, tradingPost, dropsFrom, journalDrop, foundIn,
--- zoneDrop; ORDER lists every kind, since the sort compares by it), parsed once per item and
--- kept for the session. Names, titles and states are read live by the
+-- zoneDrop; ORDER lists every kind, since the sort compares by it), parsed when first asked
+-- for and kept while recently used (Keep: two generations, the newer one rotated out once
+-- it would pass CACHE_RELATIONS relations, so both together can hold up to about twice
+-- that, and one larger item's list is kept whole). Names, titles and states are read live by the
 -- modules that use a relation; Applies(relation, owner) says whether a route
 -- serves a character (SRC-01), and Conditions(relation, owner) which of its
 -- conditions the character misses, as tags for display only (D34: an event

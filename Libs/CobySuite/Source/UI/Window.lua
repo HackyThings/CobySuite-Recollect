@@ -10,15 +10,20 @@
 --   local f = CobySuite.UI.CreateWindow({
 --     name          = "MyAddonOptionsWindow",  -- global name; needed for escapeCloses
 --     title         = "My Addon Settings",     -- TitleText
---     icon          = "Interface\Icons\INV_Misc_Book_09",  -- optional, 16px left of the title
+--     parent        = UIParent,                -- default UIParent
+--     template      = "BasicFrameTemplateWithInset",  -- default BasicFrameTemplateWithInset
+--     icon          = "Interface\\Icons\\INV_Misc_Book_09",  -- optional, 16px left of the title
 --     width = 400, height = 190,
 --     strata        = "MEDIUM",                -- default MEDIUM: the layer of Blizzard's own
 --                                              -- panels, so a click brings either forward;
 --                                              -- only a dialog that asks something passes
 --                                              -- "DIALOG" (Cobanyte, 2026-09-28)
+--     toplevel      = true,                    -- default true
+--     clampToScreen = true,                    -- default true
 --     movable       = true,                    -- default true
 --     resizable     = { minWidth = 600, minHeight = 400, maxWidth = 1200, maxHeight = 800 },  -- optional
 --     solidBackground = true,                  -- default true (U.Colors.WINDOW_BG)
+--     backgroundColor = { r, g, b, a },        -- default U.Colors.WINDOW_BG
 --     escapeCloses  = true,                    -- UISpecialFrames insert; default false
 --     closeButtonInCombat = true,              -- close button calls Hide(); default true
 --     persist = {                              -- optional saved position / size
@@ -31,6 +36,7 @@
 --     mixin = MyWindowMixin,                   -- optional, applied before anything else
 --     onDragStop = function(f) end,            -- optional, after the state is saved
 --     onResizeStop = function(f) end,          -- optional, likewise after a resize
+--     shown = false,                           -- default false: the window starts hidden
 --   })
 --   Moving and sizing start on the left button and also end (state saved,
 --   callback run) when the window hides mid-drag. A resizable window is
@@ -278,7 +284,8 @@ end
 -- (CreateSettingsWindow). This registers a small canvas page in Blizzard's
 -- Options > AddOns list so the addon is found where players look first:
 -- the name in the brand colour, the version, a description and a button
--- that closes the options panel and opens the addon's window. Returns the
+-- that hides the options panel (left open while it holds unapplied changes)
+-- and opens the addon's window. Returns the
 -- Settings category (category:GetID() for Settings.OpenToCategory) and
 -- the canvas frame, which is also kept in UI.SettingsPages[name] with its
 -- button as canvas.OpenButton, for the taint suites.

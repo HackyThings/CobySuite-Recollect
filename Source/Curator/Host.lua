@@ -549,8 +549,9 @@ end
 -- "|f1" or "|c2.8") include a character context { faction (0 Horde,
 -- 1 Alliance, as Enum.PvPFaction and the shipped f0/f1), classID, raceID }:
 -- true, false, or nil when it can't be told. A route no longer in the game
--- ("x") is false. Holiday routes ("h") are true: the data names no holiday,
--- so the curator never calls one missing (D34).
+-- ("x") is false. Holiday routes ("h") are true: the flag is display only
+-- (D34) and Applies ignores it; an event route is kept from any not seen by
+-- Sources' event field (Compare.lua's MayBeMissing).
 function Host.ConditionsInclude(code, itemID, context)
   local Relations = Recollect.Facts and Recollect.Facts.Relations
   if not (Relations and Relations.Applies and Relations.Parse) or type(context) ~= "table" then return nil end

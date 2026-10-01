@@ -22,7 +22,7 @@ Recollect.Events = {
   -- Anything a verdict reads may have changed: a bag, a bank snapshot, item
   -- data that finished loading, or a data source that became ready
   InventoryChanged = "recollect_inventory_changed",
-  -- A bank or warband bank snapshot was stored: (kind, bagIDs)
+  -- A bank or warband bank snapshot was stored: (bagIDs), the tabs it stored
   SnapshotCaptured = "recollect_snapshot_captured",
   -- Curator mode's notes changed (a flag saved, sent or delivered): the
   -- details window repaints its Curator Flag button

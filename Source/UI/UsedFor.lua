@@ -7,7 +7,7 @@
 --   Counts toward "Glory of the Ulduar Raider" (4 of 30)
 --   Used in 17 of your recipes (8 Blacksmithing, 9 Leatherworking)
 --   Opens a treasure in Zul'Aman (48.5, 25.8) (not looted)
---     Holds Arathi Lantern and 2 more
+--     Holds Arathi Lantern
 --   Used at Hogger (Elwynn Forest)
 --   Makes Shattered Fragments of Val'anyr from 30 (you have none yet)
 --   Currency: Radiant Spark Dust (you have 12 Radiant Spark Dust)
@@ -38,20 +38,18 @@
 -- detail, tier, header, note, place } }, the first position found for the waypoint
 -- key ({ mapID, x, y, zone, what }; a key's object or an NPC it is used at
 -- first, then a vendor that takes the item, then one it buys from, then one
--- that sells it), the sources in the same form, and extra = { unavailable
--- (lines of routes no longer in the game), pending (quests of the uses still
+-- that sells it), the sources in the same form, and extra = { pending (quests of the uses still
 -- being checked), pendingSources (quests it comes from still being
 -- checked, noted under COMES FROM, never under USED FOR), buys (every
 -- purchase summed up in one line, BuySummary: "Buys 4 decor and 2 pets you
 -- don't have, at 4 vendors (70 things in all)", which the audit panel shows
--- in place of the "Buys at" groups; nil with opts.full or nothing bought) }.
+-- in place of the "Buys at" groups; nil when nothing is bought) }.
 -- The uses hold at most MAX_LINES lines besides headings, the sources
 -- MAX_SOURCES, then "and N more" (a note marked more, as is "N more still
 -- being checked"); a purchase's line is marked buy, and the closing line for
 -- uses no longer in the game gone (and every when no use is left). The
--- audit panel shows only a few of these (UI.AuditPanel.Compact); opts.full
--- (the pinned view, UI.DetailWindow) raises both limits to FULL_LINES and
--- lists the routes no longer available. opts.tip (the
+-- audit panel shows only a few of these (UI.AuditPanel.Compact); the details
+-- window builds its own rows (UI.DetailData). opts.tip (the
 -- tooltip's facts, Facts.Tooltip.Parse) and opts.facts (Facts.Item.Get)
 -- let the lines read the Use line: what using it gives, and an older
 -- system's line.
@@ -80,8 +78,7 @@
 -- is done; an NPC it is used at is named.
 --
 -- Routes (SRC-01, Relations.Applies): one no longer in the game is left out
--- (extra.unavailable holds it for the pinned view's "No longer available",
--- tagged "no longer obtainable"); one for another faction, class or race
+-- (the details window lists it under "No longer available", UI.DetailData); one for another faction, class or race
 -- says so ("(Horde only)", "(Blood Elf only)") with no state, gray, and sits
 -- with the finished lines. An event route adds "During a holiday or event"
 -- for every character, before a line's closing state. These tags come from
@@ -131,7 +128,7 @@
 --     progress ("Linked to "Advanced Husbandry" (3 of 72 done)"), the detail
 --     saying how many of the linked parts are still to do; never a need.
 --   * An older system (item 5, Purposes.Legacy.System): what it was, and in
---     the detail whether it still does anything, with its page.
+--     the detail whether it still does anything (its stillWords).
 --   * What using it gives (items 7, 8): a currency whose count the data
 --     lacks reads "Using it gives 48 Cataloged Research (you have 0 ...)"
 --     from the Use line (English clients, Purposes.UseEffect.GainCount).
@@ -174,7 +171,6 @@ local U = CobySuite_Recollect.Utilities
 local Try = Recollect.Utilities.Try
 local MAX_LINES = 8
 local MAX_SOURCES = 4
-local FULL_LINES = 300   -- the pinned view's limit: an item can buy thousands of things
 local MAX_SELLERS = 2   -- vendors named in one "Buys at" heading
 local DETAIL_CHARS = 160
 local TIER_OPEN, TIER_INFO, TIER_CLOSED = 1, 2, 3   -- still to get or do; no such state; done or out of reach
@@ -837,11 +833,6 @@ local MAX_KINDS = 3
 
 local function Counted(n, one, many) return ("%d %s"):format(n, n == 1 and one or many) end
 
-local function Joined(parts)
-  if #parts <= 1 then return parts[1] or "" end
-  return table.concat(parts, ", ", 1, #parts - 1) .. " and " .. parts[#parts]
-end
-
 -- "4 decor and 2 pets": the kinds with the most first, three at most, the
 -- rest as other collectibles
 local function KindWords(missing)
@@ -1193,7 +1184,7 @@ end
 
 -- What a key opens: "Opens a treasure in Zone (x, y) (not looted)", holding
 -- what; "Used at a spot in Zone (x, y)" for an object that holds nothing.
--- One that takes several ("with 1000") says how many you have.
+-- One that takes several (": takes 1000") says how many you have.
 local function OpensLine(relation, places, stateless, itemID)
   local object = Recollect.Facts.Vendors.Object(relation.id)
   if not object then return nil end
@@ -1518,8 +1509,8 @@ end
 -------------------------------------------------------------------------------
 -- An older expansion's system (item 5, Purposes.Legacy.System: a Runecarving
 -- memory, a Heart of Azeroth essence, an Ashjra'kamas upgrade): what the
--- system was, and in the detail whether it still does anything, with the
--- page that says so. English clients only (the system is named from the Use
+-- system was, and in the detail whether it still does anything (the
+-- system's stillWords). English clients only (the system is named from the Use
 -- text); nil when no system is named or the text hasn't loaded. "(you know
 -- it)" only for a system the item teaches, on the logged-in character's
 -- tooltip.
@@ -1580,9 +1571,8 @@ end
 
 local SkillLineName = SkillName
 
--- The recipes the Lab read that take it (g codes): one line per profession,
--- or every recipe in full
-local function ReagentLines(relations, full)
+-- The recipes the Lab read that take it (g codes): one line per profession
+local function ReagentLines(relations)
   local byProfession, order, lines = {}, {}, {}
   for _, relation in ipairs(relations) do
     local recipe = Relations().Recipe(relation.id)
@@ -1598,21 +1588,10 @@ local function ReagentLines(relations, full)
   for _, skill in ipairs(order) do
     local list = byProfession[skill]
     local profession = skill > 0 and SkillLineName(skill) or nil
-    if full then
-      for _, r in ipairs(list) do
-        local ok, name = Try(seams.SpellName, r.relation.id)
-        local product = r.recipe and r.recipe.product and r.recipe.product > 0 and ItemName(r.recipe.product) or nil
-        lines[#lines + 1] = { text = ("Reagent in %s (takes %d)%s"):format(
-          ok and type(name) == "string" and name or ("recipe " .. r.relation.id), r.relation.count or 1,
-          product and (", which makes " .. product) or ""),
-          color = U.Colors.LIGHT_GRAY }
-      end
-    else
-      -- reagentTotal: every profession's count together, which a headline
-      -- names instead of one profession's (item 11)
-      lines[#lines + 1] = { text = ("Reagent in %d %s%s"):format(#list, profession and (profession .. " ") or "",
-        #list == 1 and "recipe" or "recipes"), color = U.Colors.LIGHT_GRAY, reagentTotal = #relations }
-    end
+    -- reagentTotal: every profession's count together, which a headline
+    -- names instead of one profession's (item 11)
+    lines[#lines + 1] = { text = ("Reagent in %d %s%s"):format(#list, profession and (profession .. " ") or "",
+      #list == 1 and "recipe" or "recipes"), color = U.Colors.LIGHT_GRAY, reagentTotal = #relations }
   end
   return lines
 end
@@ -1724,36 +1703,6 @@ local function ReadQuestsFirst(relations, budget)
       if ok and on == true then Recollect.Facts.QuestInfo.Get(relation.id, budget) end
     end
   end
-end
-
--- How a route no longer in the game reads when its name can't be read now
-local GONE_WORDS = { objective = "Objective of quest %d", questItem = "Used in quest %d", starts = "Starts quest %d",
-  reward = "Reward from quest %d", choice = "A choice reward from quest %d", usedAt = "Used at a creature (NPC %d)",
-  soldBy = "Sold by a vendor (NPC %d)", dropsFrom = "Drops from a creature (NPC %d)", opens = "Opens object %d",
-  buysDecor = "Bought housing decor (item %d)", reagentOf = "A reagent of recipe %d", currency = "Named currency %d",
-  linked = "Linked to achievement %d", foundIn = "Found in object %d", zoneDrop = "Drops in zone %d",
-  craftedBy = "Crafted with recipe %d", partOf = "A part of item %d", achievementReward = "Reward from achievement %d",
-  journalDrop = "Drops from a boss (encounter %d)", renownReward = "A renown reward of faction %d",
-  blackMarket = BLACK_MARKET_TEXT, tradingPost = "Offered at the Trading Post" }
-
--- A route no longer in the game, worded for the pinned view
-local function UnavailableLine(relation, budget, itemID)
-  local text
-  if relation.kind == "buys" and relation.thing == "a" then
-    local a = Recollect.Facts.Achievements.Get(relation.id)
-    text = ("Counted toward %s"):format(a and ("\"" .. a.name .. "\"") or ("achievement " .. relation.id))
-  elseif relation.kind == "buys" then
-    local thing = Recollect.Facts.Buys.Resolve(relation, { isViewer = false })
-    local name = thing and (Recollect.Facts.Buys.Name(thing) or (thing.what .. " " .. thing.id)) or ("thing " .. relation.id)
-    -- the whole price, this item named (Facts.Chains.TradeWords)
-    text = ("Bought %s for %s"):format(name, UsedFor.TradeWords(relation, itemID))
-  else
-    local line = Build(Line, relation, {}, budget, true)
-    text = line and line.text or (GONE_WORDS[relation.kind] or "%d"):format(relation.id or 0)
-  end
-  -- the x flag's tag, as the pinned view's rows word it (D19)
-  local tag = Relations().ConditionTag("unavailable")
-  return { text = ("%s (%s)"):format(text, tag.after), color = U.Colors.LABEL_GRAY, tier = TIER_CLOSED, tags = { tag } }
 end
 
 -- "Starts "Q" (not done)" for the quest the item starts, or nil while it loads
@@ -1897,7 +1846,6 @@ end
 function UsedFor.Lines(itemID, stack, owner, opts)
   opts = opts or {}
   owner = owner or Recollect.Verdicts.Rows.Owner()
-  local full = opts.full
   local stateless = not owner.isViewer
   local R = Relations()
   local budget = Recollect.Facts.QuestInfo.FrameBudget()
@@ -1973,7 +1921,7 @@ function UsedFor.Lines(itemID, stack, owner, opts)
     Append(lines, EndeavorLines(itemID))   -- the neighborhood's endeavor is the logged-in character's
   end
   Append(lines, RecordedLines(itemID))
-  Append(lines, ReagentLines(reagents, full))
+  Append(lines, ReagentLines(reagents))
   -- Vendors recorded in game that take the item itself, or sell it
   local Vendors = Recollect.Facts.Vendors
   local taking, selling = Vendors.ForCostItem(itemID)[1], Vendors.Selling(itemID)[1]
@@ -1988,9 +1936,9 @@ function UsedFor.Lines(itemID, stack, owner, opts)
     sources[#sources + 1] = { text = VendorText("Sold by", selling), color = U.Colors.LIGHT_GRAY, place = selling }
   end
   local buyPlaces = {}
-  local max = full and FULL_LINES or MAX_LINES
-  -- every purchase tallied for the panel's one-line summary (not the pinned view's)
-  local tally = not full and Tally() or nil
+  local max = MAX_LINES
+  -- every purchase tallied for the panel's one-line summary
+  local tally = Tally()
   local entries, total = Entries(itemID, decor, buys, buyApplies, owner, max, budget, tally)
   local uses = Assemble(Merge(lines), entries, max, pending, buyPlaces, total)
   local gone = GoneLine(unavailable, not AnyUse(uses) and pending == 0
@@ -2001,7 +1949,7 @@ function UsedFor.Lines(itemID, stack, owner, opts)
   Append(places, sourcePlaces)
   -- Where it comes from keeps the relations' order, then "and N more"
   local merged, comesFrom = Merge(sources), {}
-  local maxSources = full and FULL_LINES or MAX_SOURCES
+  local maxSources = MAX_SOURCES
   for i = 1, math.min(#merged, maxSources) do comesFrom[i] = merged[i] end
   if #merged > maxSources then comesFrom[#comesFrom + 1] = More(("and %d more"):format(#merged - maxSources)) end
   if pendingSources > 0 then comesFrom[#comesFrom + 1] = More(("%d more still being checked"):format(pendingSources)) end
@@ -2015,12 +1963,7 @@ function UsedFor.Lines(itemID, stack, owner, opts)
         goneSources == 1 and "way to get it is" or "ways to get it are"))
     end
   end
-  local extra = { pending = pending, pendingSources = pendingSources, unavailable = {}, buys = BuySummary(tally) }
-  if full then
-    local none = { left = 0 }
-    for i = 1, math.min(#unavailable, FULL_LINES) do extra.unavailable[i] = Build(UnavailableLine, unavailable[i], none, itemID) end
-    if #unavailable > FULL_LINES then extra.unavailable[#extra.unavailable + 1] = More(("and %d more"):format(#unavailable - FULL_LINES)) end
-  end
+  local extra = { pending = pending, pendingSources = pendingSources, buys = BuySummary(tally) }
   return uses, places[1], comesFrom, extra
 end
 

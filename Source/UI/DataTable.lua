@@ -28,6 +28,12 @@
 --       bar = function(row) -> 0 to 1 or nil,   (a progress bar behind the
 --         cell's text, as wide as that share of the column)
 --       barColor = { r, g, b, a },
+--       fill = function(row) -> { r, g, b, a } or nil,   (the whole cell's
+--         background, behind any bar: a muted tint that keeps the text readable)
+--       aside = { width, text = function(row) -> string },   (a second text
+--         in a slot of its own at the cell's right, left-justified, so it
+--         starts at the same place on every row: the curator console's
+--         "75 (6.0 KB)", the count right-justified before it)
 --       icon = function(row) -> fileID or atlas, true,    (first column)
 --       button = { shown = function(row), onClick = function(row, button),
 --         onEnter = function(button, row), alt = function(row),
@@ -57,6 +63,7 @@ local SortDir = CobySuite_Recollect.SortDir
 local HEADER_HEIGHT = 20
 local ICON = 16
 local SCROLL_ROOM = 22   -- the scroll bar sits right of the rows
+local ASIDE_GAP = 4      -- between a cell's text and its aside
 local MEASURE_ROWS = 2000   -- rows a divider's double-click measures
 local FIT_ROWS = 300        -- rows FitView measures, so opening an item never hitches
 
@@ -111,11 +118,20 @@ local function MakeRow(t, list, i)
   CobySuite_Recollect.UI.AddHoverHighlight(row)
   row.Icon = row:CreateTexture(nil, "ARTWORK")
   row.Icon:SetSize(ICON, ICON)
-  row.cells, row.bars, row.barRoom = {}, {}, {}
+  row.cells, row.asides, row.bars, row.barRoom, row.fills = {}, {}, {}, {}, {}
   for c = 1, t.maxCells do
     local text = row:CreateFontString(nil, "OVERLAY", U.Fonts.DATA)
     text:SetWordWrap(false)
     row.cells[c] = text
+    local aside = row:CreateFontString(nil, "OVERLAY", U.Fonts.DATA)
+    aside:SetWordWrap(false)
+    aside:SetJustifyH("LEFT")
+    aside:Hide()
+    row.asides[c] = aside
+    local fill = row:CreateTexture(nil, "BORDER", nil, -1)
+    fill:SetHeight(math.max(2, rowHeight - 2))
+    fill:Hide()
+    row.fills[c] = fill
     local bar = row:CreateTexture(nil, "BORDER")
     bar:SetHeight(math.max(2, rowHeight - 6))
     bar:Hide()
@@ -275,7 +291,10 @@ function Table:Layout()
     if row.AltButton and not view.buttonColumn then row.AltButton:Hide() end
     for c = 1, self.maxCells do
       local col, text, b = columns[c], row.cells[c], bounds[c]
+      local aside, asideSpec = row.asides[c], col and view.columns[c] and view.columns[c].aside
       text:ClearAllPoints()
+      aside:ClearAllPoints()
+      aside:SetShown(asideSpec ~= nil)
       if not col then
         text:Hide()
       elseif view.columns[c] and view.columns[c].button then
@@ -298,11 +317,22 @@ function Table:Layout()
         -- every cell has its column's width, so a long text ends in "..."
         -- inside its own column
         text:SetPoint("LEFT", row, "LEFT", b.left + inset, 0)
-        text:SetWidth(math.max(b.width - inset - 4, 10))
+        local room = b.width - inset - 4
+        if asideSpec then
+          local asideW = math.min(asideSpec.width or 0, math.max(room - 10, 0))
+          aside:SetPoint("LEFT", row, "LEFT", b.left + b.width - 4 - asideW, 0)
+          aside:SetWidth(math.max(asideW, 1))
+          room = room - asideW - ASIDE_GAP
+        end
+        text:SetWidth(math.max(room, 10))
         local bar = row.bars[c]
         bar:ClearAllPoints()
         bar:SetPoint("LEFT", row, "LEFT", b.left + 2, 0)
         row.barRoom[c] = math.max(b.width - 4, 1)
+        local fill = row.fills[c]
+        fill:ClearAllPoints()
+        fill:SetPoint("LEFT", row, "LEFT", b.left + 1, 0)
+        fill:SetWidth(math.max(b.width - 2, 1))
       end
     end
   end
@@ -328,7 +358,8 @@ function Table:MeasureColumn(key, c, limit)
   end
   if widest <= 0 then return nil end
   local inset = c == 1 and (ICON + 8) or 4
-  return math.ceil(widest + inset + 4 + 2)   -- Layout's inset and right gap, and a pixel each side
+  local aside = col.aside and (col.aside.width or 0) + ASIDE_GAP or 0
+  return math.ceil(widest + aside + inset + 4 + 2)   -- Layout's inset and right gap, and a pixel each side
 end
 
 -- The columns of a view the user sized ({ [colKey] = true }), kept in the
@@ -429,6 +460,17 @@ function Table:Paint()
           text:SetText((col.markup and col.markup(data) or "") .. (col.text and col.text(data) or ""))
           local color = col.color and col.color(data) or U.Colors.HIGHLIGHT_WHITE
           text:SetTextColor(color[1], color[2], color[3])
+          if col.aside then
+            frame.asides[c]:SetText(col.aside.text and col.aside.text(data) or "")
+            frame.asides[c]:SetTextColor(color[1], color[2], color[3])
+          end
+        end
+        local fill, tint = frame.fills[c], col and col.fill and col.fill(data)
+        if type(tint) == "table" then
+          fill:SetColorTexture(tint[1], tint[2], tint[3], tint[4] or 0.25)
+          fill:Show()
+        else
+          fill:Hide()
         end
         local bar, share = frame.bars[c], col and col.bar and col.bar(data)
         if type(share) == "number" then

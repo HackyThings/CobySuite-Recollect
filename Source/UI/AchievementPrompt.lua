@@ -69,7 +69,7 @@ local waiting = false   -- asked in combat: show the window once it ends
 
 local function Body(achievementID)
   local ok, name = pcall(Prompt.seams.Name, achievementID)
-  local what = (ok and type(name) == "string" and name ~= "") and ("|cffffd100" .. name .. "|r") or "the achievement"
+  local what = (ok and type(name) == "string" and name ~= "") and U.WrapColor(U.Colors.STATUS_GOLD, name) or "the achievement"
   return "Blizzard's achievement window is closed. Open it with the button below, so the game opens it "
     .. "itself; Recollect then shows " .. what .. " in it.\n\n"
     .. "(When an addon opens that window itself, the game counts what happens in it afterwards as the "
@@ -113,13 +113,7 @@ local function Build()
   -- (the pattern of the old channel's leave prompt, verified in game 2026-09-28)
   dialog.Open = CobySuite_Recollect.UI.CreateButton(dialog, { text = "Open achievements", size = { 150, U.ButtonSize.MEDIUM.height },
     point = { "BOTTOMLEFT", dialog, "BOTTOMLEFT", PAD, 14 }, template = "UIPanelButtonTemplate, InsecureActionButtonTemplate" })
-  dialog.Open:RegisterForClicks("LeftButtonUp")
-  dialog.Open:SetAttribute("useOnKeyDown", false)
-  dialog.Open:SetAttribute("type", "macro")
-  dialog.Open:SetAttribute("macrotext", Prompt.MACRO)
-  dialog.Open:SetAttribute("shift-type*", "")
-  dialog.Open:SetAttribute("ctrl-type*", "")
-  dialog.Open:SetAttribute("alt-type*", "")
+  CobySuite_Recollect.UI.ConfigureSecureClicker(dialog.Open, { type = "macro", macrotext = Prompt.MACRO, blockModified = true })
   dialog.Open:HookScript("PostClick", function()
     if Prompt.seams.InCombat() then
       Prompt.seams.Message("The achievement window can't be opened from here in combat; click Open achievements again once combat ends.")

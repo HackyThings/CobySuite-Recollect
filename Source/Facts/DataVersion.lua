@@ -25,7 +25,7 @@
 local DataVersion = {}
 Recollect.Facts.DataVersion = DataVersion
 
--- The data formats this Recollect reads (1: the files before the stamps; 2:
+-- The data formats (1: the files before the stamps, no longer read; 2:
 -- the stamps and the curator indexes; 3: the gold-only trade code V and the
 -- display-only route conditions P, E and Q; 4: the sources D (Encounter
 -- Journal loot), N (a renown reward), O (the Black Market) and U (the

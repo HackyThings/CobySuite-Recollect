@@ -24,7 +24,8 @@
 -- and the end is a collectible still missing), "done" (the end is had, or a
 -- one-time quest on the way is done), "other" (a link, or the end's own
 -- purchase, is for another faction, class or race, or no longer in the
--- game) or "unread" (a link or
+-- game), "plain" (the end is a plain item with nothing to own, every link
+-- read) or "unread" (a link or
 -- the end can't be read yet, or is another character's to read), and the
 -- thing as Facts.Buys resolved it. Summary(itemID, owner, budget) tallies
 -- the ends and names the first open one (else the first unread, else any).
@@ -195,7 +196,7 @@ end
 
 local END_STATE = { missing = "open", have = "done", unavailable = "other" }
 
--- State(entry, owner, budget): "open", "done", "other" or "unread"; the
+-- State(entry, owner, budget): "open", "done", "other", "plain" or "unread"; the
 -- thing Facts.Buys resolved; the quests on the way { [questID] = facts }
 function Chains.State(entry, owner, budget)
   owner = owner or Recollect.Verdicts.Rows.Owner()

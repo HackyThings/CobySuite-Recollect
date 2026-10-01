@@ -251,9 +251,10 @@ function UI.ListEmptyText(tab, total, shown)
   return "Nothing to list yet. Recollect reads your bags once the game has loaded them; open your bank once so it can list that too."
 end
 
--- The hint on the summary's line: how to see why, and every detail
-local function HintText()
-  local key = Recollect.PanelKeyName and Recollect.PanelKeyName() or "Alt"
+-- The hint on the summary's line: how to see why, and every detail (with the
+-- tooltip off there is no key to name)
+function UI.ListHintText()
+  local key = Recollect.PanelKeyName and Recollect.PanelKeyName()
   if key == nil then return "Click a row for everything about it." end
   if key == "always" then return "Point at a row for its audit; click it for everything." end
   return ("Hold %s over a row for its audit; click it for everything."):format(key)
@@ -339,7 +340,7 @@ function UI.RefreshList()
   end
   scrollBox:SetDataProvider(provider, ScrollBoxConstants.RetainScrollPosition)
   window.Summary:SetText(UI.ListSummary(rows, #allRows))
-  window.Hint:SetText(HintText())
+  window.Hint:SetText(UI.ListHintText())
   local empty = UI.ListEmptyText(TabDef(activeTab), #allRows, #rows)
   window.Empty:SetText(empty or "")
   window.Empty:SetShown(empty ~= nil)

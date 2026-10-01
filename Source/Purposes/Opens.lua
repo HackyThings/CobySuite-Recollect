@@ -10,6 +10,8 @@
 --   every one looted                               Unknown, "Opens a treasure
 --                                                  in Zone": the key may open
 --                                                  another, or respawn; settled
+--                                                  unless it is also used at an
+--                                                  NPC
 --   no loot quest to read, or history loading      Unknown, the same headline
 --   only NPCs it is used at                        Unknown, "Used at Name"
 -- An object with no known position still counts; it just names no place.

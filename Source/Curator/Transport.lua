@@ -12,15 +12,16 @@
 -- Alliance curator's collection reached the Horde author the same day. An
 -- addon message on the community's own chat channel is never delivered to
 -- another player, so the community is only the member list.
---   - A message to one addressee whose character is known goes to that
---     character (Route: the author's once a message from them passed the
---     role check, a curator's once its R came in).
+--   - Every reply goes to the character that asked, by name (SendTo,
+--     security design B). A curator ID's route (Route) is set only by the
+--     suites.
 --   - A message with no route is whispered to each character Recipients
 --     names from the community's member list, online ones only (a whisper
 --     to someone offline prints "No player named ..." in the sender's
 --     chat): to everyone (Protocol.ALL, the presence check), every online
 --     member; to the author with no route yet (a curator's O and L), every
---     online Owner and Leader. Its onSent runs once the last copy has left.
+--     online collector character (Const.COLLECTORS holding Owner or Leader).
+--     Its onSent runs once the last copy has left.
 --   - Test-mode traffic is honoured only from this very character (D23), so
 --     it is whispered to this character itself: it goes through the server's
 --     send path, and the local echo delivers it.
@@ -42,9 +43,8 @@
 -- any match; a secret argument drops the message. Messages with the prefix
 -- are decoded (Protocol.Decode) and handed to every handler of their type
 -- (the curator side, and the author's console in development builds), with
--- the server-stamped sender in canonical "Name-Realm" form. A whisper is
--- read; so is the old hidden channel (a 0.0.1c client still sends on it) and
--- a message with no channel name (the loopback). LOCAL_ECHO hands each
+-- the server-stamped sender in canonical "Name-Realm" form. Only whispers
+-- are read (security design T11; the loopback whispers too). LOCAL_ECHO hands each
 -- message sent to this client's own handlers once and drops any copy the
 -- server returns.
 -- Tally() says what went out and came back; OnSent(text, result, locally),
@@ -159,7 +159,7 @@ function Transport.Describe(msg)
     end
   end
   -- fields joined by " / ": a "|" would read as a color code in the debug window ("|r" swallowed "on|resting")
-  return ("%s (%s) to %s [%s]"):format(tostring(msg.kind), msg.mode == "t" and "test" or "live", tostring(msg.to),
+  return ("%s (%s) to %s [%s]"):format(tostring(msg.kind), Protocol.IsTest(msg.mode) and "test" or "live", tostring(msg.to),
     table.concat(shown, " / "))
 end
 
@@ -201,16 +201,24 @@ local function FindStream(clubId)
   return nil
 end
 
--- Community(): { clubId, streamId, channelName }, or nil while this
--- character isn't in the community (or its stream can't be seen)
+-- Community(): { clubId, streamId, channelName } while this character is
+-- in the community, else nil. Membership is the club alone: a club's
+-- streams can load seconds after it at login, and a member whose stream
+-- hadn't loaded was asked to join (2026-09-30). streamId and channelName
+-- are nil until the stream shows (only the route test's community channel
+-- uses them); the answer is kept once both are found, and looked up again
+-- until then
 function Transport.Community()
   if community then return community end
   local clubId = FindClub()
-  local streamId = clubId and FindStream(clubId)
-  if not streamId then
-    NoteCommunity(clubId and ("found club %s, but not its %s stream"):format(tostring(clubId), Curator.Const.STREAM_NAME)
-      or ("not found among this character's communities (looking for club %s)"):format(tostring(Curator.Const.CLUB_ID)))
+  if not clubId then
+    NoteCommunity(("not found among this character's communities (looking for club %s)"):format(tostring(Curator.Const.CLUB_ID)))
     return nil
+  end
+  local streamId = FindStream(clubId)
+  if not streamId then
+    NoteCommunity(("found club %s; its %s stream hasn't loaded yet"):format(tostring(clubId), Curator.Const.STREAM_NAME))
+    return { clubId = clubId }
   end
   community = { clubId = clubId, streamId = streamId,
     channelName = ("Community:%s:%s"):format(tostring(clubId), tostring(streamId)) }
@@ -232,7 +240,7 @@ end
 -- Routes: which character a message to an addressee is whispered to
 -------------------------------------------------------------------------------
 -- Route(to, name): whisper what goes to this curator ID to this character
--- from now on (the route test's and the suites' own use). Never the
+-- from now on (the suites' own use). Never the
 -- author's address, everyone's or anything that isn't a curator ID: every
 -- reply goes to its sender by name (security design B), and a claimed
 -- curator ID never steers another message

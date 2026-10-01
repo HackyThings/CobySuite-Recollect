@@ -41,8 +41,8 @@ Curator.Protocol = Protocol
 
 -- The transport version (Cobanyte, 2026-09-28): what the author's console
 -- and a curator must share for a pull, whatever their addon versions. It
--- covers the messages (types, fields, order), the packing (CBOR, Deflate,
--- Base64, chunking, the checksum) and the payload's shape (records, stamps,
+-- covers the messages (types, fields, order), the packing (CBOR, Base64,
+-- chunking, the checksum; no Deflate since protocol 2) and the payload's shape (records, stamps,
 -- contexts, quests, notes). Raise it only when a change breaks an older
 -- client: a field removed, moved or read differently, or the packing
 -- changed. A field added that the other side can do without keeps it (the
@@ -73,8 +73,6 @@ function Protocol.EncodedSize(raw)
   return 4 * math.ceil(raw / 3)
 end
 
--- What the author accepts before decoding: a large block, encoded
-Protocol.MAX_PAYLOAD = Protocol.EncodedSize(Protocol.LARGE_RAW)
 
 -- A message type in words, for what players read (the diagnostic lines, the
 -- dashboard's last message not answered)

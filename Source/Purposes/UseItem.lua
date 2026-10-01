@@ -16,7 +16,8 @@
 --                                                         so no other check's
 --                                                         Outdated slips through
 -- Only the subclasses no other check reads: Junk (0), Holiday (3) and Other
--- (4); reagents, companion pets, mounts and mount equipment have their own.
+-- (4). Crafting reagents, companion pets and mounts go to their own checks
+-- (Reagent, Pet, Mount); no check reads mount equipment (6) yet.
 -- Toys and other collections are left to their checks (Registry.CollectionItem).
 --
 -- UseEffect (shared with Consumable, and for the panel): what an older

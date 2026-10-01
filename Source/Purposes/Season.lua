@@ -33,9 +33,10 @@
 -- Toys, mounts, pets, ensembles and weapon illusions are left to their own
 -- checks (rule 24). A result for a season of this expansion that isn't the
 -- current one carries supersedes: the checks that call an item current by
--- its expansion alone (Consumable, Use effect, Reagent, Combine) then only
--- inform (Verdicts.Settle), so "a current-expansion consumable" never
--- outranks the season. The word "Season" is English, so this check runs on
+-- its expansion alone (Consumable, Use effect, Reagent), and Combine, whose
+-- counts never weigh the season, then only inform (Verdicts.Settle), so "a
+-- current-expansion consumable" never outranks the season. The word "Season"
+-- is English, so this check runs on
 -- English clients only.
 -------------------------------------------------------------------------------
 local R = Recollect.Purposes.Registry
@@ -52,7 +53,8 @@ Recollect.Purposes.Season = Season
 local client = Recollect.Purposes.client
 
 -- The checks whose Useful or Use now rests on the item being of the current
--- expansion; a season result that isn't "current" makes them only inform
+-- expansion, and Combine, whose counts never weigh the season; a season
+-- result that isn't "current" makes them only inform
 Season.SUPERSEDES = { consumable = true, useItem = true, reagent = true, combine = true }
 
 -- Products checked for an appearance still to collect (a spark is a reagent

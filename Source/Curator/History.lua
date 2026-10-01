@@ -10,7 +10,8 @@
 -- loopback cover it as they cover notes):
 --   since    the server time the history began (entries exist only from the
 --            version that added it on)
---   entries  newest first: { request, mode ("l" live, "t" test), by (the
+--   entries  newest first: { request, mode ("L" live, "T" test; "l" and "t"
+--            in entries from before protocol 2), by (the
 --            author's character that asked), localOnly, prompt (asked you
 --            first), state, why, asked, started, ack, saved, ended (server
 --            times), contents }
@@ -20,9 +21,9 @@
 --              format, bytes (packed, as sent), parts }
 --   delivered { collections, findings, stamps, notes }: what the author
 --            saved since the history began, added up at each save, so it
---            outlasts the entries the caps drop (the dashboard's Delivered;
---            a history from before the counter starts it from its saved
---            entries)
+--            outlasts the entries the caps drop (the dashboard's Saved by
+--            the author tile; a history from before the counter starts it
+--            from its saved entries)
 -- States: asked (starting, or waiting for your answer when prompt),
 -- sending, acknowledged (the author has it, waiting for V), saved (V: the
 -- author's copy is on disk, so the findings were deleted here), kept (V's
@@ -32,7 +33,7 @@
 -- findings aren't sent again unless they change), lost (V: the
 -- author's copy was lost; its findings went back to pending and travel with
 -- a later collection), cancelled (why: "you" or "author"), refused (why: the
--- reason S carried: busy, nodata, empty, declined, pack), replaced (a new
+-- reason S carried: busy, nodata, empty, declined, pack, large), replaced (a new
 -- request came while this one waited for K; its findings stay pending),
 -- interrupted (the game closed or reloaded mid-way, or it never started:
 -- curator mode toggled between the request and its start), expired (a

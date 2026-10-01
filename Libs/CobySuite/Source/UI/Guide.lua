@@ -12,7 +12,7 @@
 --   local guide = CobySuite.UI.CreateGuideWindow({
 --     name       = "MyAddonGuideWindow",   -- optional global name; Escape closes a named guide
 --     title      = "My Addon Guide",
---     icon       = "Interface\Icons\INV_Misc_Book_09",  -- optional, left of the title (CreateWindow)
+--     icon       = "Interface\\Icons\\INV_Misc_Book_09",  -- optional, left of the title (CreateWindow)
 --     intro      = "A line above the sections.",           -- optional
 --     footer     = "Open this guide any time with /ma guide",   -- optional: a strip along the
 --                                                        -- bottom that doesn't scroll (color codes welcome)
@@ -209,12 +209,15 @@ local function PaintButton(button)
   end
 end
 
--- Reads every function body again (on show, before the layout measures it)
+-- Reads every function body and button label again, then lays the guide out
+-- again while it is shown, so a body whose text changed length gets its new
+-- height (on show, after a button click, or from an outside call)
 function GuideMixin:RefreshBodies()
   for _, s in ipairs(self.sections) do
     if type(s.def.body) == "function" then s.text:SetText(Paragraphs(s.def.body)) end
     for _, button in ipairs(s.buttons or {}) do PaintButton(button) end
   end
+  if self:IsShown() then self:Relayout() end
 end
 
 -- A row of buttons under the section's text: things the section talks about
@@ -464,10 +467,7 @@ function UI.CreateGuideWindow(opts)
 
   f:RestoreState()
   f:SetScript("OnSizeChanged", function(self) self:Relayout() end)
-  f:HookScript("OnShow", function(self)
-    self:RefreshBodies()
-    self:Relayout()
-  end)
+  f:HookScript("OnShow", function(self) self:RefreshBodies() end)
   f:Relayout()
   return f
 end
@@ -488,6 +488,7 @@ end
 --     entries = MyAddon.Data.Changelog,   -- newest first: { version, title, date, icon, new, changed, fixed }
 --     version = MyAddon.VERSION,          -- the TOC's
 --     state   = function() return MY_ADDON_WINDOW_STATE end,   -- saved table: holds lastVersion and the window's place
+--     persistKey = "changelogWindow",     -- optional: the key under state() for the window's place (the default)
 --     onFirstRun = function() MyAddon.Guide.Show() end,          -- optional: a fresh install
 --     existingInstall = function() return MyAddon.hadSavedConfig end, -- optional: true when the player
 --                                         -- ran the addon before it had this window (its settings

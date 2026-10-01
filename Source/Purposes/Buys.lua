@@ -15,8 +15,10 @@
 --                                                      ...")
 --   a plain item it buys that leads to a collectible   Useful, naming the
 --   still missing (Facts.Chains, contract rule 39:     chain ("Buys Phoenix
---   every link read and serving this character, no     Ash Talisman (1),
---   one-time quest on the way done)                    which leads to ...")
+--   every link read and serving this character, no     Ash Talisman (for 1
+--   one-time quest on the way done)                    Phoenix Feather and
+--                                                      other costs), which
+--                                                      leads to ...")
 --   otherwise                                          Unknown, "Buys N things
 --                                                      from M vendors": a
 --                                                      plain item it buys may

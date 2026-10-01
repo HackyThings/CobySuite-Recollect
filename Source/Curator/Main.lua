@@ -28,10 +28,13 @@
 --     never read into or changed here; a pull sends one block whole with
 --     its own versions once no live finding is pending (Sharing.Snapshot),
 --     and the data build reads each by the versions it carries.
--- A change of data version, format or schema freezes the live recorder
--- fields into a new block at the next load and recording starts empty
--- (Cobanyte, 2026-09-28, replacing D14's clear: a curator's unsent findings
--- survive any number of updates, and the client never migrates them).
+-- A change of data version or format freezes the findings not handed over
+-- yet into a new block at the next load (Main.Freeze: what the author
+-- acknowledged stays live with its request, a revision he rejected goes),
+-- and a newer schema freezes them too; findings of a schema older than
+-- FIRST_KEPT_SCHEMA are dropped (Cobanyte, 2026-09-28, replacing D14's
+-- clear: a curator's unsent findings survive any number of updates, and the
+-- client never migrates them).
 -- Notes are cleared only where the author already has them (Notes.OnDataVersionChanged).
 -------------------------------------------------------------------------------
 local Curator = Recollect.Curator
@@ -79,9 +82,10 @@ local function Block(db, schema)
 end
 
 -- The saved table, made valid (a table, the schema, an ID, every recorder
--- field). A table of another schema, older or newer, keeps its findings as
--- a frozen block labelled with that schema; one with no schema number at
--- all is unreadable and starts over, keeping only what outlives findings
+-- field). A table of a newer schema keeps its findings as a frozen block
+-- labelled with that schema; one older than FIRST_KEPT_SCHEMA (Old) drops
+-- them, and one with no schema number at all is unreadable: both start
+-- over, keeping only what outlives findings
 function Main.DB()
   if type(RECOLLECT_CURATOR_DB) ~= "table" or RECOLLECT_CURATOR_DB.schema ~= SCHEMA then
     local keep = type(RECOLLECT_CURATOR_DB) == "table" and RECOLLECT_CURATOR_DB or {}

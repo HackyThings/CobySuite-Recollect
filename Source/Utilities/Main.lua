@@ -13,7 +13,7 @@ Utilities.Message = CobySuite_Recollect.Chat.NewMessenger({
 -- index with or store as a fact
 ---------------------------------------------------------------------------
 function Utilities.IsSecret(value)
-  return issecretvalue ~= nil and issecretvalue(value) and true or false
+  return CobySuite_Recollect.Utilities.IsSecret(value)
 end
 
 -- Looked up per call (not captured), so suites can script secret values

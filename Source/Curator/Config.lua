@@ -100,7 +100,7 @@ Curator.Const = {
   -- Items with no information (Recorders/NoInfo.lua, spec
   -- Recollect-No-Info-Items-Spec-2026-09-28): at most NOINFO_CAP live ni:
   -- records (about 135 KB of the 1 MB); NOINFO_REPORTED_CAP delivered marks
-  -- kept per data version; NOINFO_PLACES named places per item (a fourth
+  -- kept across data versions; NOINFO_PLACES named places per item (a fourth
   -- counts on the newest); NOINFO_SLICE items a sweep job compares;
   -- NOINFO_PENDING items waiting for their data at once, each for at most
   -- NOINFO_PENDING_SECONDS

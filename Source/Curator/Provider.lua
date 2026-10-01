@@ -68,7 +68,6 @@ Provider.SETTINGS_TEXT = {
   "Your findings stay under 1 MB and are deleted once the author has saved them. Turning this off stops recording and offers to delete them.",
 }
 
--- One status line for the settings category
 -- IsAvailable(): whether curator mode can run in this game region (Main.Available)
 function Provider.IsAvailable()
   return Curator.Main.Available() == true
@@ -79,6 +78,7 @@ Provider.REGION_TEXT = "Curator mode isn't available in your game region. It wor
   .. "region, where Recollect's author plays, because curators and the author have to reach each other in game to "
   .. "hand findings over. Everything else in Recollect works as usual."
 
+-- One status line for the settings category
 function Provider.Status()
   local main = Curator.Main
   if not main then return "" end

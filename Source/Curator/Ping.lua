@@ -294,7 +294,9 @@ function Ping.Environment()
     tostring(T.Activity()))
   Add("Prefix %s registered: %s", Curator.Const.PREFIX, tostring(Seam("PrefixRegistered", Curator.Const.PREFIX)))
   local community = T.Community()
-  if community then
+  if community and not community.channelName then
+    Add("Community: club %s found; its %s stream hasn't loaded yet", tostring(community.clubId), Curator.Const.STREAM_NAME)
+  elseif community then
     local id, name, instanceID, isCommunities = Seam("ChannelInfo", community.channelName)
     Add("Community channel: %s; GetChannelName says id %s, name %s, instance %s, communities channel %s",
       community.channelName, tostring(id), tostring(name), tostring(instanceID), tostring(isCommunities))
@@ -336,6 +338,43 @@ local function Timed(label, fn)
   return ok, a, b
 end
 
+-- One valid message of every type, as protocol 2's decoder reads them
+-- exactly (Protocol.SHAPES): { to, fields }. Placeholder fields would fail
+-- every type's field checks
+local FORMAT_SAMPLES = {
+  H = { "ALL", "0123456789ab", "2", "", "", "", "" },
+  R = { "AUTHOR", "0123456789ab", "abcdef0123456789", "0.0.3", "2026.09.30.4", "8", "2", "", "on", "idle", "0", "0", "" },
+  O = { "AUTHOR", "abcdef0123456789", "0.0.3", "2026.09.30.4", "8", "2" },
+  L = { "AUTHOR", "abcdef0123456789" },
+  Q = { "curator", "q1000abcd", "0", "s1.1000", "0", "0" },
+  S = { "AUTHOR", "q1000abcd", "1", "100", "", "records:1,confirms:0,notes:0,more:0" },
+  D = { "AUTHOR", "q1000abcd", "1", "QUJD" },
+  N = { "curator", "q1000abcd", "1,2" },
+  K = { "curator", "q1000abcd", "0123abcd", "v:1@1" },
+  V = { "curator", "q1000abcd", "", "", "", "" },
+  X = { "AUTHOR", "q1000abcd", "by the author" },
+}
+
+-- FormatCheck(): whether every message type encodes and decodes, in words
+-- (the route test's "message format" line)
+function Ping.FormatCheck()
+  local P = Curator.Protocol
+  local kinds, bad = {}, {}
+  for kind in pairs(P.SHAPES) do kinds[#kinds + 1] = kind end
+  table.sort(kinds)
+  for _, kind in ipairs(kinds) do
+    local sample = FORMAT_SAMPLES[kind]
+    local back
+    if sample then
+      local to = sample[1] == "curator" and "abcdef0123456789" or P[sample[1]]
+      local text = P.Encode(kind, P.LIVE, to, unpack(sample, 2))
+      back = text and P.Decode(text)
+    end
+    if not (back and back.kind == kind) then bad[#bad + 1] = kind end
+  end
+  return #bad == 0 and ("every message type encodes and decodes (%d)"):format(#kinds) or ("broken: " .. table.concat(bad, ", "))
+end
+
 function Ping.LocalTests()
   local P, T, M, S = Curator.Protocol, Curator.Transport, Curator.Membership, Curator.Sharing
   Timed("curator mode", function()
@@ -346,18 +385,7 @@ function Ping.LocalTests()
     local v = Host.Versions()
     return ("ok %s, database %s, format %s, addon %s"):format(tostring(v.ok), tostring(v.data), tostring(v.format), tostring(v.addon))
   end)
-  Timed("message format", function()
-    local kinds, bad = { "H", "R", "O", "Q", "S", "N", "K", "V", "X", "L" }, {}
-    for _, kind in ipairs(kinds) do
-      local n = P.FIELDS and P.FIELDS[kind] or 2
-      local fields = {}
-      for i = 1, n do fields[i] = "f" .. i end
-      local text = P.Encode(kind, P.LIVE, P.AUTHOR, unpack(fields))
-      local back = text and P.Decode(text)
-      if not (back and back.kind == kind) then bad[#bad + 1] = kind end
-    end
-    return #bad == 0 and ("every message type encodes and decodes (%d)"):format(#kinds) or ("broken: " .. table.concat(bad, ", "))
-  end)
+  Timed("message format", Ping.FormatCheck)
   Timed("encoding library", function()
     local E = C_EncodingUtil
     return E and ("C_EncodingUtil present: CBOR %s, Base64 %s"):format(tostring(E.SerializeCBOR ~= nil),
@@ -938,8 +966,7 @@ function Ping.Lines()
 end
 
 -------------------------------------------------------------------------------
--- Events: the test's own receivers (the curator protocol ignores RCT~), and
--- the author's client joining the test channel after login
+-- Events: the test's own receivers (the curator protocol ignores RCT~)
 -------------------------------------------------------------------------------
 local frame = CreateFrame("Frame")
 for _, event in ipairs({ "CHAT_MSG_ADDON", "CHAT_MSG_ADDON_LOGGED", "BN_CHAT_MSG_ADDON" }) do

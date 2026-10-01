@@ -9,8 +9,9 @@
 -- loot window, quest turn-in or craft fell inside it (another gain could
 -- have landed: a first craft gives profession knowledge, the same currency
 -- as a notebook), and combat didn't start in it, Compare.Grant records it in a
--- later frame: a random amount is never a conflict. A second item cast
--- while a window is open makes both ambiguous.
+-- later frame: a random amount is never a conflict. A cast of any held
+-- item's Use spell while a window is open (one shared by several items
+-- included) makes both ambiguous.
 -- A currency at its total, seasonal or weekly cap when the window closes
 -- records nothing: the gain may have been cut short by the cap, so the
 -- amount seen may be less than the item gives. A cap that can't be read
@@ -81,8 +82,9 @@ end
 
 -- A player cast (spellID): opens a window for the one item it uses. In
 -- combat nothing is opened (a kill's currency would land in it), and a
--- cast while a window is open makes both windows ambiguous (a delayed gain
--- could belong to either).
+-- cast of any held item's Use spell while a window is open, one several
+-- items share included, makes both windows ambiguous (a delayed gain could
+-- belong to either; as ContainerUse.OnCast)
 function Grants.OnCast(spellID)
   if not Curator.Main.MayRecord() then return end
   if InCombat() then
@@ -90,12 +92,11 @@ function Grants.OnCast(spellID)
     return
   end
   local items = Bags.ItemsForSpell(spellID)
+  if #items == 0 then return end
+  if window then window.ambiguous = true end
   if #items ~= 1 then return end
   local opened = { itemID = items[1], epoch = Curator.Main.Epoch(), gains = {} }
-  if window then
-    window.ambiguous = true
-    opened.ambiguous = true
-  end
+  if window then opened.ambiguous = true end
   window = opened
   Grants.seams.After(Bags.CAST_WINDOW, function() Grants.Finish(opened) end)
 end

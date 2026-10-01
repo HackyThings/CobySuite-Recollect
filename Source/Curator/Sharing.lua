@@ -58,7 +58,7 @@ Sharing.PROMPT_EXPIRES = 30 * 60
 Sharing.LINK = "addon:RecollectCurator:review"
 
 local transfer = nil   -- { request, mode, sender, pending, payload, chunks, checksum, sent, waitingK }
-local prompt = nil     -- { request, mode, sender, override, at }
+local prompt = nil     -- { request, mode, sender, at, localOnly, opts }
 
 local function CuratorID()
   return Curator.Main.CuratorID()
@@ -156,7 +156,8 @@ function Sharing.OnHello(msg)
 end
 
 -- The requests waiting for V: the store's and the notes' (which keep their
--- own, since a new database empties the store's), each once
+-- own, since a new database empties the store's when nothing handed over
+-- stays live, Main.Freeze), each once
 function Sharing.AwaitingIDs()
   local seen, out = {}, {}
   for _, list in ipairs({ Curator.Store.AwaitingIDs(), Curator.Notes.AwaitingIDs() }) do
@@ -190,10 +191,7 @@ local function AddQuest(db, out, index)
   if entry.kind == "delta" and entry.base then AddQuest(db, out, entry.base) end
 end
 
--- A frozen block as a payload: every finding in it as it was, and the
--- versions it was made under (the data build reads it by those). A block of
--- this layout gets its quest bases written out as live ones do; one of
--- another layout goes exactly as stored
+-- SortedKeys(tbl): a table's keys sorted as text, so the same store always cuts the same way
 local function SortedKeys(tbl)
   local keys = {}
   for key in pairs(tbl or {}) do keys[#keys + 1] = key end
@@ -231,6 +229,10 @@ local function FrozenLeft(except)
   return n
 end
 
+-- A frozen block as a payload: every finding in it as it was, and the
+-- versions it was made under (the data build reads it by those). A block of
+-- this layout gets its quest bases written out as live ones do; one of
+-- another layout goes exactly as stored
 local function FrozenSnapshot(block)
   local out = { protocol = Protocol.VERSION, curator = CuratorID(), frozen = true, frozenAt = block.frozenAt,
     records = Copy(block.records or {}), confirms = Copy(block.confirms or {}), contexts = Copy(block.contexts or {}),
@@ -345,7 +347,7 @@ local function SendChunk(seq)
   end
 end
 
--- Pack(opts): the snapshot, what it holds, how many are left and its
+-- PackBlock(opts): the snapshot, what it holds, how many are left and its
 -- payload, halving the observations until it packs within the block's
 -- bytes (LARGE_RAW for a large pull); nil and the refusal's word otherwise
 local function PackBlock(opts)
@@ -393,7 +395,7 @@ end
 
 function Sharing.OnRequest(msg)
   if not Curator.Main.Available() or not FromAuthor(msg) then return end
-  local request, override = msg.fields[1], msg.fields[2]
+  local request = msg.fields[1]
   local opts = { store = msg.fields[3], large = msg.fields[5] == "1" }
   -- the author's hint that he pinned this character (Trusted stamps; Store.Wanted)
   Curator.Store.SetPinned(msg.fields[4] == "1")
@@ -415,7 +417,7 @@ function Sharing.OnRequest(msg)
   Host.Log("Curator collection %s requested by %s (%s)", tostring(request), tostring(msg.sender), state)
   Remember("Asked", request, msg.sender, msg.mode, { prompt = state == "ask", localOnly = localOnly })
   if state == "ask" then
-    prompt = { request = request, mode = msg.mode, sender = msg.sender, override = override, at = GetServerTime(),
+    prompt = { request = request, mode = msg.mode, sender = msg.sender, at = GetServerTime(),
       localOnly = localOnly, opts = opts }
     if Sharing.OnPrompt then pcall(Sharing.OnPrompt, prompt) end
     return

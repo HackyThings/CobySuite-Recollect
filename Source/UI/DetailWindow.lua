@@ -29,7 +29,8 @@
 --                       line; the rest is a container whose plus button lists
 --                       them in an indented box, a slice at a time (Lists in
 --                       the Overview, below; items 4a and 10). An older
---                       system's line (Purposes.Legacy) leads WHAT IT'S FOR
+--                       system's line (Purposes.Legacy) leads WHAT IT'S FOR's
+--                       lines, under the explanation
 --   Buys, Quests & achievements, Crafting, Comes from, What it takes, No
 --   longer available    one table each (UI.DataTable over UI.DetailData's
 --                       rows): sortable columns, a search box, a filter for
@@ -101,8 +102,9 @@ local BULLET = 6
 local INDENT = 14
 local LINE_GAP = 4
 local SECTION_GAP = 10
--- room above a group's title inside a section (Group), the lines under it,
--- WHAT YOU HAVE's tiles (width, height, gap, icon), and an achievement's
+-- a state icon's size, room above a group's title inside a section (Group),
+-- the lines under it, the sections' tiles (width, height, gap, icon; the
+-- fewest entries that get tiles, room above them), and an achievement's
 -- progress bar (width, height)
 local LAYOUT = { STATE_ICON = 12, GROUP_GAP = 8, GROUP_INDENT = 12, TILE_W = 128, TILE_H = 38, TILE_GAP = 6, TILE_ICON = 24,
   BAR_W = 220, BAR_H = 4, TILES_MIN = 6, TILES_GAP = 6 }
@@ -169,7 +171,8 @@ local seams = {
   -- The game's context menu at the cursor (Blizzard_Menu's MenuUtil)
   ContextMenu = function(owner, generator) return MenuUtil.CreateContextMenu(owner, generator) end,
   Hidden = function(frame) return frame ~= nil and not frame:IsShown() end,
-  -- An item's own tooltip facts, for its season tag (Facts.Tooltip)
+  -- An item's own tooltip facts (Facts.Tooltip): its season tag, its Use line
+  -- and its PvP item level
   ItemTooltip = function(itemID) return Recollect.Facts.Tooltip.FromItemID(itemID) end,
   -- The gold on hand, and a price in gold, silver and copper with their icons
   -- (PlayerScriptDocumentation, CurrencyInfoDocumentation), for a cost's tooltip
@@ -932,8 +935,9 @@ function FOR.UseWords(j, handled)
   return table.concat(parts, ", ", 1, #parts - 1) .. " and " .. parts[#parts]
 end
 
--- What its purchases are, by kind: ": 4 decor, 2 pets, 1 toy and 126 other
--- items"; "" when they are all plain items
+-- What its purchases are, by kind in BUY_ORDER: " (2 pets, 1 toy, 4 decor
+-- and 126 other items)"; with only plain items, up to 3 of them named
+-- (" (Illegal Cosmic Emitter)"), else ""
 FOR.BUY_WORDS = { decor = { "decor", "decor" }, toy = { "toy", "toys" }, mount = { "mount", "mounts" },
   pet = { "pet", "pets" }, ensemble = { "appearance set", "appearance sets" }, heirloom = { "heirloom", "heirlooms" },
   recipe = { "recipe", "recipes" }, illusion = { "weapon illusion", "weapon illusions" },
@@ -999,11 +1003,13 @@ end
 
 -- The explanation that opens WHAT IT'S FOR, spelled out for a new player:
 -- what the item is and where it's from, how it's made, and what it's used
--- for, counted; then the game's own filing of it (model.about) in gray
+-- for, counted; then the item's own Use line, quoted; then the game's own
+-- filing of it (model.about) in gray, only when it names an added patch
 function FOR.Explain(model, j, itemID)
   local lines = {}
-  -- (collects: it teaches a collectible, which is its use)
-  local okD, what, collects = pcall(Detail.Describe, itemID, model, true)
+  -- (collects: Detail.Describe's second answer, the kind being its own use:
+  -- a collectible it teaches, a slot it's worn in, a gem's socket and the like)
+  local okD, what, collects = pcall(Detail.Describe, itemID, model)
   what, collects = okD and what or nil, okD and collects or false
   if what == "A quest item" and FOR.IsToken(j) then what, collects = "A token you spend at vendors", true end
   local facts = Recollect.Utilities.IsPositiveID(itemID) and Recollect.Facts.Item.Get(itemID) or nil
@@ -1210,7 +1216,7 @@ local function MetaLine(metaID)
   if okW and open == false then color = colors[V.DONE] elseif okW and open == true then color = colors[V.USEFUL] end
   return { text = ("%s (%s)"):format(name, okW and words or "can't be read"), color = color, bar = bar,
     links = HeardLinks({ { kind = "achievement", id = metaID, text = name } }),
-    icon = Recollect.UI.Icons.FromOpen(okW and open or nil) }
+    icon = okW and Recollect.UI.Icons.FromOpen(open) or Recollect.UI.Icons.FromOpen(nil) }
 end
 
 local function AchievementLines(j)
@@ -1250,7 +1256,7 @@ end
 
 -- An older system the item belongs to (Purposes.Legacy.System, item 5), as
 -- the panel's USED FOR line says it: what the system was, then whether it
--- still does anything, with its page
+-- still does anything (the line's detail)
 local function LegacyLines(model)
   local lines = {}
   for _, line in ipairs(type(model.usedFor) == "table" and model.usedFor or {}) do
@@ -1404,8 +1410,9 @@ end
 
 -- HOW TO GET MORE: the season tag and the patch that removed it first, then
 -- its sources, the ones this character can use first, then the kinds a new
--- player looks for first, the rest in a container (Fold), then how many
--- ways to get it are gone
+-- player looks for first, the rest in a container (Fold), then What crafting
+-- it takes, then how many ways to get it are gone; with none of those,
+-- Detail.NoSourceLines
 local function GetLines(j, model, itemID)
   local lines = {}
   local okSeason, season = pcall(SeasonLine, model, itemID)
@@ -1659,10 +1666,10 @@ local function Safely(fn, ...)
 end
 
 -- Content(model, j): { title, where, icon, sections = { { title, lines,
--- summary, inline } } }, summary the header's one line, inline a section
--- painted without a header
--- for the Overview; j (UI.DetailData's build) adds what it's for, how to
--- get more and what you have
+-- summary, lead } } } for the Overview: summary the header's one line, lead
+-- what is painted before a section's lines; the first section, with no
+-- title, is painted without a header. j (UI.DetailData's build) adds what
+-- it's for, how to get more and what you have
 function Detail.Content(model, j)
   TipPaint.n = TipPaint.n + 1
   local source = model.source or {}
@@ -1671,8 +1678,9 @@ function Detail.Content(model, j)
   local sections = {}
   local okLinks, reasonLinks = pcall(Detail.ReasonLinks, model)
   reasonLinks = okLinks and reasonLinks or {}
-  -- the verdict and its reason are the header strip's (header = true: the
-  -- Overview paints the reason only when the strip had to cut it)
+  -- the verdict and its reason are the answer band's (header "verdict" and
+  -- "reason": the Overview never paints the verdict, and paints the reason
+  -- only when the band had to cut it)
   local head = {}
   if model.headline then
     head[#head + 1] = { text = model.headline, color = U.Colors.HIGHLIGHT_WHITE, big = true, header = "verdict" }
@@ -1716,7 +1724,8 @@ function Detail.Content(model, j)
     local forLines = Safely(ForLines, j)
     for _, line in ipairs(forLines) do uses[#uses + 1] = line end
     tallies = forLines.tallies or {}
-    if forLines.tiles then table.insert(lead, 2, forLines.tiles) end   -- under the explanation, above the quote
+    -- under the explanation, above the quote; first when there is no explanation
+    if forLines.tiles then table.insert(lead, explained and 2 or 1, forLines.tiles) end
   end
   if #uses > 0 or #lead > 0 then
     sections[#sections + 1] = { title = "WHAT IT'S FOR", lines = uses, lead = lead,
@@ -2198,13 +2207,7 @@ local function PaintOverview()
           Fold.Texture(U.Colors.CONTENT_BG, x, y, tileW, T.TILE_H, 1)
           PoolIcon(tile.icon, x + 7, y - (T.TILE_H - T.TILE_ICON) / 2, T.TILE_ICON, none)
           local textX, textW = x + T.TILE_ICON + 14, tileW - T.TILE_ICON - 18
-          local _, countText = Block(U.Fonts.TITLE, none and gray or white, tostring(tile.count), textX, y - 4, textW)
-          if tile.note then
-            -- a note beside the count ("8 open"), in its color
-            local okW, countW = pcall(countText.GetStringWidth, countText)
-            local noteX = textX + (okW and tonumber(countW) or 20) + 5
-            Block(U.Fonts.DATA, tile.noteColor or U.Colors.STATUS_GOLD, tile.note, noteX, y - 8, math.max(textX + textW - noteX, 20))
-          end
+          Block(U.Fonts.TITLE, none and gray or white, tostring(tile.count), textX, y - 4, textW)
           labelText:ClearAllPoints()
           labelText:SetPoint("TOPLEFT", window.Overview.Child, "TOPLEFT", textX, y - T.TILE_H + 14)
           labelText:SetWidth(math.max(textW, 40))
@@ -2584,7 +2587,6 @@ local function UpdateCount(tabKey, n)
   window.Count:SetText(n == total and ("%d shown"):format(n) or ("%d shown of %d"):format(n, total))
 end
 
--- The active table's rows: filtered, and sorted once the rows are all in
 -- Each tab's columns fit what it shows (UI.DataTable FitView; Cobanyte,
 -- 2026-09-26: every item opens with the columns sized to it, and a column
 -- the player sized keeps its width): once its rows are read, and once more
@@ -2601,6 +2603,7 @@ local function FitWidths(tabKey)
   if not ok then Recollect.Debug.Warn("UI", "Column fit failed: %s", tostring(err)) end
 end
 
+-- The active table's rows: filtered, and sorted once the rows are all in
 local function ApplyView(tabKey)
   if not window or not job or not COLUMNS[tabKey] then return end
   local _, ascending = window.Table:GetSort(tabKey)
@@ -2744,9 +2747,11 @@ local function StartJob()
 end
 
 -------------------------------------------------------------------------------
--- The Curator Flag button (curator spec D35): shown only while curator mode
--- is on, for a model that is an item (a mount's model has no item). What it
--- says comes from the curator's provider, the only way Recollect reaches it.
+-- The Curator Flag button (curator spec D35): with curator mode on, shown
+-- for a model that is an item (a mount's model has no item); with it off,
+-- "Want to be a curator?" for any model; outside the author's region, never.
+-- What it says comes from the curator's provider, the only way Recollect
+-- reaches it.
 -------------------------------------------------------------------------------
 local FLAG_WIDTH = 96
 local JOIN_WIDTH = 150    -- "Want to be a curator?"
@@ -2816,11 +2821,10 @@ end
 -- What the item is, in a few words, for the kind line under the header's
 -- name and the explanation that opens WHAT IT'S FOR (Cobanyte, 2026-09-28:
 -- "this item is used to gain a mount", "this item goes on the ring slot"):
--- a collection it teaches, the slot it's worn in, the kind of item, else
--- what it's used for; nil when nothing can be read. kindOnly (both callers
--- here): what it is alone, never what it's used for, and nil rather than a
--- kind that says nothing ("Miscellaneous: Other"), since the explanation
--- counts the uses itself (FOR.Explain).
+-- a collection it teaches, the slot it's worn in, the kind of item; never
+-- what it's used for, and nil rather than a kind that says nothing
+-- ("Miscellaneous: Other"), since the explanation counts the uses itself
+-- (FOR.Explain).
 -- Read from the game's own answers (Purposes.client), never the tooltip.
 local SLOT_WORDS = {
   INVTYPE_HEAD = "Worn in your head slot", INVTYPE_NECK = "Worn in your neck slot",
@@ -2886,8 +2890,8 @@ local function StrongKind(facts, R)
   return nil
 end
 
--- Words that say less than what the item is used for: the header prefers
--- the use, the explanation takes these (it counts the uses itself)
+-- Words that say what kind of item it is and no more: the explanation
+-- counts the uses itself
 local function WeakKind(facts, R)
   local class, sub, subName = facts.classID, facts.subclassID, facts.itemSubType
   if facts.isCraftingReagent then return "A crafting material" end
@@ -2922,7 +2926,10 @@ function Detail.PvpLevel(itemID, model)
   return level
 end
 
-function Detail.Describe(itemID, model, kindOnly)
+-- Describe(itemID, model): what the item is (a collection it teaches, the
+-- slot it's worn in, its kind), and whether that is its use (inherent); nil
+-- when its kind says nothing
+function Detail.Describe(itemID, model)
   if not Recollect.Utilities.IsPositiveID(itemID) then return nil end
   local client, Try, IsPositiveID = Recollect.Purposes.client, Recollect.Utilities.Try, Recollect.Utilities.IsPositiveID
   local okMount, mountID = Try(client.GetMountFromItem, itemID)
@@ -2938,22 +2945,8 @@ function Detail.Describe(itemID, model, kindOnly)
   local strong, inherent = nil, nil
   if type(facts) == "table" then strong, inherent = StrongKind(facts, R) end
   if strong then return strong, inherent end
-  if kindOnly then
-    if type(facts) ~= "table" then return nil end
-    return WeakKind(facts, R)
-  end
-  -- what it's used for, as the panel leads with it (a reagent's recipe count, a purchase)
-  if type(model) == "table" and type(model.headline) == "string" and model.headline ~= "" then return model.headline end
-  local first = type(model) == "table" and type(model.usedFor) == "table" and model.usedFor[1]
-  if type(first) == "table" and not first.note and type(first.text) == "string" then return first.text end
-  if type(facts) == "table" then
-    local weak = WeakKind(facts, R)
-    if weak then return weak end
-    local kind = facts.itemType
-    if kind and facts.itemSubType and facts.itemSubType ~= kind then kind = kind .. ": " .. facts.itemSubType end
-    return kind
-  end
-  return nil
+  if type(facts) ~= "table" then return nil end
+  return WeakKind(facts, R)
 end
 
 -- The Still needed? box (Cobanyte, 2026-09-28): for an item you hold, one
@@ -3035,7 +3028,7 @@ end
 function Detail.KindLine(model, j)
   local itemID = model and model.source and model.source.itemID
   local parts = {}
-  local okD, what = pcall(Detail.Describe, itemID, model, true)
+  local okD, what = pcall(Detail.Describe, itemID, model)
   if okD and what == "A quest item" and FOR.IsToken(j) then what = "A token you spend at vendors" end
   if okD and type(what) == "string" and what ~= "" then parts[#parts + 1] = what end
   local facts = Recollect.Utilities.IsPositiveID(itemID) and Recollect.Facts.Item.Get(itemID) or nil
@@ -3124,7 +3117,7 @@ local function PaintHeader()
     window.Name:SetTextColor(color.r, color.g, color.b)
     window.IconFrame:SetColorTexture(color.r, color.g, color.b, 1)
   else
-    window.Name:SetTextColor(1, 1, 1)
+    window.Name:SetTextColor(unpack(U.Colors.HIGHLIGHT_WHITE))
     local g = U.Colors.DIVIDER_GRAY
     window.IconFrame:SetColorTexture(g[1], g[2], g[3], 1)
   end
@@ -3346,7 +3339,8 @@ end
 
 -- Hover (Cobanyte, 2026-09-24): the thing's own tooltip only over the thing
 -- itself (its icon and name); over the Where or Sold by cell, who and where
--- in full; anywhere else, nothing
+-- in full; over a purchase's Cost cell, every part of the trade (item 9);
+-- anywhere else, nothing
 local function OnRowEnter(frame, row, column)
   local data = Data()
   local GameTooltip = seams.Tooltip()
@@ -3744,13 +3738,7 @@ local function AchievementButton(parent, size)
   b.Icon:SetTexture("Interface\\Icons\\Achievement_General")
   b.Icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
   b:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
-  b:RegisterForClicks("LeftButtonUp")
-  b:SetAttribute("useOnKeyDown", false)
-  b:SetAttribute("type", "macro")
-  b:SetAttribute("macrotext", Recollect.UI.AchievementPrompt.MACRO)
-  b:SetAttribute("shift-type*", "")
-  b:SetAttribute("ctrl-type*", "")
-  b:SetAttribute("alt-type*", "")
+  CobySuite_Recollect.UI.ConfigureSecureClicker(b, { type = "macro", macrotext = Recollect.UI.AchievementPrompt.MACRO, blockModified = true })
   b:SetScript("PreClick", function(self)
     self.wasShown = Recollect.UI.AchievementPrompt.seams.Shown()
     self:SetAttribute("type", self.wasShown and "" or "macro")
@@ -3942,7 +3930,8 @@ function Detail.Open(model, how)
   return true
 end
 
--- OpenItem(itemID): that item's details in reference mode (a click on a row)
+-- OpenItem(itemID): that item's details in reference mode (Alt-click on a
+-- row or a link, or the row menu's "Open its details here")
 function Detail.OpenItem(itemID)
   local model = Recollect.UI.Tooltip.ReferenceModel({ id = itemID }, "detail")
   if model then Detail.Open(model) end

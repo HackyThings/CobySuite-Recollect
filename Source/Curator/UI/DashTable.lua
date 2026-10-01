@@ -14,8 +14,7 @@
 --     width, stretch, justify, tooltip, text(row), color(row), icon(row) for
 --     the one column that shows an icon, load(row) called when a row is
 --     painted, sortValue(row)),
---     sortKey, ascending, onSort(key, ascending), onRowEnter(frame, row),
---     onRowClick(row, button, frame) })
+--     sortKey, ascending, onSort(key, ascending), onRowEnter(frame, row) })
 --   t:SetRows(rows)   t:Refresh()   t.frame
 -- Rows are shown as given: sorting and filtering are the caller's.
 -------------------------------------------------------------------------------
@@ -38,7 +37,6 @@ local function MakeRow(t, i)
   row:SetHeight(t.rowHeight)
   row:SetPoint("TOPLEFT", t.list, "TOPLEFT", 0, -(i - 1) * t.rowHeight)
   row:SetPoint("RIGHT", t.list, "RIGHT", 0, 0)
-  row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
   CobySuite_Recollect.UI.AddHoverHighlight(row)
   row.Icon = row:CreateTexture(nil, "ARTWORK")
   row.Icon:SetSize(ICON, ICON)
@@ -52,9 +50,6 @@ local function MakeRow(t, i)
     if self.data and t.opts.onRowEnter then t.opts.onRowEnter(self, self.data) end
   end)
   row:SetScript("OnLeave", function() GameTooltip:Hide() end)
-  row:SetScript("OnClick", function(self, button)
-    if self.data and t.opts.onRowClick then t.opts.onRowClick(self.data, button, self) end
-  end)
   row:Hide()
   return row
 end

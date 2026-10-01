@@ -37,7 +37,7 @@
 -- (UsedFor.parts), so a row and a panel line never disagree. A plain item a
 -- purchase names is followed to what it leads to (Facts.Chains, contract
 -- rule 39) for the first MAX_FOLLOW such rows, which then read "Leads to a
--- pet you don't have" and count as still to get; LeadsTo(row) words any
+-- pet you lack" and count as still to get; LeadsTo(row) words any
 -- shown row's chain, Rewards(row) what a quest row's quest rewards.
 --
 -- A recipe row (a reagent's recipe, or what a recipe item teaches) also
@@ -1047,7 +1047,6 @@ function Data.Others(row)
   return text
 end
 
--- Resolve(row, owner, budget): the row's state read now
 -- A quest row's title, when its state isn't read (another faction's quest,
 -- or one no longer in the game): its name only, through the same budget
 local function QuestTitle(row, budget)
@@ -1056,7 +1055,7 @@ local function QuestTitle(row, budget)
   if quest and quest.title then row.name = quest.title:gsub('^"(.*)"$', "%1") end
 end
 
--- A gone, restricted or untold row's state: its tags' words (UsedFor.Tags),
+-- A gone, restricted or untold row's state: its tags' words (UsedFor.parts.TagText),
 -- capitalized for the Status column; stateInline keeps them as they read
 -- inside a sentence ("(Blood Elf only)", never "(blood Elf only)")
 local function Tagged(row, state, applies, owner, filterState)
@@ -1090,6 +1089,7 @@ local function EventState(row)
   row.stateText = text and ("%s, %s"):format(text, after) or (first .. (#words > 1 and (", " .. table.concat(words, ", ", 2)) or ""))
 end
 
+-- Resolve(row, owner, budget): the row's state read now
 function Data.Resolve(row, owner, budget)
   if row.gone or row.restricted then QuestTitle(row, budget) end
   row.stateInline = nil
@@ -1756,7 +1756,6 @@ function Data.Order(key, rows, keyOf, ascending, filter, onDone)
       end
       if not keyOf or n < 2 then
         onDone(shown)
-        phase = 3
         return true
       end
       src, dst, phase = shown, {}, 2

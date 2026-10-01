@@ -145,8 +145,9 @@ local window = UI.CreateSettingsWindow({
     },
   },
   categories = {
-    -- Two groups: when the panel shows, then the keys it offers while it
-    -- shows. Each key's row sits under its checkbox, level with its label.
+    -- Three groups: when the panel shows, the keys it offers while it shows,
+    -- and where a waypoint goes. Each key's row sits under its checkbox,
+    -- level with its label.
     {
       key = "tooltip", label = "Tooltips",
       build = function(panel)

@@ -24,8 +24,9 @@ CobySuite_Recollect.BuildInfo = CobySuite_Recollect.BuildInfo or { embedded = fa
 
 -- The library version for reports: "embedded in <host> at <commit>" in a
 -- standalone build, else the CobySuite addon's TOC version. The addon name
--- below is the only string literal in shared code that is exactly the
--- library's name (the standalone build checks this).
+-- below is the only string literal in shipped shared code that is exactly
+-- the library's name (the standalone build checks this; Source/Tests/ is
+-- stripped).
 function CobySuite_Recollect.LibraryVersionText()
   local info = CobySuite_Recollect.BuildInfo
   if info and info.embedded then

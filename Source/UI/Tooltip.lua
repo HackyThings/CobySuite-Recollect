@@ -2,7 +2,7 @@
 -- UI.Tooltip: Recollect on the tooltip of any item
 --
 -- The tooltip itself gets one line only, saying how to see the audit
--- ("Recollect: hold Alt for details"); the audit shows in its own panel
+-- ("Recollect: hold Alt for its audit"); the audit shows in its own panel
 -- beside the tooltip (UI.AuditPanel) while the configured key is held (Alt
 -- by default; Shift or Ctrl, or always, in the settings window).
 --
@@ -683,8 +683,6 @@ function TooltipUI.Rebuild(model, opts)
     buySummary = buySummary, source = source })
 end
 
--- Show or hide the panel for what the tooltip shows now, building its model
--- first when there is none yet or data arrived since
 -- The last model built, for the same tooltip still showing the same item
 local MODEL_REUSE = 1
 local built = nil   -- { tooltip, guid, source, model, at }
@@ -700,6 +698,8 @@ local function ModelFor(entry)
   return model
 end
 
+-- Show or hide the panel for what the tooltip shows now, building its model
+-- first when there is none yet or data arrived since
 local function Refresh()
   local panel = Recollect.UI.AuditPanel
   if Config.Get(Config.Options.SHOW_TOOLTIP) == false then

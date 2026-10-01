@@ -67,7 +67,6 @@ local function PinAction()
   if key:find("Click", 1, true) then return Key(key) .. " the item" end
   return "press " .. Key(key)
 end
-Guide.KeyWords = { Panel = PanelKey, Pin = PinKey, Waypoint = WaypointKey }
 
 local SPYGLASS = ICONS .. "INV_Misc_Spyglass_02"
 local LIST = ICONS .. "INV_Misc_Note_02"

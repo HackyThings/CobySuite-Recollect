@@ -12,7 +12,7 @@ local base = CobySuite_Recollect.Config.New({
     SHOW_TOOLTIP = "show_tooltip",   -- the Recollect hint and panel on item tooltips
     TOOLTIP_KEY  = "tooltip_key",    -- "alt" | "shift" | "ctrl": hold it for the panel; "always"
     WAYPOINT_ENABLED = "waypoint_enabled",  -- the panel's waypoint key is on
-    WAYPOINT_KEY     = "waypoint_key",      -- "ALT-W": sets a waypoint to the vendor the panel names
+    WAYPOINT_KEY     = "waypoint_key",      -- "ALT-W": sets a waypoint to the place the panel names
     PIN_ENABLED      = "pin_enabled",       -- the panel's pin key is on
     PIN_KEY          = "pin_key",           -- "ALT-D": pins the panel's full details in a window
     LIST_OTHERS      = "list_other_characters",  -- the list shows other characters' stored items, a tab each (on by default)
@@ -56,11 +56,9 @@ local base = CobySuite_Recollect.Config.New({
 
 Config.Options       = base.Options
 Config.Defaults      = base.Defaults
-Config.IsValidOption = base.IsValidOption
 Config.CheckValue    = base.CheckValue
 Config.Get           = base.Get
 Config.Set           = base.Set
-Config.Reset         = base.Reset
 
 ---------------------------------------------------------------------------
 -- InitializeData: wraps base with addon-specific SavedVariable init

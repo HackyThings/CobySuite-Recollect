@@ -14,8 +14,9 @@
 --
 -- Other characters' stored bags and banks (the list's "other characters"
 -- option) are listed read-only, as of their capture (contract rule 30): only
--- the account-wide checks run on them (collections, known uses, achievements,
--- junk), their tooltip comes from the item's link, and their faction from the
+-- the account-wide checks run on them (collections, known uses, currencies,
+-- decor, achievements, what it buys, every use gone, junk and season), their
+-- tooltip comes from the item's link, and their faction from the
 -- snapshot (none when it names neither Horde nor Alliance). Their counts
 -- can't be checked against the live bank (it counts this character only),
 -- and a per-character check that can't run there might disagree, so a

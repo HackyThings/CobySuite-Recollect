@@ -7,7 +7,7 @@
 -- RECOLLECT_CURATOR_DB.notes (in the store's table, so Store.Swap covers it):
 --   flags[itemID] = { entries }   one list per item, oldest first
 --   feedback = { entries }, errors = { entries }
---   awaiting[request] = { at, keys = { [key] = true } }   notes a pull carried,
+--   awaiting[request] = { at, keys = { [key] = rev } }   notes a pull carried,
 --                                  acknowledged with K, waiting for V
 --   nextN                          one counter for every note of the account
 -- An entry: { n, of, rev, reason, text, stack, count, data, addon, build,
