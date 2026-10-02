@@ -153,6 +153,11 @@ local function Ordered(result)
   return list
 end
 
+-- The panel's "Still needed?" line is the details window's band's own
+-- answer (UI.DetailWindow's Detail.Keep), so the two never disagree
+-- (Cobanyte, 2026-10-01: "they shouldn't conflict"): Just for fun, Probably
+-- done or Likely safe to delete for a finished Can't tell; Can't tell yet
+-- when the band gives none
 local NOT_TOLD = "Still needed? Can't tell yet"
 
 -------------------------------------------------------------------------------
@@ -353,6 +358,8 @@ function TooltipUI.Model(result, extra)
     waypoint = extra.waypoint,
     buySummary = extra.buySummary,
     tip = TooltipUI.Tip(result),
+    -- the words of its checks' reasons that say a use is done (UI.Icons.MarkDone)
+    done = Recollect.UI.Icons.DoneWords(result.purposes),
   }
   model.links = TooltipUI.Links(model.usedFor, model.comesFrom)
   if #result.purposes > 1 then
@@ -380,6 +387,9 @@ function TooltipUI.Model(result, extra)
     elseif reason == headline then
       model.reason = ""   -- the headline says it all: never painted twice
     end
+    local Detail = Recollect.UI.DetailWindow
+    local okKeep, keep = pcall(function() return Detail and Detail.Keep and Detail.Keep(model) end)
+    if okKeep and type(keep) == "table" and type(keep.word) == "string" then model.verdictNote = "Still needed? " .. keep.word end
   end
   -- The reason's own words never show again under COMES FROM (review F11:
   -- an item with only sources, every one gone, whose reason is its removal)
@@ -510,7 +520,10 @@ function TooltipUI.ReferenceModel(data, source)
   local seasonLine = AddSeasonLine(comesFrom, tip)
   return {
     guid = data.guid or Recollect.UI.AuditPanel.Identity(data), icon = facts and facts.texture,
-    where = SOURCE_LABELS[source] or "Not in your bags", reference = true,
+    -- a getter with no label of its own (an item shown by its ID) says only that
+    -- this copy isn't a bag slot: "Not in your bags" sat above "1 in your bags"
+    -- (the 2026-10-01 run)
+    where = SOURCE_LABELS[source] or "Shown elsewhere", reference = true,
     label = label, color = U.Colors.HIGHLIGHT_WHITE, reason = reason, purposes = {},
     about = TooltipUI.About(facts), usedFor = usedFor, comesFrom = comesFrom, waypoint = waypoint,
     notes = Recollect.UI.UsedFor.NoteLines(itemID, owner), seasonLine = seasonLine,

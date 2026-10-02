@@ -3,7 +3,8 @@
 -- "criterion": obtain, use or loot this item), read live
 --
 --   achievement not earned, that criterion not done   Needed, naming it
---   earned, or that criterion done                     informs only, settled
+--   earned, or that criterion done                     informs only, settled,
+--                                                      with its done words
 --   the achievement or criterion can't be read         Unknown
 -------------------------------------------------------------------------------
 local R = Recollect.Purposes.Registry
@@ -39,8 +40,10 @@ R.Register({
     local result
     if done.earned then
       result = R.Info(("Counts toward the achievement \"%s\", which you've earned"):format(done.name))
+      result.done = { "you've earned" }   -- the words that say it's done (UI.Icons.MarkDone)
     else
       result = R.Info(("Counts toward the achievement \"%s\"; you've done that part of it"):format(done.name))
+      result.done = { "you've done that part of it" }
     end
     result.settled = true
     return result

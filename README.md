@@ -29,16 +29,16 @@ Recollect never decides for you. Its suggestions, such as "most likely safe to s
 
 ## The audit panel
 
-A short summary beside the tooltip: the verdict and its reason, the few uses that matter most with where you stand on each, where the item comes from, a Tip when one applies, and the keys you can press. On an item you don't hold (a chat link, loot, a vendor's goods) it shows how many you have instead of a verdict.
+A short summary beside the tooltip: the verdict and why, the uses that matter most, where the item comes from, and a Tip when one applies. For an item you don't hold (a chat link, loot, a vendor's goods), it shows how many you have instead.
 
 ## The item details window
 
 Everything Recollect knows about one item, so you don't need a website. Open it with Alt+D, or click a row in the Recollect Audit. A setting can make the key a click instead (Alt+click, for example), which works on any item, even in combat.
 
 - **Still needed?** Recollect's suggestion (Keep it, Sell it, Likely safe to delete, Probably done, Replaced, Lower level or Can't tell yet) with a short reason; hover for the rest.
-- **What it's for:** what the item is, its Use line, and tiles counting each kind of use still open.
+- **What it's for:** what the item is, its Use line, and a tile for each kind of use with how many there are and how many are still open.
 - **Achievements:** what it counts toward, with progress bars.
-- **How to get more:** each way to get it (sold by, drops from, rewards), with the whole price, such as "for 1 Phoenix Feather and 20 Apexis Crystal", and what buying it requires first. When no source is recorded yet, it says so, and what the item's binding means for getting another: another player can trade it to you and it may be on the Auction House, or only its source can give it.
+- **How to get more:** each way to get it (sold by, drops from, rewards) with the whole price and what buying requires first. With no source recorded yet, it says so, and whether another player could trade you one.
 - **Guide notes:** short notes in Recollect's own words for items nothing in the game explains. They never change the suggestion.
 - **What you have:** your counts by place and on your other characters; hover a tile for exactly where.
 - **Checks:** every check Recollect ran and what it found.
@@ -59,41 +59,45 @@ Waypoints go to TomTom when it's installed, else to the game's map pin; a settin
 
 `/rec settings`, a right-click on the minimap button, or Options > AddOns.
 
-- **Tooltips:** whether Recollect shows on item tooltips, when the audit panel shows (Alt, Shift, Ctrl or always), the waypoint and details keys, and where waypoints go.
+- **Audit panel:** whether Recollect shows on item tooltips, and when the audit panel shows (Alt, Shift, Ctrl or always), with an example.
 - **Recollect Audit:** whether the list includes your bank, warband bank and other characters, and the minimap button.
+- **Keys and waypoints:** the item details key, the waypoint key, and where waypoints go (TomTom first, or the game's map pin).
 - **Curator:** curator mode (below).
 
 ## Curator mode
 
-Curator mode works only in the Americas and Oceania game region, where the author plays, because curators and the author have to reach each other in game. Elsewhere the Curator settings explain it and say why it's unavailable, with their options grayed out, the details window has no curator button, and `/rec curator` says so. Findings already saved are kept, and nothing is recorded or sent. Everything else in Recollect works everywhere.
+Optional and off by default, and available only in the Americas and Oceania region. It helps the author find missing or wrong item data while you play.
 
-Optional and off by default: turn it on under `/rec settings`, Curator, or with the **Want to be a curator?** button in the item details window. While it's on, Recollect notes where the game disagrees with its database or shows something it lacks: a vendor's prices, a drop, a quest reward, where an NPC stands. It also notes items its database knows nothing about, wherever you meet them, bags and banks included, so the author can find out what they're for.
-
-It records only game IDs and positions, with your character's class, race, level, faction, professions, zone, War Mode, Chromie Time and instance difficulty and, where it matters, quest progress and how friendly a vendor is to you. It never records names, chat, gold, currencies, how many of anything you have, or anything else you carry.
-
-- **Curator Flag** on the details window reports a problem with an item, with your own words if you like. On an item Recollect knows nothing about it reads **Request info**.
-- `/rec feedback` sends a note to the author (with curator mode on). Recollect's own errors are sent too. Only the author reads these.
-- The author collects findings through the "Recollect Curators" community (`/rec curator join` prints the invite). Members can see each other's character names and zones. Collections travel as hidden whispers, on any realm; they never show in your chat and take no chat channel slot. A character outside the community is asked once whether to join.
-- Your game hands findings only to the author's own characters, never to anyone else in the community, in small parts one after another.
-- You'll see a chat line when a collection starts and ends; turn on **Ask me before each collection** to be asked first, and `/rec curator cancel` stops one. Findings stay under 1 MB and are deleted once the author has saved them.
-- Once a trusted curator has confirmed that a place or a vendor's goods match the database and the author has approved it, Recollect stops sending matches for it; differences are always sent. Findings the author has already ruled out aren't recorded, and an item the author already has isn't sent again, even after a database update.
-- Findings not collected yet survive updates. Turning curator mode off offers to delete them.
-
-`/rec curator` opens the curator dashboard:
-
-- **Overview:** whether it's recording, what waits to be sent against the 1 MB limit, what the author has saved and when they last collected, anything you need to fix (such as a character outside the community), and, folded away, the connection to the author with a connection test.
-- **Findings:** everything waiting, in a table you can sort, search and filter.
-- **History:** each collection the author made: when, what it held and how it went (the last 100).
+- Turn it on under `/rec settings` > **Curator**, which lists exactly what is recorded. It records game IDs and positions, never names, chat, gold, currencies or how many of anything you have.
+- Join **Recollect Curators** with `/rec curator join`; the author collects findings through that community.
+- **Curator Flag** (or **Request info**) in item details and `/rec feedback` send your own notes.
+- `/rec curator` shows what waits to be sent and the collection history. Turn on **Ask me before each collection** to approve each one.
+- Turning curator mode off stops recording and offers to delete saved findings.
 
 ## Commands
 
-- `/rec` or `/recollect`: the Recollect Audit
-- `/rec settings`, `/rec guide`, `/rec changelog`, `/rec debug`
-- `/rec curator`: the curator dashboard; `status`, `join`, `cancel`, `diag` (what your game sees, for a bug report), `ping` (or `transport`): a five-minute connection test with the author, while the author has a test session open; add Name-Realm to count only that character's answers
-- `/rec feedback` (or `/rec bug`): write feedback for the author (needs curator mode on)
-- `/rec version`, `/rec help`
+```
+/rec              Open or close the Recollect Audit (also /recollect, /rec show)
+/rec settings     Open or close the settings window (also /rec config, /rec options)
+/rec guide        Open or close the feature guide (also /rec tutorial)
+/rec changelog    Open or close the changelog: what changed in each version (also /rec whatsnew, /rec news, /rec change)
+/rec debug        Open or close the debug log window
+/rec curator      Open the curator dashboard (also status, join, cancel, diag, ping)
+/rec feedback     Write feedback for Recollect's author, sent with your next curator collection (also /rec bug)
+/rec version      Print the addon version
+/rec help         Show this help
+```
 
 The Addon Compartment also opens the Recollect Audit; right-click it for settings.
+
+## Issues / Feedback
+
+Found a bug? Run `/rec debug`, press **Copy Last 250** and send the text with a line about what you were doing. The log holds the addon version, your WoW build and your settings.
+
+- **Email:** hackythings@gmail.com
+- **BugSack errors:** whisper them to **Figment-Illidan** in game.
+- **CurseForge:** comment on the [project page](https://www.curseforge.com/projects/1714804) for questions and feedback.
+- **GitHub:** [open an issue](https://github.com/HackyThings/CobySuite-Recollect/issues) for bugs you can reproduce.
 
 ## License
 

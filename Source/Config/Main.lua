@@ -81,3 +81,76 @@ function Config.InitializeData()
     end
   end
 end
+
+---------------------------------------------------------------------------
+-- The settings window's words (Config/Window.lua), kept here so the suites
+-- can read them: the audit panel's example, how current a bank's stored
+-- tabs are, a key clash, and curator mode's state and pending change
+---------------------------------------------------------------------------
+local U = CobySuite_Recollect.Utilities
+local Opt = Config.Options
+local KEY_WORDS = { alt = "Alt", shift = "Shift", ctrl = "Ctrl" }
+
+-- ExampleState(on, key): what the example shows for the staged choices:
+-- its caption, the tooltip's hint line (nil: none) and whether the panel
+-- shows. The hint is the one the tooltip prints (UI/Tooltip.lua)
+function Config.ExampleState(on, key)
+  if not on then
+    return "Example: Recollect is off on tooltips, so there's no hint line and no panel", nil, false
+  end
+  local word = KEY_WORDS[key]
+  if not word then return "Example: the panel shows every time you point at an item", nil, true end
+  return ("Example with %s held"):format(word), Recollect.UI.Tooltip.HintText(key), true
+end
+
+-- How long ago a time was, in a few words
+function Config.Ago(at, now)
+  local seconds = math.max(0, (now or time()) - at)
+  if seconds < 3600 then return "less than an hour ago" end
+  if seconds < 86400 then
+    local hours = math.floor(seconds / 3600)
+    return hours == 1 and "an hour ago" or ("%d hours ago"):format(hours)
+  end
+  local days = math.floor(seconds / 86400)
+  return days == 1 and "yesterday" or ("%d days ago"):format(days)
+end
+
+-- FreshnessLine(fresh, place, now): a bank tile's line from
+-- Snapshots.Freshness ("your bank", "the warband bank")
+function Config.FreshnessLine(fresh, place, now)
+  local state = type(fresh) == "table" and fresh.state or nil
+  if state == "open" then return "Read live while the bank is open" end
+  if state == "never" then return ("Not read yet: open %s once"):format(place) end
+  if state == "missing" then return ("Some tabs not read yet: open %s"):format(place) end
+  if state == "changed" then return ("May have changed since: open %s again"):format(place) end
+  if state == "read" and type(fresh.oldest) == "number" then return "Read " .. Config.Ago(fresh.oldest, now) end
+  return "Can't tell when it was read"
+end
+
+-- KeysClash(get): the staged key both the pin and the waypoint key would
+-- use, or nil. The waypoint key keeps it then (DetailWindow's Detail.Key)
+function Config.KeysClash(get)
+  if get(Opt.PIN_ENABLED) == false or get(Opt.WAYPOINT_ENABLED) == false then return nil end
+  local pin, waypoint = get(Opt.PIN_KEY), get(Opt.WAYPOINT_KEY)
+  if type(pin) ~= "string" or pin == "" or pin ~= waypoint then return nil end
+  return pin
+end
+
+-- CuratorState(available, enabled, member): the card's line and dot for
+-- curator mode as it is now (saved, never staged: a ticked box isn't on
+-- until Apply). member: true, false or nil (unreadable)
+function Config.CuratorState(available, enabled, member)
+  if not available then return "Not available in your game region", U.Colors.STATUS_GOLD end
+  if not enabled then return "Off: nothing is recorded or sent", U.Colors.DISABLED_GRAY end
+  if member == true then return "On: this character sends its findings", U.Colors.SUCCESS_GREEN end
+  if member == false then return "On; this character isn't in the community yet", U.Colors.STATUS_GOLD end
+  return "On; the community list can't be read now", U.Colors.STATUS_GOLD
+end
+
+-- PendingCurator(staged, saved): the line under the opt-in while a change
+-- waits for Apply, or nil. Nothing is recorded or deleted before Apply
+function Config.PendingCurator(staged, saved)
+  if staged == nil or (staged == true) == (saved == true) then return nil end
+  if staged == true then return "Turns on when you press Apply." end
+  return "Turns off when you press Apply. Recording stops then, and Recollect asks whether to delete your findings."
+end

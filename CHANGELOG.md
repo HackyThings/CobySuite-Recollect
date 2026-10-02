@@ -4,6 +4,62 @@ All notable changes to Recollect are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-01
+
+A bigger database, a new look for the settings, and clearer item details.
+
+### Added
+
+- **Just for fun.** On English clients, a roleplay drink such as an old ale now answers "Just for fun" instead of "Can't tell yet" once nothing Recollect checks still needs it.
+
+### Changed
+
+- **A bigger database.** Many more items now say where they come from, and quest-chain rewards say how the chain starts.
+
+- **Old ales and wines are no longer Outdated** on English clients; they read Can't tell.
+
+- **Done shows as done.** An earned achievement or a finished part of one is now green with a check mark wherever its check is named: the details window's Still needed? band and Checks list, and the audit panel.
+
+- **New look for the settings.** Four pages, with an example of the panel, when each bank was last read, key-clash warnings and clearer curator controls.
+
+- **Clearer linked achievement lines.** An item linked to a part of an achievement now reads "Linked to a part that's done" (or "not done yet") wherever the details window and the audit panel list it.
+
+- **Quest-chain rewards.** For a collectible a quest rewards, item details list the recorded quests, who starts them and what they ask for; the audit panel says how the chain starts.
+
+- **Curator dashboard tiles.** The numbers on the curator dashboard's Overview (what waits to be sent, what the author saved, each kind of finding) now use the same tiles as the settings window, and wrap to fewer per line in a narrow window.
+
+- **Easier to read small windows.** The window that asks you to open the achievements window (Show Achievement in the item details window) and curator mode's windows (stopping curator mode, adding a character to the community, and a collection being sent or asked for) now use larger text, and grow to fit it.
+
+- **Item details say things once.** Why you'd keep an item is no longer repeated in What it's for and Checks, and a single kind of source reads plainly ("1 way to get it: a drop").
+
+### Fixed
+
+- Item details no longer write "at A vendor" mid-sentence, "Buys: Buys", or two parentheses in a row.
+
+- The Still needed? band no longer puts a stray semicolon between an achievement's name and its progress.
+
+- Hovering the Still needed? band no longer drops the achievement's name from the reason, and no longer repeats a reason the band already says.
+
+- An item's What it's for no longer shows the same sentence twice, under its heading and again in the section.
+
+- Clicking a quest in the item details window whose details hadn't loaded yet showed only its title; it now shows them once they arrive.
+
+- The audit panel's Still needed? line now always gives the same answer as the item details window: an item whose uses are all done reads Probably done (or Likely safe to delete) in both, never Can't tell yet in the panel.
+
+- The audit panel beside an item shown outside your bags could say "Not in your bags" at the top while saying how many you have just below it; it now says "Shown elsewhere".
+
+- A profession tool or accessory no longer says your slot is empty (and to equip it) when the game didn't say what you have equipped there; it says it can't tell.
+
+- A crafting material from a past season is no longer called Outdated before Recollect knows whether everything it makes is gear: a product the game hasn't loaded yet is counted as not read.
+
+- Right after you log in, an item is no longer called Useful because a quest chain looks open before your quest history has loaded; it waits for it.
+
+- Curator mode: flags and feedback the author turned down aren't sent again unless you change them.
+
+- Curator mode: after a database update, findings the author already received stay separate from new ones and aren't sent again.
+
+- Stopping curator mode offered to delete "my findings (0)" when every finding left was from an older database; the count now includes those, since they're deleted too.
+
 ## [1.0.0] - 2026-10-01
 
 The first release of Recollect: what every item in your bags, bank and warband bank is for, and whether you still need it.
@@ -26,5 +82,6 @@ The first release of Recollect: what every item in your bags, bank and warband b
 
 - **Settings, a guide and a changelog.** `/rec settings` (also a right-click on the minimap button or Options > AddOns), `/rec guide`, which opens by itself on your first login, and `/rec changelog`.
 
-[Unreleased]: https://github.com/HackyThings/CobySuite-Recollect/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/HackyThings/CobySuite-Recollect/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/HackyThings/CobySuite-Recollect/releases/tag/v1.0.1
 [1.0.0]: https://github.com/HackyThings/CobySuite-Recollect/releases/tag/v1.0.0

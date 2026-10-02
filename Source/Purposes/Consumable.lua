@@ -14,7 +14,12 @@
 -- naming both. Other kinds from older expansions (devices, pet treats,
 -- curios) are not replaced that way: those only inform, with what using it
 -- gives and where it works when the game's own words say so
--- (Purposes.UseEffect.Describe, in UseItem.lua).
+-- (Purposes.UseEffect.Describe, in UseItem.lua); one whose Use line says it
+-- is only a drink for fun (ForFun, English clients) is marked flavor, which
+-- the details window's Still needed? band reads (Just for fun), never a
+-- verdict. Such a drink filed as Food & Drink is no replaced kind either
+-- (Cobanyte, 2026-10-01: about 300 older ales read Outdated before), so it
+-- only informs too; while its Use line loads it is Unknown, never Outdated.
 -- A consumable from the current expansion whose tooltip has a Use
 -- line and that this character can use (C_PlayerInfo.CanUseItem) is Useful;
 -- with no tooltip it is Unknown. A tooltip without a Use line only informs
@@ -76,6 +81,50 @@ local function Kind(ctx)
   return nil
 end
 local NOT_REPLACED = "; this kind isn't replaced each expansion"
+
+-- A drink that is only for fun (Cobanyte, 2026-10-01: alcohol is "purely RP
+-- only ... not a game necessity"): an English Use line that calls it
+-- alcohol and states no number, so no amount, stat or time it gives. In the
+-- Lab's catalog (2026-10-01) 368 consumables read this way, every one a drink
+-- ("A strong alcoholic beverage."); the 14 alcohols with a number are stat
+-- buffs, mana drinks or timed effects, and stay as they are.
+local FUN_WORDS = { "alcohol", "drunk", "tipsy", "intoxicat", "inebriat" }
+local function ForFun(ctx)
+  if not R.EnglishClient() then return false end
+  local tip = ctx.Tooltip()
+  if not tip or type(tip.useText) ~= "string" then return false end
+  local plain = Recollect.Facts.Tooltip.StripColors(tip.useText):lower()
+  if plain:find("%d") then return false end
+  for _, word in ipairs(FUN_WORDS) do
+    if plain:find(word, 1, true) then return true end
+  end
+  return false
+end
+
+-- An informing result for a kind no expansion replaces; marked flavor (a
+-- drink only for fun, which the details window's Still needed? band reads)
+-- when it gives nothing (no currency gain) and ForFun says so
+local function NotReplaced(ctx, text)
+  local UseEffect = Recollect.Purposes.UseEffect
+  local described = UseEffect.Describe(ctx)
+  local result = UseEffect.Info(text, described, NOT_REPLACED)
+  if not (described and described.headline) and ForFun(ctx) then result.flavor = "drink" end
+  return result
+end
+
+-- Food and drink is a kind each expansion replaces, but a drink only for fun
+-- is not (Cobanyte, 2026-10-01): whether a Food & Drink item is one; false,
+-- with why, while its Use line loads or can't load (contract rule 14: it is
+-- never Outdated before the line decides it)
+local FUN_DRINK = "A drink"
+local function FoodForFun(ctx)
+  if ctx.facts.subclassID ~= (Sub.Fooddrink or 5) or not R.EnglishClient() then return false end
+  local tip = ctx.Tooltip()
+  if tip and type(tip.useText) == "string" then return ForFun(ctx) end
+  if ctx.facts.spellLoading then return false, "its Use line is still loading" end
+  if ctx.facts.spellFailed then return false, "its Use line can't be loaded" end
+  return false
+end
 -- Enum.TooltipDataLineType.UsageRequirement (43 in 12.1): "Requires Midnight Herbalism (1)"
 local USAGE_REQUIREMENT = (Enum and Enum.TooltipDataLineType and Enum.TooltipDataLineType.UsageRequirement) or 43
 
@@ -100,25 +149,32 @@ R.Register({
       return R.Unknown("Consumable; its expansion can't be read")
     end
     local words, pending = Kind(ctx)
+    local fun = false
+    if words and age ~= "current" then
+      local why
+      fun, why = FoodForFun(ctx)
+      pending = pending or why
+    end
     local UseEffect = Recollect.Purposes.UseEffect
     if pending and age ~= "current" then
       -- whether it is a kind each expansion replaces can't be told before the
       -- Use line reads (contract rule 14): never "isn't replaced" meanwhile
-      return R.Unknown(("%s %s; %s"):format(OTHER[1], UseEffect.From(expansion, source, patch), pending), nil,
+      return R.Unknown(("%s %s; %s"):format((words or OTHER)[1], UseEffect.From(expansion, source, patch), pending), nil,
         ctx.facts.spellLoading and "loading" or "unreadable")
     end
+    local lead = fun and FUN_DRINK or (words or OTHER)[1]
     if age == "older" then
       -- Both sources place it in an older expansion (Facts.Item.Age)
-      local text = ("%s %s, an older expansion"):format((words or OTHER)[1], UseEffect.From(expansion, source, patch))
-      if words then return R.Result(V.OUTDATED, text) end
-      return UseEffect.Info(text, UseEffect.Describe(ctx), NOT_REPLACED)
+      local text = ("%s %s, an older expansion"):format(lead, UseEffect.From(expansion, source, patch))
+      if words and not fun then return R.Result(V.OUTDATED, text) end
+      return NotReplaced(ctx, text)
     end
     if age == "disagree" then
       -- The game says older, the added patch says current: never Outdated,
       -- never "current-expansion"
-      local text = ("%s; %s"):format((words or OTHER)[1], UseEffect.Disagree(ctx.facts, expansion, patch))
-      if words then return R.Unknown(text .. ", so whether a newer one replaces it can't be told") end
-      return UseEffect.Info(text, UseEffect.Describe(ctx), NOT_REPLACED)
+      local text = ("%s; %s"):format(lead, UseEffect.Disagree(ctx.facts, expansion, patch))
+      if words and not fun then return R.Unknown(text .. ", so whether a newer one replaces it can't be told") end
+      return NotReplaced(ctx, text)
     end
     -- A season of this expansion that isn't the current one: Season speaks
     local Season = Recollect.Purposes.Season

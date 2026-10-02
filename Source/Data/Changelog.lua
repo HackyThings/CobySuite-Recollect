@@ -14,6 +14,28 @@
 -------------------------------------------------------------------------------
 Recollect.Data.Changelog = {
   {
+    version = "1.0.1",
+    title = "Bigger database, new settings",
+    date = "2026-10-01",
+    new = {
+      "Just for fun: a roleplay drink such as an old ale says so instead of Can't tell yet",
+    },
+    changed = {
+      "Database: many more items now say where they come from",
+      "Settings: four pages, an example of the panel, key-clash warnings and clearer curator controls",
+      "Done: an earned achievement or finished part shows green with a check mark",
+      "Quest chains: item details list the quests, who starts them and what they ask for",
+      "Item details: why you'd keep an item is said once, not repeated",
+      "Old ales and wines are no longer Outdated on English clients",
+    },
+    fixed = {
+      "Still needed? band: no stray semicolon, and the reason keeps the achievement's name",
+      "Item details: no more \"at A vendor\", \"Buys: Buys\" or doubled parentheses",
+      "Audit panel: Still needed? matches the details window, and \"Shown elsewhere\" replaces a wrong \"Not in your bags\"",
+      "Quests whose details hadn't loaded yet now show them once they arrive",
+    },
+  },
+  {
     version = "1.0.0",
     title = "The first release",
     date = "2026-10-01",

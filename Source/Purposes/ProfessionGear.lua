@@ -81,7 +81,12 @@ local function Worn(client, profession, equipLoc)
   for _, slot in ipairs(slots) do
     local okLoc, loc = Try(client.GetEquippedEquipLoc, slot)
     if not okLoc then return nil end
-    if loc == equipLoc then
+    if loc == nil then
+      -- no equip location: an empty slot, or an item whose location didn't
+      -- read; only a slot that reads empty is empty (review CORE-01)
+      local okExists, exists = Try(client.GetEquippedItemLevel, slot)
+      if not okExists or exists ~= false then return nil end
+    elseif loc == equipLoc then
       local okLevel, exists, level = Try(client.GetEquippedItemLevel, slot)
       if not okLevel or not exists or not IsFiniteNumber(level) then return nil end
       count = count + 1

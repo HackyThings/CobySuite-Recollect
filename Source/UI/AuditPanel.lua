@@ -320,8 +320,9 @@ local function PaintHeader(model, y)
 end
 
 -- The reason's facts, one a block, REASON_LINES lines in all, the names
--- links holds colored; returns the height used
-local function ReasonBlocks(parts, x, y, width, links)
+-- links holds colored and the done words in the done color with their check
+-- (UI.Icons.MarkDone, as the details window's band); returns the height used
+local function ReasonBlocks(parts, x, y, width, links, done)
   local top, left = y, REASON_LINES
   for i, part in ipairs(parts) do
     if left <= 0 then
@@ -329,7 +330,8 @@ local function ReasonBlocks(parts, x, y, width, links)
       break
     end
     if i > 1 then y = y - SEGMENT_GAP end
-    local height, fs = Block(U.Fonts.BODY, U.Colors.LIGHT_GRAY, Panel.Linked(part, links), x, y, width,
+    local text = Recollect.UI.Icons.MarkDone(Panel.Linked(part, links), done, true)
+    local height, fs = Block(U.Fonts.BODY, U.Colors.LIGHT_GRAY, text, x, y, width,
       math.min(LINE_LINES, left))
     y = y - height
     left = left - LinesOf(fs)
@@ -351,7 +353,7 @@ local function PaintVerdict(model, compact, y, contentWidth)
   else
     y = y - Block(U.Fonts.TITLE, model.color, model.label, textX, y, textWidth, HEADLINE_LINES) - LINE_GAP
   end
-  y = y - ReasonBlocks(compact.reason, textX, y, textWidth, model.links)
+  y = y - ReasonBlocks(compact.reason, textX, y, textWidth, model.links, model.done)
   if model.verdictNote then
     y = y - LINE_GAP - Block(U.Fonts.DATA, U.Colors.LABEL_GRAY, model.verdictNote, textX, y - LINE_GAP, textWidth, 1)
   end
@@ -488,7 +490,7 @@ function Panel.PinText(model, pinLive, pinAfterCombat, trimmed)
   local clash = Detail.ClashText()
   if clash then return clash end
   if trimmed and type(model) == "table" and model.source then
-    return "More in the item's full details: turn the Pin key on in /rec settings"
+    return "More in the item's full details: turn on the details key (/rec settings > Keys and waypoints)"
   end
   return nil
 end

@@ -135,6 +135,8 @@ Guide.SECTIONS = {
         Verdict(V.DONE, "every use Recollect checks is finished"),
       }, "\n"),
       Note("Recollect never decides for you: the details window's Still needed? answer is a suggestion with its reason, and a Tip may say an item is most likely safe to let go. Your call."),
+      -- the band's Your call answer, in the band's own words (DetailWindow.FOR_FUN)
+      Note(Recollect.UI.DetailWindow and Recollect.UI.DetailWindow.FOR_FUN or ""),
     },
   },
   {

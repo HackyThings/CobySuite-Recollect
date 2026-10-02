@@ -87,14 +87,22 @@ function QuestInfo.Get(questID, budget)
   end
   local numRewards, numChoices = Value(seams.NumRewards, questID), Value(seams.NumChoices, questID)
   local title = Value(seams.Title, questID)
+  -- completion and repeatability answer false before quest history has
+  -- loaded (Facts.Ready), so they stay unread (nil) until its gate opens: a
+  -- chain followed through here read an early false as open (review CORE-03)
+  local completed, completedOnAccount, repeatable
+  if Recollect.Facts.Ready.Quests() then
+    completed, completedOnAccount = Value(seams.Completed, questID), Value(seams.CompletedOnAccount, questID)
+    repeatable = Value(seams.Repeatable, questID)
+  end
   return {
     questID = questID,
     title = type(title) == "string" and title ~= "" and title or nil,
-    completed = Value(seams.Completed, questID),
-    completedOnAccount = Value(seams.CompletedOnAccount, questID),
+    completed = completed,
+    completedOnAccount = completedOnAccount,
     isAccount = Value(seams.IsAccount, questID),
     onQuest = Value(seams.OnQuest, questID),
-    repeatable = Value(seams.Repeatable, questID),
+    repeatable = repeatable,
     rewards = Items(questID, type(numRewards) == "number" and numRewards or 0, seams.RewardInfo),
     choices = Items(questID, type(numChoices) == "number" and numChoices or 0, seams.ChoiceInfo),
   }

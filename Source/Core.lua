@@ -102,8 +102,8 @@ end
 -- Slash commands
 --
 -- Registered through CobySuite.Slash, which generates help and version. A
--- bare /rec opens the Recollect Audit. "test" and "lab" exist only while
--- the Tests folder is loaded: release builds strip it, and available() hides both.
+-- bare /rec opens the Recollect Audit. "test" exists only while the Tests
+-- folder is loaded: release builds strip it, and available() hides it.
 -- "curator" is handed to the curator provider.
 -------------------------------------------------------------------------------
 local function ToggleList()
@@ -136,7 +136,7 @@ CobySuite_Recollect.Slash.Register({
     extra = {
       {
         name = "curator", usage = "curator [status|join|cancel|diag|ping|transport [Name-Realm]]",
-        help = "Curator mode: help build Recollect's database (the curator dashboard; status prints one line; join prints the invite link; cancel stops a collection)",
+        help = "Open the curator dashboard (also status, join, cancel, diag, ping)",
         run = function(rest)
           local provider = curatorProvider
           if provider and provider.Slash then
@@ -148,7 +148,7 @@ CobySuite_Recollect.Slash.Register({
       },
       {
         name = "feedback", aliases = { "bug" },
-        help = "Write feedback for Recollect's author; it's sent with your next curator collection",
+        help = "Write feedback for Recollect's author, sent with your next curator collection",
         run = function()
           local provider = curatorProvider
           if provider and provider.OpenFeedback then
@@ -156,14 +156,6 @@ CobySuite_Recollect.Slash.Register({
           else
             Recollect.Utilities.Message("Feedback travels with curator mode, which isn't part of this build.")
           end
-        end,
-      },
-      {
-        name = "lab", help = "Open the development Lab: what the game answers in each state, as one report",
-        available = function() return Recollect.Tests ~= nil and Recollect.Tests.Lab ~= nil end,
-        run = function()
-          local tests = Recollect.Tests
-          if tests and tests.Lab then tests.Lab.Open() end
         end,
       },
     },

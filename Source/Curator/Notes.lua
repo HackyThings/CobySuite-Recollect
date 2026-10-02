@@ -24,13 +24,15 @@
 -- and a flag saved again after that gets a new entry. A lost V, or no V for
 -- AWAITING_DAYS, makes the entries pending again.
 --
--- Notes are not recorder findings: they are outside the 1 MB cap and never
--- evicted (a person wrote them; a delivered flag counts toward the flagged
--- items' limit until the next database clears it), and a new database (D14) clears only what
+-- Notes are not recorder findings: they are outside the 1 MB cap, and flags
+-- and feedback are never evicted (a person wrote them; a delivered flag counts
+-- toward the flagged items' limit until the next database clears it); at the
+-- error limit the oldest delivered error makes room, and with none delivered
+-- a new one is only counted (errorsDropped). A new database (D14) clears only what
 -- the author already has: every flag whose entries are all delivered, and
 -- delivered feedback and errors. Anything else stays, each entry keeping the
 -- data version it was written under, so the author sees it was "flagged
--- under an older database version". The limits refuse instead of evicting.
+-- under an older database version". The flag and feedback limits refuse instead of evicting.
 -------------------------------------------------------------------------------
 local Curator = Recollect.Curator
 local Host = Curator.Host
@@ -199,8 +201,8 @@ function Notes.SaveFlag(itemID, reason, text)
   end
   local state = Notes.Flag(itemID)
   if state.atLimit then
-    return nil, #entries > 0 and "This flag holds as much as it can until Recollect's next database update."
-      or ("You have %d flagged items, the most Recollect keeps until its next database update."):format(Notes.LIMITS.FLAGGED_ITEMS)
+    return nil, #entries > 0 and "This flag is full. It clears on a database update once the author has saved all its entries."
+      or ("Flag limit reached (%d items). Flags the author has fully saved clear on a database update."):format(Notes.LIMITS.FLAGGED_ITEMS)
   end
   notes.flags[itemID] = flag or { entries = entries }
   local first = entries[1]
@@ -248,7 +250,7 @@ function Notes.SaveFeedback(text)
     return Copy(last)
   end
   if #notes.feedback >= Notes.LIMITS.FEEDBACK then
-    return nil, ("You have %d pieces of feedback, the most Recollect keeps until its next database update."):format(Notes.LIMITS.FEEDBACK)
+    return nil, ("Feedback limit reached (%d). Feedback the author has saved clears on a database update."):format(Notes.LIMITS.FEEDBACK)
   end
   local entry = NewEntry(notes, { text = clean })
   notes.feedback[#notes.feedback + 1] = entry
@@ -323,7 +325,7 @@ function Notes.Pending()
   local notes = Notes.DB()
   local wire, keys = {}, {}
   Each(notes, function(key, kind, entry, itemID)
-    if entry.state ~= "pending" then return end
+    if entry.state ~= "pending" or entry.rejected == entry.rev then return end
     wire[key] = { kind = kind, item = itemID, n = entry.n, of = entry.of, reason = entry.reason, text = entry.text,
       stack = entry.stack, count = entry.count, data = entry.data, addon = entry.addon, build = entry.build, at = entry.at }
     keys[key] = entry.rev
@@ -356,6 +358,23 @@ end
 
 -- Saved(request) and Lost(request): V's answer for a request that carried
 -- notes; true when it named one
+-- Rejected(keys): the author turned down the pull that carried these entries
+-- (an X "rejected:" before K): never sent again until they change, as the
+-- store's revisions aren't (an edit raises the revision); not marked
+-- delivered, since the author didn't save them (review CUR-02)
+function Notes.Rejected(keys)
+  local notes = Notes.DB()
+  local changed = false
+  Each(notes, function(key, _, entry)
+    if keys[key] == entry.rev and entry.state == "pending" then
+      entry.rejected = entry.rev
+      changed = true
+    end
+  end)
+  if changed then Changed() end
+  return changed
+end
+
 function Notes.Saved(request)
   local notes = Notes.DB()
   local waiting = notes.awaiting[request]
@@ -435,7 +454,7 @@ function Notes.Counts()
     if #flag.entries > 0 then out.flags = out.flags + 1 end
   end
   Each(notes, function(_, _, entry)
-    if entry.state == "pending" then out.pending = out.pending + 1 end
+    if entry.state == "pending" and entry.rejected ~= entry.rev then out.pending = out.pending + 1 end
   end)
   return out
 end

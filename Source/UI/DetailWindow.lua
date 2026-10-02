@@ -219,7 +219,7 @@ Detail.ClickChord = ClickChord
 -- The panel's line when the pin key is the waypoint key, else nil
 function Detail.ClashText()
   local _, clash = Detail.Key()
-  return clash and "Pin key: the same key as the waypoint key; choose another in /rec settings" or nil
+  return clash and "Details key: the same key as the waypoint key; choose another in /rec settings" or nil
 end
 
 -- The panel's line for the key, or nil when it is off
@@ -390,7 +390,7 @@ function Fold.Take(rows, from, limit, lineOf)
         kept.ids[id], kept.alike = true, kept.alike + 1
       end
     elseif #lines < limit then
-      line.ids, line.alike = { [Identity(row)] = true }, 1
+      line.ids, line.alike, line.row = { [Identity(row)] = true }, 1, row
       lines[#lines + 1] = line
       byText[key] = line
     else
@@ -509,6 +509,8 @@ local function BuyRowLine(row, label, name, links)
   CostLinks(row, links)
   local seller = data.Where(row)
   if seller then
+    -- "A vendor in Spires of Arak" is the Sold by column's; inside the sentence it reads "a vendor"
+    if seller:find("^An? %l") then seller = Lowered(seller) end
     text = seller:find("^In ") and ("%s, %s"):format(text, Lowered(seller)) or ("%s, at %s"):format(text, seller)
   end
   local cut = #text
@@ -546,6 +548,7 @@ local function RowLine(row, withPlace)
     text = Recollect.UI.UsedFor.parts.TradingPostText(row.month)
   end
   local place = withPlace and data.Place(row) or nil
+  local before = #text
   if place then
     if not byPlace then text = ("%s (%s)"):format(text, place.zone or ("map " .. place.mapID)) end
   elseif withPlace and row.kind == "endeavor" then
@@ -558,7 +561,15 @@ local function RowLine(row, withPlace)
     if instance then text = ("%s (%s)"):format(text, instance) end
   end
   local cut = #text
-  if row.stateText then text = ("%s (%s)"):format(text, RowState(row)) end
+  if row.stateText then
+    -- after the place's parenthetical, one parenthetical for both ("(Firelands,
+    -- during a holiday or event)"), never two in a row
+    if #text > before and text:sub(-1) == ")" then
+      text = ("%s, %s)"):format(text:sub(1, -2), RowState(row))
+    else
+      text = ("%s (%s)"):format(text, RowState(row))
+    end
+  end
   -- a quest says what it rewards, with each reward's state
   if withPlace then
     local rewards, heard = data.Heard(data.Rewards, row)
@@ -812,7 +823,9 @@ function FOR.Group(lines, rows, key, tab, label)
     end
   end
   if n == 0 then return nil end
-  lines[#lines + 1] = Group(("%s: %d%s"):format(label, n, missing > 0 and ("; %d still to get or do"):format(missing) or ""))
+  local title = Group(("%s: %d%s"):format(label, n, missing > 0 and ("; %d still to get or do"):format(missing) or ""))
+  title.groupTitle = true
+  lines[#lines + 1] = title
   local ordered = Fold.Ordered(rows, FOR.Counted, Fold.Need(key, MAX_SUMMARY))
   local named, nextIndex = Fold.Take(ordered, 1, MAX_SUMMARY, FOR.RowLine)
   for _, line in ipairs(named) do lines[#lines + 1] = line end
@@ -1009,7 +1022,7 @@ function FOR.Explain(model, j, itemID)
   local lines = {}
   -- (collects: Detail.Describe's second answer, the kind being its own use:
   -- a collectible it teaches, a slot it's worn in, a gem's socket and the like)
-  local okD, what, collects = pcall(Detail.Describe, itemID, model)
+  local okD, what, collects = pcall(Detail.Describe, itemID)
   what, collects = okD and what or nil, okD and collects or false
   if what == "A quest item" and FOR.IsToken(j) then what, collects = "A token you spend at vendors", true end
   local facts = Recollect.Utilities.IsPositiveID(itemID) and Recollect.Facts.Item.Get(itemID) or nil
@@ -1175,6 +1188,13 @@ local function ForLines(j)
     local tally = FOR.Group(lines, rows, "for:" .. group.key, group.tab, group.label)
     if tally then lines.tallies[#lines.tallies + 1] = tally end
   end
+  -- one group: the section's summary is its count ("Buys: 1 (1 still to get
+  -- or do)"), so its title would say it again (Task #164)
+  if #lines.tallies == 1 then
+    for i = #lines, 1, -1 do
+      if lines[i].groupTitle then table.remove(lines, i) end
+    end
+  end
   -- "every use is gone" is decided from the relations too (UI.UsedFor.LiveUse):
   -- a row that couldn't be built is still a use
   local every = live == 0 and not Recollect.UI.UsedFor.LiveUse(j.itemID, j.relations, j.owner, j.questApplies)
@@ -1299,6 +1319,18 @@ end
 -- HOW TO GET MORE's one-line summary: how many ways, by kind, most first
 -- ("22 ways to get it: Reward 20, Sold by 2"), and how many are gone
 local SUMMARY_KINDS = 3
+-- One kind of source in words after "N ways to get it:": { one, several }
+local KIND_NOUNS = {
+  ["Drops from"] = { "a drop", "drops" }, ["Boss loot"] = { "boss loot", "boss loot" },
+  ["Zone drop"] = { "a zone drop", "zone drops" }, ["World drop"] = { "a world drop", "world drops" },
+  ["Sold by"] = { "a vendor", "vendors" }, ["Crafted by"] = { "crafting", "crafting" },
+  ["Found at"] = { "a treasure", "treasures" }, Reward = { "a quest reward", "quest rewards" },
+  Achievement = { "an achievement", "achievements" }, Renown = { "renown", "renown" },
+  ["Choice reward"] = { "a quest choice", "quest choices" }, ["Trading Post"] = { "the Trading Post", "the Trading Post" },
+  ["Made from"] = { "a combine", "combines" }, ["Recipe item"] = { "a recipe item", "recipe items" },
+  ["Black Market"] = { "the Black Market", "the Black Market" },
+}
+Detail.KIND_NOUNS = KIND_NOUNS
 local function GetSummary(rows, removed, goneSources)
   local counts, order = {}, {}
   for _, row in ipairs(rows) do
@@ -1312,6 +1344,11 @@ local function GetSummary(rows, removed, goneSources)
   end)
   local parts = {}
   for i = 1, math.min(#order, SUMMARY_KINDS) do parts[i] = ("%s %d"):format(order[i], counts[order[i]]) end
+  -- one kind: a noun for it ("1 way to get it: a quest reward", never "Reward 1")
+  if #order == 1 then
+    local noun = KIND_NOUNS[order[1]]
+    parts[1] = noun and noun[#rows == 1 and 1 or 2] or Lowered(order[1])
+  end
   if #order > SUMMARY_KINDS then parts[#parts + 1] = "and more" end
   local words
   if #rows > 0 then
@@ -1434,7 +1471,19 @@ local function GetLines(j, model, itemID)
   local tiles = GetTiles(rows)
   if tiles then lines.tiles = { text = "", tiles = tiles, lead = true } end   -- painted before the lines
   local named, nextIndex = Fold.Take(rows, 1, MAX_SUMMARY, FOR.RowLine)
-  for _, line in ipairs(named) do lines[#lines + 1] = line end
+  for _, line in ipairs(named) do
+    lines[#lines + 1] = line
+    -- a quest reward at the end of a chain: how to reach that quest, step by
+    -- step (Task #106, UI.UsedFor.ChainLines)
+    local row = line.row
+    if row and row.what == "quest" and row.questID and (row.kind == "reward" or row.kind == "choice") then
+      local ok, chain = pcall(Recollect.UI.UsedFor.ChainLines, row.questID, j.owner)
+      for _, sub in ipairs(ok and chain or {}) do
+        sub.sub = true
+        lines[#lines + 1] = sub
+      end
+    end
+  end
   Fold.Container(lines, "get", rows, nextIndex, "sources", FOR.RowLine)
   -- what crafting it takes, under its own title (Cobanyte, 2026-09-28: it
   -- belongs with how to get more, not with what the item is for)
@@ -1689,9 +1738,11 @@ function Detail.Content(model, j)
   end
   local reasons = {}
   if model.reason and model.reason ~= "" then
+    local done = Recollect.UI.Icons.DoneWords(type(model.result) == "table" and model.result.purposes or nil)
     for _, part in ipairs(Recollect.UI.AuditPanel.Segments(model.reason)) do
       local line = Plain(part)
       line.header = "reason"
+      line.done = done   -- marked as the band marks them
       head[#head + 1] = line
       reasons[#reasons + 1] = line
     end
@@ -1756,9 +1807,25 @@ function Detail.Content(model, j)
   local result = model.result
   if result and result.purposes and #result.purposes > 0 then
     local checks, labels, colors = {}, {}, Recollect.UI.VerdictColors
+    local okKeep, keep = pcall(Detail.Keep, model)
+    local banded = okKeep and type(keep) == "table" and type(keep.why) == "string" and keep.why or nil
+    local VerdictLabel = Recollect.Purposes.Registry.VerdictLabel
     for _, purpose in ipairs(result.purposes) do
-      checks[#checks + 1] = { text = ("%s: %s"):format(tostring(purpose.label), tostring(purpose.reason)),
-        color = colors[purpose.verdict] or U.Colors.LABEL_GRAY, links = reasonLinks }
+      -- a check whose use is done: its check mark for the bullet and its
+      -- done words in the done color (UI.Icons.MarkDone, as the band)
+      local done = type(purpose.done) == "table" and #purpose.done > 0 and purpose.done or nil
+      -- the reason the Still needed? band already says is not said again: the
+      -- check's verdict, pointing at it (Task #164); a reason that opens with
+      -- the check's own label doesn't say it twice ("Buys: Buys ...")
+      local label, reason = tostring(purpose.label), tostring(purpose.reason)
+      if banded and purpose.reason and banded:find(reason, 1, true) then
+        reason = ("%s (the reason above)"):format(VerdictLabel[purpose.verdict] or tostring(purpose.verdict))
+      elseif reason:sub(1, #label + 1) == label .. " " then
+        reason = reason:sub(#label + 2)
+      end
+      checks[#checks + 1] = { text = ("%s: %s"):format(label, reason),
+        color = colors[purpose.verdict] or U.Colors.LABEL_GRAY, links = reasonLinks,
+        done = done, icon = done and "done" or nil }
       labels[#labels + 1] = tostring(purpose.label)
     end
     sections[#sections + 1] = { title = "CHECKS", lines = checks,
@@ -1831,14 +1898,18 @@ function Hyper.Text(text, links, prefix)
 end
 
 -- Line(line, prefix): a bulleted line's text, light gray with only its
--- closing "(state)" in the line's color (as UI.AuditPanel.LineText) and its
--- names as links
+-- closing "(state)" in the line's color (as UI.AuditPanel.LineText), its
+-- names as links, and its done words (line.done, a check's) in the done
+-- color (UI.Icons.MarkDone; the bullet is the check already)
 function Hyper.Line(line, prefix)
   if line.display then return line.display end
   local text = tostring(line.text)
   local head, state = text:match("^(.-)(%b())$")
-  if not head or type(line.color) ~= "table" then return Hyper.Text(text, line.links, prefix) end
-  return ("%s|cFF%s%s|r"):format(Hyper.Text(head, line.links, prefix), Hex(line.color), state)
+  if not head or type(line.color) ~= "table" then
+    return Recollect.UI.Icons.MarkDone(Hyper.Text(text, line.links, prefix), line.done)
+  end
+  return ("%s|cFF%s%s|r"):format(Recollect.UI.Icons.MarkDone(Hyper.Text(head, line.links, prefix), line.done),
+    Hex(line.color), state)
 end
 
 -- Row(link): the row a link's data names, or nil
@@ -2219,7 +2290,7 @@ local function PaintOverview()
         h, fs = Block(U.Fonts.TITLE, line.color or U.Colors.HIGHLIGHT_WHITE, line.text, left, y, lineWidth + x0 - left)
         y = y - h - LINE_GAP
       elseif line.plain then
-        local text = line.display or Hyper.Text(line.text, line.links, "o")
+        local text = line.display or Recollect.UI.Icons.MarkDone(Hyper.Text(line.text, line.links, "o"), line.done, true)
         h, fs = Block(small and U.Fonts.DATA or U.Fonts.BODY, line.color or U.Colors.LIGHT_GRAY, text, left, y, textWidth)
         -- a line with a Map button is as tall as the button, so buttons never overlap
         y = y - (mapped and math.max(h, LINE_MAP) or h) - 2
@@ -2278,7 +2349,11 @@ local function PaintOverview()
         local open = Sections.IsOpen(meta.key, first)
         -- headers stack close; the first one stands apart from the lines above
         if painted then y = y - (afterHeader and Sections.GAP or Sections.TOP_GAP) end
-        if Sections.Header(meta, section.summary, open, first, y, width) then
+        -- open, a summary that is its own first line (WHAT IT'S FOR with no
+        -- groups of uses: the explanation) shows once, in the body
+        local summary = section.summary
+        if open and lines[1] and summary == lines[1].text then summary = nil end
+        if Sections.Header(meta, summary, open, first, y, width) then
           y = y - Sections.HEADER
         else
           y = y - Block(U.Fonts.SMALL, U.Colors.STATUS_GOLD, meta.heading, 0, y, width) - LINE_GAP
@@ -2755,9 +2830,8 @@ end
 -------------------------------------------------------------------------------
 local FLAG_WIDTH = 96
 local JOIN_WIDTH = 150    -- "Want to be a curator?"
-local JOIN_TIP = "Curators help Recollect's database grow. With curator mode on, Recollect notes what the game "
-  .. "shows you that its database gets wrong or doesn't have yet, as game IDs only, and the author collects it to "
-  .. "improve the next version. Click to open the Curator settings, which say exactly what is recorded and turn it on."
+local JOIN_TIP = "Help improve Recollect's data: curator mode notes what the game shows that the database gets "
+  .. "wrong or lacks, as game IDs only. Click for the Curator settings."
 local FLAG_TIPS = {
   pending = "Your flag isn't sent yet: click to change it",
   sent = "Your flag was sent; the author hasn't saved it yet. Click to add more information",
@@ -2926,10 +3000,10 @@ function Detail.PvpLevel(itemID, model)
   return level
 end
 
--- Describe(itemID, model): what the item is (a collection it teaches, the
+-- Describe(itemID): what the item is (a collection it teaches, the
 -- slot it's worn in, its kind), and whether that is its use (inherent); nil
 -- when its kind says nothing
-function Detail.Describe(itemID, model)
+function Detail.Describe(itemID)
   if not Recollect.Utilities.IsPositiveID(itemID) then return nil end
   local client, Try, IsPositiveID = Recollect.Purposes.client, Recollect.Utilities.Try, Recollect.Utilities.IsPositiveID
   local okMount, mountID = Try(client.GetMountFromItem, itemID)
@@ -2974,7 +3048,58 @@ KEEP_ICONS = {
   check = { file = "Interface\\DialogFrame\\UI-Dialog-Icon-AlertNew" },
   unknown = { file = "Interface\\Icons\\INV_Misc_QuestionMark" },
   info = { file = "Interface\\Icons\\INV_Misc_Bag_08" },
+  fun = { file = "Interface\\Icons\\INV_Drink_05" },   -- a mug, for a drink kept for fun
 }
+
+-- Just for fun (Cobanyte, 2026-10-01: an earned drink is "basically roleplay
+-- at that point and not a game necessity, so it's really a player's choice";
+-- the label his): what the band's hover and the guide say it means
+Detail.FOR_FUN = "Just for fun: nothing Recollect checks still needs it. It's a drink for roleplay "
+  .. "or a toast with friends, so keep it only if you'd like to."
+
+-- ForFun(result): whether the band says Just for fun, and whether any use
+-- was done. A Can't tell with no sign of an unchecked use, at least one
+-- check marking the item a drink only for fun (Purposes.Consumable's
+-- result.flavor), and every other check done or settled (a use finished,
+-- Verdicts.Combine's settled); none is needed. The verdict stays Can't tell:
+-- this is the band's suggestion only.
+function Detail.ForFun(result)
+  local V = Recollect.Purposes.Registry.Verdict
+  if type(result) ~= "table" or result.verdict ~= V.UNKNOWN then return false end
+  if type(result.unchecked) == "table" and #result.unchecked > 0 then return false end
+  local done, fun = false, false
+  for _, purpose in ipairs(type(result.purposes) == "table" and result.purposes or {}) do
+    if purpose.flavor then
+      fun = true
+    elseif purpose.settled or purpose.verdict == V.DONE then
+      done = true
+    else
+      return false
+    end
+  end
+  return fun, done
+end
+
+-- WholeReason(model): the verdict's reason with its headline. The panel
+-- splits a reason's first words off as its headline ("Buys 3 things from 1
+-- vendor" / "none of them is a collectible"), and model.reason keeps only the
+-- rest; the band and its hover say them together, never the second half
+-- alone. full keeps every part of the reason (the band's hover), else its
+-- first part only (the band). Returns the whole and the reason without it
+function Detail.WholeReason(model, full)
+  local own = type(model.reason) == "string" and model.reason ~= "" and model.reason or nil
+  local reason = full and own or FirstPart(own)
+    or FirstPart(type(model.result) == "table" and model.result.reason or nil)
+  local whole = reason
+  if type(model.headline) == "string" and model.headline ~= "" then
+    -- a rest that opens with the headline's state ("(earned, account-wide):
+    -- ...") follows it with a space, never "; ("
+    whole = reason and reason ~= model.headline
+      and (model.headline .. (reason:find("^%(") and " " or "; ") .. reason:gsub("^%u", string.lower))
+      or model.headline
+  end
+  return whole, reason
+end
 
 function Detail.Keep(model)
   if type(model) ~= "table" or model.reference then return nil end
@@ -2984,15 +3109,7 @@ function Detail.Keep(model)
   local itemID = model.source and model.source.itemID
   local residual = itemID and Recollect.Data and Recollect.Data.Residual and Recollect.Data.Residual[itemID] or nil
   local verdict = result.verdict
-  local reason = FirstPart(model.reason) or FirstPart(result.reason)
-  -- the panel splits a reason's first words off as its headline ("Buys 3
-  -- things from 1 vendor" / "none of them is a collectible"): the band says
-  -- them together, never the second half alone
-  local whole = reason
-  if type(model.headline) == "string" and model.headline ~= "" then
-    whole = reason and reason ~= model.headline and (model.headline .. "; " .. reason:gsub("^%u", string.lower))
-      or model.headline
-  end
+  local whole, reason = Detail.WholeReason(model)
   if verdict == V.NEEDED or verdict == V.USE or verdict == V.USEFUL then
     return { word = "Keep it", color = colors[verdict], icon = KEEP_ICONS.keep, why = whole or "It still has a use." }
   end
@@ -3014,6 +3131,14 @@ function Detail.Keep(model)
     return { word = "Probably done", color = colors[V.DONE], icon = KEEP_ICONS.done,
       why = "Every use Recollect found is done, but a quest may come back for it." }
   end
+  local fun, anyDone = Detail.ForFun(result)
+  if fun then
+    -- with a use done, that use's reason (an achievement earned) leads
+    return { word = "Just for fun", color = colors[V.DONE], icon = KEEP_ICONS.fun,
+      why = anyDone and whole and (whole .. "; beyond that it's a drink for roleplay")
+        or "A drink for roleplay; nothing Recollect checks still needs it",
+      detail = Detail.FOR_FUN }
+  end
   if verdict == V.OUTDATED or verdict == V.LOWER then
     return { word = verdict == V.OUTDATED and "Replaced" or "Lower level", color = colors[verdict], icon = KEEP_ICONS.check,
       why = reason or (verdict == V.OUTDATED and "It has been replaced." or "It's below what you wear.") }
@@ -3028,7 +3153,7 @@ end
 function Detail.KindLine(model, j)
   local itemID = model and model.source and model.source.itemID
   local parts = {}
-  local okD, what = pcall(Detail.Describe, itemID, model)
+  local okD, what = pcall(Detail.Describe, itemID)
   if okD and what == "A quest item" and FOR.IsToken(j) then what = "A token you spend at vendors" end
   if okD and type(what) == "string" and what ~= "" then parts[#parts + 1] = what end
   local facts = Recollect.Utilities.IsPositiveID(itemID) and Recollect.Facts.Item.Get(itemID) or nil
@@ -3066,6 +3191,9 @@ local function PaintBand()
     local why = keep.why or ""
     local okLinks, links = pcall(Detail.ReasonLinks, shown)
     why = Hyper.Text(why, okLinks and links or nil, "h")
+    -- a use that's done in the done color with its check (UI.Icons.MarkDone)
+    local Icons = Recollect.UI.Icons
+    why = Icons.MarkDone(why, Icons.DoneWords(shown.result and shown.result.purposes), true)
     text = ("%s  %s   %s"):format(U.WrapColor(Hex(gold), "Still needed?"), U.WrapColor(Hex(c), keep.word),
       U.WrapColor(Hex(light), why))
   else
@@ -3451,8 +3579,33 @@ local function OnRowClick(row, column, mouseButton, frame)
     if place then return SetWaypoint(place) end
   end
   local link = Data().Link(row)
+  if link and row.what == "quest" and mouseButton == "LeftButton" and not modified then Detail.QuestLinkLoads(row.questID, link) end
   if link then return seams.ItemRef(link, mouseButton) end
   if row.itemID then Recollect.Utilities.Message("That item is still loading; try again in a moment.") end
+end
+
+-- A quest's link shows only its title until the client has the quest's data
+-- (Task #106: "Repurposed, Restored" opened as a title and a close button).
+-- QuestLinkLoads(questID, link): a click on a quest whose data isn't here
+-- yet asks for it (Facts.QuestInfo.Get), and when it arrives within
+-- QUEST_LINK_WAIT seconds the link the click opened is shown again, now with
+-- what the game has for it
+Detail.QUEST_LINK_WAIT = 10
+function Detail.QuestLinkLoads(questID, link)
+  if not Recollect.Utilities.IsPositiveID(questID) or type(link) ~= "string" then return end
+  local ok, quest = pcall(Recollect.Facts.QuestInfo.Get, questID)
+  if ok and quest then return end
+  Detail.questLinkWait = { questID = questID, data = link:match("|H([^|]+)|h"), at = seams.Now() }
+end
+
+-- QUEST_DATA_LOAD_RESULT for the quest a click waits for: its link again
+function Detail.QuestLinkLoaded(questID, success)
+  local wait = Detail.questLinkWait
+  if not wait or wait.questID ~= questID then return end
+  Detail.questLinkWait = nil
+  if not success or not wait.data or seams.Now() - wait.at > Detail.QUEST_LINK_WAIT then return end
+  local tip = ItemRefTooltip
+  if tip and tip:IsShown() then pcall(tip.SetHyperlink, tip, wait.data) end
 end
 
 -- A link in the Overview or the header (Links in the text): hover and
@@ -3565,7 +3718,7 @@ local function BuildHeader()
     if self.tip then
       tip:AddLine(self.tip, gray[1], gray[2], gray[3], true)
     end
-  end)
+  end, { fillable = true })   -- it writes only to the tooltip it's handed
   window.Flag:Hide()
   -- the answer band (PaintBand): full width under the header, on every tab
   local band = CreateFrame("Frame", nil, window)
@@ -3590,22 +3743,10 @@ local function BuildHeader()
   -- the whole why, the verdict, the Tip and the owner's rule on hover
   band:EnableMouse(true)
   band:SetScript("OnEnter", function(self)
-    local k = self.keep
-    if not k then return end
-    local light = U.Colors.LIGHT_GRAY
+    if not self.keep then return end
     local tip = seams.Tooltip()
     tip:SetOwner(self, "ANCHOR_BOTTOM")
-    tip:SetText(k.word, (k.color or light)[1], (k.color or light)[2], (k.color or light)[3])
-    tip:AddLine(k.why, light[1], light[2], light[3], true)
-    local reason = shown and shown.reason
-    if type(reason) == "string" and reason ~= "" and reason ~= k.why then
-      tip:AddLine(("%s: %s"):format(tostring(shown.label or "Verdict"), reason), light[1], light[2], light[3], true)
-    end
-    if type(k.detail) == "string" and k.detail ~= "" and k.detail ~= k.why then
-      tip:AddLine(k.detail, light[1], light[2], light[3], true)
-    end
-    local blue = U.Colors.INFO_BLUE
-    tip:AddLine("Recollect only suggests; it's always your call.", blue[1], blue[2], blue[3], true)
+    Detail.FillBandTip(tip)
     tip:Show()
   end)
   band:SetScript("OnLeave", function() seams.Tooltip():Hide() end)
@@ -3617,6 +3758,30 @@ local function BuildHeader()
   window.HeaderEnd:SetSize(1, 1)
   window.HeaderEnd:SetPoint("TOPLEFT", band, "BOTTOMLEFT", 0, -HEADER_GAP)
   EnableLinks(window)
+end
+
+-- FillBandTip(tip): the band's hover into tip (the band's OnEnter, and a
+-- tooltip shown away from the band): the answer, its whole why, the
+-- verdict's whole reason when the why doesn't say it, the Tip or what the
+-- answer means, and "your call"; false when the band has no answer
+function Detail.FillBandTip(tip)
+  local k = window and window.Band and window.Band.keep
+  if not k then return false end
+  local light = U.Colors.LIGHT_GRAY
+  tip:SetText(k.word, (k.color or light)[1], (k.color or light)[2], (k.color or light)[3])
+  tip:AddLine(k.why, light[1], light[2], light[3], true)
+  -- the verdict's whole reason, headline included, unless the why above
+  -- already says it ("...; beyond that it's a drink for roleplay")
+  local reason = shown and Detail.WholeReason(shown, true)
+  if type(reason) == "string" and reason ~= "" and not tostring(k.why):find(reason, 1, true) then
+    tip:AddLine(("%s: %s"):format(tostring(shown.label or "Verdict"), reason), light[1], light[2], light[3], true)
+  end
+  if type(k.detail) == "string" and k.detail ~= "" and k.detail ~= k.why then
+    tip:AddLine(k.detail, light[1], light[2], light[3], true)
+  end
+  local blue = U.Colors.INFO_BLUE
+  tip:AddLine("Recollect only suggests; it's always your call.", blue[1], blue[2], blue[3], true)
+  return true
 end
 
 local function BuildToolbar()
@@ -3716,7 +3881,7 @@ function Fold.MakeButton(parent)
     tip:SetText(self.action == "more" and "Show the next ones here" or (open and "Hide them" or "List them here"), 1, 1, 1)
     local gray = U.Colors.LABEL_GRAY
     tip:AddLine("The tab lists them all, with a search and filters", gray[1], gray[2], gray[3], true)
-  end)
+  end, { fillable = true })   -- it writes only to the tooltip it's handed
   b:Hide()
   return b
 end
@@ -4028,6 +4193,10 @@ end
 
 button = CreateFrame("Button", BUTTON_NAME, UIParent)
 button:Hide()
+-- a quest link waiting for its data (Detail.QuestLinkLoads)
+Detail.QuestLinkFrame = CreateFrame("Frame")
+Detail.QuestLinkFrame:RegisterEvent("QUEST_DATA_LOAD_RESULT")
+Detail.QuestLinkFrame:SetScript("OnEvent", function(_, _, questID, success) pcall(Detail.QuestLinkLoaded, questID, success) end)
 button:SetScript("OnClick", OnClick)
 button:RegisterEvent("PLAYER_REGEN_ENABLED")
 button:SetScript("OnEvent", OnCombatEnded)

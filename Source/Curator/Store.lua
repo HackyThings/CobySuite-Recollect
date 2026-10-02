@@ -159,8 +159,10 @@ local function Lookup(db)
   if lookupFor == db.records and lookup then return lookup end
   lookup, lookupFor = {}, db.records
   for id, record in pairs(db.records) do
-    lookup[record.fact] = lookup[record.fact] or {}
-    lookup[record.fact][LookupKey(record.value, record.build)] = id
+    if not record.held then   -- held from an older data version: never matched (Main.Freeze)
+      lookup[record.fact] = lookup[record.fact] or {}
+      lookup[record.fact][LookupKey(record.value, record.build)] = id
+    end
   end
   return lookup
 end
@@ -226,8 +228,9 @@ local function RemoveRecord(db, id)
   db.records[id] = nil
   Unmark(db, id)
   local bucket = lookupFor == db.records and lookup and lookup[record.fact]
-  if bucket then
-    bucket[LookupKey(record.value, record.build)] = nil
+  local key = LookupKey(record.value, record.build)
+  if bucket and bucket[key] == id then
+    bucket[key] = nil
     if next(bucket) == nil then lookup[record.fact] = nil end
   end
   db.bytes = db.bytes - RecordBytes(record)
@@ -371,6 +374,7 @@ function Store.Record(kind, fact, value, shipped, ctxIndex, extra, info)
   local byValue = Lookup(db)[fact]
   local id = byValue and byValue[key]
   local record = id and db.records[id]
+  if record and record.held then record = nil end   -- an older data version's: a new record
   local now = GetServerTime()
   if record then
     db.bytes = db.bytes - RecordBytes(record)
@@ -443,6 +447,9 @@ function Store.Confirm(source, positions, total, ctxIndex)
   local build = GameBuild()
   local key = source .. "@" .. tostring(build)
   local stamp = db.confirms[key]
+  -- a stamp held from an older data version names positions in its index:
+  -- this visit waits for its V rather than merge into it (review CUR-01)
+  if stamp and stamp.held then return nil end
   local now = GetServerTime()
   if stamp then
     db.bytes = db.bytes - StampBytes(stamp)
@@ -612,8 +619,22 @@ function Store.Lost(requestID)
   local db = Store.DB()
   local entry = DropAwaiting(db, requestID)
   if not entry then return false end
-  for id in pairs(entry.recs) do Unmark(db, id) end
-  for key in pairs(entry.confirms) do Unmark(db, key) end
+  -- what was held from an older data version is dropped, never sent again
+  -- under the new one's label (review CUR-01)
+  for id in pairs(entry.recs) do
+    local record = db.records[id]
+    if record and record.held then RemoveRecord(db, id) else Unmark(db, id) end
+  end
+  for key in pairs(entry.confirms) do
+    local stamp = db.confirms[key]
+    if stamp and stamp.held then
+      db.confirms[key] = nil
+      Unmark(db, key)
+      db.bytes = db.bytes - StampBytes(stamp)
+    else
+      Unmark(db, key)
+    end
+  end
   return true
 end
 

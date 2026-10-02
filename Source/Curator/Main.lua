@@ -282,6 +282,11 @@ function Main.Freeze()
   -- again after a database update (Cobanyte, 2026-09-30: only what changed
   -- since the last send); one the new data knows isn't recorded anyway
   if kept then
+    -- held from the older data version: never merged with what is recorded
+    -- under the new one, and dropped rather than sent again under its label
+    -- when its V is lost (Store.Record, Confirm, Lost; review CUR-01)
+    for _, entry in pairs(sentRecords) do entry.held = true end
+    for _, stamp in pairs(sentConfirms) do stamp.held = true end
     db.records, db.confirms, db.delivered = sentRecords, sentConfirms, delivered
     if Curator.Context and Curator.Context.Prune then pcall(Curator.Context.Prune) end
   else

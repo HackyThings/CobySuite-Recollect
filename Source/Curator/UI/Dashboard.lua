@@ -34,8 +34,8 @@ Curator.DashboardWindow = Window
 
 local NAME = "RecollectCuratorDashboard"
 local L = { WIDTH = 1000, HEIGHT = 660, PAD = 14, TOP = 64, FOOTER = 40, HEADER = 32, ICON = 22, BODY_X = 12,
-  TILE_W = 150, TILE_MAX = 230, TILE_H = 42, TILE_GAP = 6, TILE_ICON = 24, LINE_GAP = 3, SECTION_GAP = 6,
-  BANNER_ICON = 28, BAR_H = 14, BUTTON_H = 22, HEADERS = 8, TILES = 24, FONTS = 90, BARS = 3, REFRESH = 2, REBUILD = 10 }
+  TILE_W = 150, TILE_H = 42, BANNER_TILES = 3, SECTION_TILES = 10, GRIDS = 3, LINE_GAP = 3, SECTION_GAP = 6,
+  BANNER_ICON = 28, BAR_H = 14, BUTTON_H = 22, HEADERS = 8, FONTS = 90, BARS = 3, REFRESH = 2, REBUILD = 10 }
 Window.LAYOUT = L
 
 local TABS = { { key = "overview", label = "Overview" }, { key = "findings", label = "Findings" },
@@ -73,47 +73,52 @@ end
 -------------------------------------------------------------------------------
 -- Tooltips
 -------------------------------------------------------------------------------
+-- The model's tooltip ({ title, note, lines = { { left, right } } }) into
+-- the tooltip it's handed; false with none
+local function FillTip(tooltip, tip)
+  if type(tip) ~= "table" then return false end
+  tooltip:SetText(tostring(tip.title or ""), 1, 1, 1)
+  local light, gray = U.Colors.LIGHT_GRAY, U.Colors.LABEL_GRAY
+  if tip.note then tooltip:AddLine(tip.note, gray[1], gray[2], gray[3], true) end
+  for _, line in ipairs(tip.lines or {}) do
+    tooltip:AddDoubleLine(line[1], line[2], light[1], light[2], light[3], 1, 1, 1)
+  end
+  return true
+end
+
 local function ShowTip(owner, tip)
   if type(tip) ~= "table" then return end
   GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
-  GameTooltip:SetText(tostring(tip.title or ""), 1, 1, 1)
-  local light, gray = U.Colors.LIGHT_GRAY, U.Colors.LABEL_GRAY
-  if tip.note then GameTooltip:AddLine(tip.note, gray[1], gray[2], gray[3], true) end
-  for _, line in ipairs(tip.lines or {}) do
-    GameTooltip:AddDoubleLine(line[1], line[2], light[1], light[2], light[3], 1, 1, 1)
-  end
+  FillTip(GameTooltip, tip)
   GameTooltip:Show()
 end
 
 -------------------------------------------------------------------------------
 -- The Overview's pools
 -------------------------------------------------------------------------------
-local function MakeTile(parent)
-  local tile = CreateFrame("Button", nil, parent)
-  tile:SetHeight(L.TILE_H)
-  local bg = tile:CreateTexture(nil, "BACKGROUND")
-  bg:SetAllPoints()
-  local c = U.Colors.CONTENT_BG
-  bg:SetColorTexture(c[1], c[2], c[3], c[4])
-  CobySuite_Recollect.UI.AddHoverHighlight(tile)
-  tile.Icon = tile:CreateTexture(nil, "ARTWORK")
-  tile.Icon:SetSize(L.TILE_ICON, L.TILE_ICON)
-  tile.Icon:SetPoint("LEFT", tile, "LEFT", 8, 0)
-  tile.Value = tile:CreateFontString(nil, "OVERLAY", U.Fonts.TITLE)
-  tile.Value:SetPoint("TOPLEFT", tile.Icon, "TOPRIGHT", 8, 4)
-  tile.Value:SetPoint("RIGHT", tile, "RIGHT", -6, 0)
-  tile.Value:SetJustifyH("LEFT")
-  tile.Value:SetWordWrap(false)
-  tile.Label = tile:CreateFontString(nil, "OVERLAY", U.Fonts.DATA)
-  tile.Label:SetPoint("BOTTOMLEFT", tile.Icon, "BOTTOMRIGHT", 8, -3)
-  tile.Label:SetPoint("RIGHT", tile, "RIGHT", -6, 0)
-  tile.Label:SetJustifyH("LEFT")
-  tile.Label:SetWordWrap(false)
-  SetColor(tile.Label, U.Colors.LABEL_GRAY)
-  tile:SetScript("OnEnter", function(self) ShowTip(self, self.tip) end)
-  tile:SetScript("OnLeave", function() GameTooltip:Hide() end)
-  tile:Hide()
-  return tile
+-- One grid of the shared stat tiles (CobySuite.UI.CreateStatTiles, Task
+-- #117: the settings kit's tile look, as Linkepedia's Stats tab), made at
+-- build with all its tiles; PaintTiles hands it a section's tiles as
+-- grid.ctx.tiles. columns is what one line holds at most; the kit wraps to
+-- fewer by width, a tile never narrower than TILE_W
+local function MakeGrid(parent, columns, maxTiles)
+  local ctx = { tiles = {} }
+  local grid = CobySuite_Recollect.UI.CreateStatTiles(parent, { tiles = function(c) return c.tiles end, context = ctx,
+    maxTiles = maxTiles, columns = columns, minTileWidth = L.TILE_W, height = L.TILE_H })
+  grid.ctx = ctx
+  grid:Hide()
+  return grid
+end
+
+-- A model tile ({ key, icon, value, label, color, dim, tip }) as a stat
+-- tile: an "atlas:" icon is an atlas, the value white unless the model
+-- colors it, gray and faded when dim, its tooltip filled from the model's
+local function StatTile(def)
+  local atlas = type(def.icon) == "string" and def.icon:match("^atlas:(.+)$") or nil
+  local tip = def.tip
+  return { key = def.key, atlas = atlas, icon = not atlas and def.icon or nil, value = def.value, label = def.label,
+    color = def.dim and U.Colors.LABEL_GRAY or def.color or U.Colors.HIGHLIGHT_WHITE, dim = def.dim,
+    tooltipFill = function(tooltip) return FillTip(tooltip, tip) end }
 end
 
 local function MakeBar(parent)
@@ -201,9 +206,11 @@ local function BuildOverview(page)
   scroll:SetScrollChild(child)
   W.scroll, W.child = scroll, child
   W.banner = MakeBanner(child)
-  W.headers, W.tiles, W.fonts, W.bars = {}, {}, {}, {}
+  W.headers, W.grids, W.fonts, W.bars = {}, {}, {}, {}
   for i = 1, L.HEADERS do W.headers[i] = MakeHeader(child) end
-  for i = 1, L.TILES do W.tiles[i] = MakeTile(child) end
+  -- the banner's numbers share one line; each section's tiles a grid of their own
+  W.bannerGrid = MakeGrid(child, L.BANNER_TILES, L.BANNER_TILES)
+  for i = 1, L.GRIDS do W.grids[i] = MakeGrid(child, L.SECTION_TILES, L.SECTION_TILES) end
   for i = 1, L.FONTS do
     local fs = child:CreateFontString(nil, "OVERLAY", U.Fonts.SMALL)
     fs:SetJustifyH("LEFT")
@@ -219,7 +226,7 @@ end
 -------------------------------------------------------------------------------
 -- Painting the Overview
 -------------------------------------------------------------------------------
-local P = { fonts = 0, tiles = 0, bars = 0 }
+local P = { fonts = 0, grids = 0, bars = 0 }
 
 local function Font(text, font, color, x, y, width)
   if P.fonts >= #W.fonts then return 0 end
@@ -235,33 +242,26 @@ local function Font(text, font, color, x, y, width)
   return fs:GetStringHeight() or 12
 end
 
--- Tiles in rows; fill: one row of them shares the whole width (the banner's
--- numbers), else each is at most TILE_MAX wide
+-- A section's tiles in a grid across the width; fill: the banner's numbers,
+-- one line sharing it. Returns the grid's height (it sets its own)
 local function PaintTiles(tiles, x, y, width, fill)
-  local fit = math.max(1, math.floor((width + L.TILE_GAP) / (L.TILE_W + L.TILE_GAP)))
-  local perRow = math.max(1, math.min(#tiles, fit))
-  local tileW = (width - (perRow - 1) * L.TILE_GAP) / perRow
-  if not fill then tileW = math.min(L.TILE_MAX, tileW) end
-  local gray = U.Colors.LABEL_GRAY
-  for i, def in ipairs(tiles) do
-    if P.tiles >= #W.tiles then break end
-    P.tiles = P.tiles + 1
-    local tile = W.tiles[P.tiles]
-    local col, row = (i - 1) % perRow, math.floor((i - 1) / perRow)
-    tile:ClearAllPoints()
-    tile:SetPoint("TOPLEFT", W.child, "TOPLEFT", x + col * (tileW + L.TILE_GAP), y - row * (L.TILE_H + L.TILE_GAP))
-    tile:SetWidth(tileW)
-    SetIcon(tile.Icon, def.icon)
-    tile.Icon:SetDesaturated(def.dim == true)
-    tile.Icon:SetAlpha(def.dim and 0.5 or 1)
-    tile.Value:SetText(def.value)
-    SetColor(tile.Value, def.dim and gray or def.color or U.Colors.HIGHLIGHT_WHITE)
-    tile.Label:SetText(def.label or "")
-    tile.tip = def.tip
-    tile:Show()
+  local grid
+  if fill then
+    grid = W.bannerGrid
+  elseif P.grids < #W.grids then
+    P.grids = P.grids + 1
+    grid = W.grids[P.grids]
   end
-  local rows = math.ceil(#tiles / perRow)
-  return rows * L.TILE_H + (rows - 1) * L.TILE_GAP
+  if not grid then return 0 end
+  local list = {}
+  for i = 1, math.min(#tiles, #grid.Tiles) do list[i] = StatTile(tiles[i]) end
+  grid.ctx.tiles = list
+  grid:ClearAllPoints()
+  grid:SetPoint("TOPLEFT", W.child, "TOPLEFT", x, y)
+  grid:SetWidth(width)
+  grid:Show()
+  grid:Refresh()
+  return grid:GetHeight()
 end
 
 local function PaintBar(def, x, y, width)
@@ -365,14 +365,15 @@ end
 
 local function HideAll()
   for _, h in ipairs(W.headers) do h:Hide() end
-  for _, t in ipairs(W.tiles) do t:Hide() end
+  W.bannerGrid:Hide()
+  for _, g in ipairs(W.grids) do g:Hide() end
   for _, f in ipairs(W.fonts) do f:Hide() end
   for _, b in ipairs(W.bars) do b.track:Hide() b.fill:Hide() b.text:Hide() end
   for _, b in pairs(W.buttons) do b:Hide() end
   W.banner.bg:Hide()
   W.banner.stripe:Hide()
   W.banner.icon:Hide()
-  P.fonts, P.tiles, P.bars = 0, 0, 0
+  P.fonts, P.grids, P.bars = 0, 0, 0
 end
 
 -- IsOpen(section): the player's choice, else open unless the section starts shut

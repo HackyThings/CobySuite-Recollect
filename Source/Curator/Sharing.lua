@@ -529,6 +529,8 @@ function Sharing.OnCancel(msg)
   if rejected then
     Host.Log("Curator collection %s rejected by the author: %s", tostring(transfer.request), msg.fields[2])
     if transfer.pending.block then Curator.Store.RejectBlock(transfer.pending.block) else Curator.Store.Rejected(transfer.pending) end
+    -- the notes it carried too: they were left pending and sent again (review CUR-02)
+    if transfer.pending.notes then Curator.Notes.Rejected(transfer.pending.notes) end
   end
   Stop(true, "author", rejected)
 end

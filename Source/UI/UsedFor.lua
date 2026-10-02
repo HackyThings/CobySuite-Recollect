@@ -899,7 +899,8 @@ local function SellerWords(set)
     return (" at %d vendors"):format(count)
   end
   if count == 1 then
-    local words = next(set.texts) or Vendors.Describe(next(set.npcs))
+    -- one value only: next's second (the set's true) would arrive as Describe's noun
+    local words = next(set.texts) or Vendors.Describe((next(set.npcs)))
     return words and (" at " .. words) or " at 1 vendor"
   end
   return (" at %d vendors"):format(count)
@@ -1135,16 +1136,16 @@ local function LinkedGroupLine(achievementID, criteria, stateless, itemID)
   local state = A.PartsState(parts)
   if state == nil then
     return { text = text, color = U.Colors.LIGHT_GRAY, tier = TIER_INFO, achievement = progress.name,
-      detail = "Which part AllTheThings links it to can't be read" }
+      detail = "Which part it's linked to can't be read" }
   end
   local open = parts.found - parts.done
   local detail
   if state == "open" then
-    detail = many and ("AllTheThings links it to %d of its parts; %d not done yet"):format(parts.found, open)
-      or "AllTheThings links it to a part not done yet"
+    detail = many and ("Linked to %d of its parts; %d not done yet"):format(parts.found, open)
+      or "Linked to a part not done yet"
   else
-    detail = many and ("AllTheThings links it to %d of its parts, all done"):format(parts.found)
-      or "AllTheThings links it to a part that's done"
+    detail = many and ("Linked to %d of its parts, all done"):format(parts.found)
+      or "Linked to a part that's done"
   end
   if state == "open" then
     return { text = text, color = colors[V.USEFUL], tier = TIER_OPEN, detail = detail, achievement = progress.name }
@@ -1437,6 +1438,11 @@ local function Line(relation, places, budget, stateless, itemID, owner, tip)
   if NEW_SOURCES[kind] then return NEW_SOURCES[kind](relation, stateless) end
   if QUEST_LEADS[kind] then
     local line = QuestLine(QUEST_LEADS[kind], relation.id, WITH_REWARDS[kind], budget, stateless, owner)
+    -- a reward at the end of a quest chain says how the chain starts (Task #106)
+    if line and (kind == "reward" or kind == "choice") and not line.detail then
+      local ok, words = pcall(UsedFor.ChainSummary, relation.id, owner)
+      if ok and words then line.detail = words end
+    end
     return line, line == nil
   end
   if kind == "achievementReward" then return AchievementRewardLine(relation) end
@@ -2013,6 +2019,117 @@ function UsedFor.NoteLines(itemID, owner)
   return out
 end
 
+-------------------------------------------------------------------------------
+-- Quest chains (Task #106, 2026-10-01; Cobanyte: "how is this mount
+-- obtained? ... nothing mentions i need to run the stonevault for it"): the
+-- quests that lead to a quest reward, from the data's E table
+-- (Facts.Chains.QuestPath), each with what starts it or what it takes and
+-- where those come from, in our own words, names as links
+-------------------------------------------------------------------------------
+-- Where an item comes from, in a few words ("drops from Void Speaker Eirich
+-- (The Stonevault)"), from its first live source of the kinds a player looks
+-- for first; nil when the data names none
+function UsedFor.SourceWords(itemID, owner)
+  local R, Vendors = Recollect.Facts.Relations, Recollect.Facts.Vendors
+  local function Live(kind)
+    local out = {}
+    for _, relation in ipairs(R.Of(itemID, kind) or {}) do
+      local ok, applies = pcall(R.Applies, relation, owner)
+      if not ok or applies ~= "unavailable" then out[#out + 1] = relation end
+    end
+    return out
+  end
+  for _, relation in ipairs(Live("dropsFrom")) do
+    local who = Vendors.Describe(relation.id, "a creature")
+    if who then return "drops from " .. who end
+  end
+  for _, relation in ipairs(Live("journalDrop")) do
+    local ok, e = pcall(Vendors.Encounter, relation.id)
+    if ok and e and e.name then return e.instance and ("drops from %s in %s"):format(e.name, e.instance) or ("drops from " .. e.name) end
+  end
+  for _, relation in ipairs(Live("soldBy")) do
+    local who = Vendors.Describe(relation.id)
+    if who then return "sold by " .. who end
+  end
+  for _, relation in ipairs(Live("zoneDrop")) do
+    if relation.id == 0 then return "a world drop" end
+    local zone = Vendors.ZoneName(relation.id)
+    if zone then return "drops from enemies in " .. zone end
+  end
+  return nil
+end
+
+-- An item and where it comes from: "Malfunctioning Mechsuit, which drops
+-- from Void Speaker Eirich (The Stonevault)"
+local function ItemWithSource(itemID, owner, count)
+  local name = ItemName(itemID)
+  if count and count > 1 then name = ("%d %s"):format(count, name) end
+  local from = UsedFor.SourceWords(itemID, owner)
+  return from and ("%s, which %s"):format(name, from) or name
+end
+
+-- One step's words: its title and state, then what starts it or what it takes
+local function StepLine(index, step, owner, budget, last)
+  local title, _, state, color = QuestState(step.questID, budget, not owner or owner.isViewer == false)
+  local head = ("%d. %s"):format(index, title and (state and ("%s (%s)"):format(title, state) or title) or "A quest still loading")
+  local parts, chain = {}, step.chain
+  if index == 1 and chain and chain.any and #chain.before > 0 then
+    parts[#parts + 1] = ("after any of %d earlier quests"):format(#chain.before)
+  end
+  for _, itemID in ipairs(chain and chain.starters or {}) do
+    parts[#parts + 1] = "starts from " .. ItemWithSource(itemID, owner)
+  end
+  for _, cost in ipairs(chain and chain.costs or {}) do
+    parts[#parts + 1] = "takes " .. ItemWithSource(cost.itemID, owner, cost.count)
+  end
+  if last and #parts == 0 then parts[1] = "rewards it" end
+  return { text = #parts > 0 and ("%s: %s"):format(head, table.concat(parts, "; ")) or head,
+    color = color or U.Colors.LIGHT_GRAY }
+end
+
+-- ChainLines(questID, owner): the lines under a quest reward that say how to
+-- reach that quest: "A chain of 5 quests from Speaker Jurlax (The Ringing
+-- Deeps):", then each quest, first to last; nil when the quest is no chain
+-- (no earlier quest, nothing that starts it, nothing it takes)
+function UsedFor.ChainLines(questID, owner)
+  owner = owner or Recollect.Verdicts.Rows.Owner()
+  local path, earlier = Recollect.Facts.Chains.QuestPath(questID)
+  local only = path[1]
+  if #path == 0 or (#path == 1 and not (only.chain and (#only.chain.starters > 0 or #only.chain.costs > 0))) then
+    return nil
+  end
+  local budget = Recollect.Facts.QuestInfo.FrameBudget()
+  local giver = Recollect.Facts.Relations.QuestGiver(path[1].questID)
+  local who = giver and giver.npcID and Recollect.Facts.Vendors.Describe(giver.npcID, "an NPC")
+  local count = #path + (earlier or 0)
+  local head = count == 1 and "To get this quest" or ("A chain of %d quests"):format(count)
+  local lines = { { text = (who and ("%s from %s"):format(head, who) or head) .. ":", color = U.Colors.LABEL_GRAY } }
+  if earlier and earlier > 0 then
+    lines[#lines + 1] = { text = ("(%d earlier quests before these)"):format(earlier), color = U.Colors.LABEL_GRAY }
+  end
+  for i, step in ipairs(path) do
+    lines[#lines + 1] = Build(StepLine, i + (earlier or 0), step, owner, budget, i == #path)
+  end
+  return lines
+end
+
+-- ChainSummary(questID, owner): the chain in one sentence, for the audit
+-- panel's reward line: "The last of 5 quests; the first starts from
+-- Malfunctioning Mechsuit, which drops from Void Speaker Eirich (The
+-- Stonevault)"; nil when the quest is no chain
+function UsedFor.ChainSummary(questID, owner)
+  local path, earlier = Recollect.Facts.Chains.QuestPath(questID)
+  local count = #path + (earlier or 0)
+  if count < 2 then return nil end
+  local first = path[1].chain
+  local start = first and first.starters[1]
+  local words = ("The last of %d quests"):format(count)
+  if start and (earlier or 0) == 0 then
+    words = ("%s; the first starts from %s"):format(words, ItemWithSource(start, owner or Recollect.Verdicts.Rows.Owner()))
+  end
+  return words
+end
+
 -- What the pinned view's tables share with these lines (UI.DetailData), so a
 -- row and a line never disagree about a state or its words
 UsedFor.parts = {
@@ -2030,4 +2147,4 @@ UsedFor.parts = {
 }
 
 -- Tally, Count and BuySummary: the panel's purchase summary, for the suites
-UsedFor._test = { seams = seams, Tally = Tally, Count = Count, BuySummary = BuySummary }
+UsedFor._test = { seams = seams, Tally = Tally, Count = Count, BuySummary = BuySummary, SellerWords = SellerWords }

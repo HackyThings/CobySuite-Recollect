@@ -744,6 +744,26 @@ function Relations.QuestGiver(questID)
     y = tonumber(y) / 1000 }
 end
 
+-- QuestChain(questID): what comes before a quest of a chain that ends in a
+-- collectible's reward (the data's E table, since data format 9; from
+-- AllTheThings' earlier quests and this data's own starter and cost codes):
+-- { before = { questID, ... }, any (only some of before are needed), starters
+-- = { itemID, ... } (items that start it), costs = { { itemID, count } } (items
+-- it takes) }, or nil when the data has no record (an older file has none)
+function Relations.QuestChain(questID)
+  if not Recollect.Utilities.IsPositiveID(questID) then return nil end
+  local data = Data()
+  local text = Record(data and data.E, questID)
+  if not text then return nil end
+  local before, starters, costs = text:match("^([~%d,]*)|([%d,]*)|([%dx,]*)$")
+  if not before then return nil end
+  local out = { before = {}, any = before:sub(1, 1) == "~", starters = {}, costs = {} }
+  for q in before:gmatch("%d+") do out.before[#out.before + 1] = tonumber(q) end
+  for item in starters:gmatch("%d+") do out.starters[#out.starters + 1] = tonumber(item) end
+  for item, n in costs:gmatch("(%d+)x(%d+)") do out.costs[#out.costs + 1] = { itemID = tonumber(item), count = tonumber(n) } end
+  return out
+end
+
 -- The item behind a thing a purchase names, by its letter ("e" an ensemble
 -- set, "l" a weapon illusion, "p" a pet species, "r" a recipe spell) and ID
 -- (the data's T table, from AllTheThings), or nil

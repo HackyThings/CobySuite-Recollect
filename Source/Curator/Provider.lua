@@ -60,12 +60,31 @@ end
 -------------------------------------------------------------------------------
 -- Text for the settings category and the guide
 -------------------------------------------------------------------------------
-Provider.SETTINGS_TEXT = {
-  "Recollect notes where the game shows something its database gets wrong or is missing: a vendor price, a drop, a quest reward, where an NPC stands, and any item it knows nothing about, including ones in your bags and banks. It records game IDs and map positions, with your character's class, race, level, faction, professions, zone, War Mode, Chromie Time, the instance difficulty and, where it matters, quest progress and how a vendor regards you (a reputation discount changes its prices); never names, chat, gold, currencies, how many of anything you have, or anything else you carry.",
-  "You can also flag an item from its details window, or send feedback with /rec feedback: those carry the words you type. Recollect's own errors are kept too, whether or not the game shows them. Only the author reads them.",
-  "Recollect's author collects your findings in the background through the \"Recollect Curators\" community to improve the database. You'll see a chat message when a collection starts and ends; /rec curator shows what's waiting, what was sent, and a running collection you can cancel.",
-  "Findings are sent only from characters in the community, whose members can see your character's name and zone. Your characters share one random curator ID made by Recollect (not your Blizzard account). Only Recollect's author sees it, so he can tell your characters belong to the same player.",
-  "Your findings stay under 1 MB and are deleted once the author has saved them. Turning this off stops recording and offers to delete them.",
+-- What a player agrees to before opting in, in four blocks (the settings
+-- redesign, Task #51; Cobanyte chose the structure and approved these words
+-- 2026-10-01, with the heading "What automatic collection leaves out").
+-- They replace the five paragraphs the settings showed before and
+-- keep every fact and qualification of them (CuratorBoundary suite).
+Provider.CONSENT_BLOCKS = {
+  { title = "What it records", icon = "Interface\\Icons\\INV_Misc_Spyglass_02", lines = {
+    "Where the game shows something Recollect's database gets wrong or is missing: a vendor price, a drop, a quest reward, where an NPC stands.",
+    "Any item it knows nothing about, including ones in your bags and banks.",
+    "Game IDs and map positions, with your character's class, race, level, faction, professions, zone, War Mode, Chromie Time and the instance difficulty; where it matters, quest progress and how a vendor regards you (a reputation discount changes its prices).",
+    "Recollect's own errors, whether or not the game shows them.",
+  } },
+  { title = "What automatic collection leaves out", atlas = "auctionhouse-ui-filter-redx", lines = {
+    "Names, chat, gold, currencies, how many of anything you have, and anything else you carry: of your bags and banks it notes only the items it knows nothing about.",
+    "Words are sent only when you write them yourself: flagging an item from its details window, or sending feedback with /rec feedback, carries the words you type. Only the author reads what you type, and Recollect's errors.",
+  } },
+  { title = "How it's collected, and who can see it", icon = "Interface\\Icons\\UI_Chat", lines = {
+    "Recollect's author collects your findings in the background through the \"Recollect Curators\" community to improve the database. You'll see a chat message when a collection starts and ends; /rec curator shows what's waiting, what was sent, and a running collection you can cancel.",
+    "Findings are sent only from characters in the community, whose members can see your character's name and zone.",
+    "Your characters share one random curator ID made by Recollect (not your Blizzard account). Only Recollect's author sees it, so he can tell your characters belong to the same player.",
+  } },
+  { title = "Your findings", icon = "Interface\\Icons\\INV_Misc_PocketWatch_01", lines = {
+    "They stay under 1 MB and are deleted once the author has saved them.",
+    "Turning this off stops recording and offers to delete them.",
+  } },
 }
 
 -- IsAvailable(): whether curator mode can run in this game region (Main.Available)
@@ -101,10 +120,10 @@ function Provider.GuideBody()
   return {
     "Optional, and off until you turn it on in /rec settings, Curator.",
     table.concat({
-      bullet .. "While you play, it notes where the game differs from Recollect's database (a vendor price, a drop, a quest reward) and items it knows nothing about, your bags and banks included",
-      bullet .. "It records game IDs and positions, with your character's class, race, level, faction, professions, zone, War Mode, Chromie Time and instance difficulty; never names, chat, gold, currencies or how many of anything you have",
-      bullet .. "Flag an item from its details window (Curator Flag), or send feedback with /rec feedback; Recollect's errors go along too, and only the author reads them",
-      bullet .. "The author collects the findings through the \"Recollect Curators\" community, whose members can see each other's names and zones",
+      bullet .. "While you play, it notes where the game differs from Recollect's database and items it knows nothing about, your bags and banks included",
+      bullet .. "It records game IDs and positions with some details about your character; never names, chat, gold, currencies or how many of anything you have",
+      bullet .. "Flag an item (Curator Flag) or use /rec feedback; Recollect's errors go along too, and only the author reads them",
+      bullet .. "The author collects findings through the \"Recollect Curators\" community (/rec curator join); its members can see your character's name and zone",
       bullet .. "Turning it off stops recording and offers to delete your findings",
     }, "\n"),
     "The settings page has the full details.",

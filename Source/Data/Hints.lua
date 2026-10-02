@@ -19,8 +19,8 @@
 --   quiet["<fact>"] = true for every value, or = { ["<value>"] = true }
 -------------------------------------------------------------------------------
 Recollect.Data.Hints = {
-  dataVersion = "2026.10.01.2",
-  format = 8,
+  dataVersion = "2026.10.01.5",
+  format = 9,
   unseen = {
   },
   settled = {
@@ -74,6 +74,7 @@ Recollect.Data.Hints = {
     ["R:8368"] = true,
     ["R:8778"] = true,
     ["R:9942"] = true,
+    ["T:98204"] = { ["262726"] = true },
     ["ob:369898:i:186201"] = true,
     ["ob:375886:i:188263"] = true,
     ["ob:375886:i:189544"] = true,

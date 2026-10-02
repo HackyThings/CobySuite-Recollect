@@ -54,6 +54,7 @@ Membership.seams = {
 local roster = {}          -- [name] = { name, role, presence, nameFrom, isSelf, guid }
 local byGuid = {}          -- [guid] = { guid, name (nil while unreadable), role, presence }: every member, named or not
 local rosterAt = nil       -- when the map was last read whole
+local stale = false        -- a read since failed, or the membership changed and wasn't read again
 local refreshing = false
 local lastSummary = nil    -- the last "members read" log line, so an unchanged read logs nothing
 local watchers = {}        -- Watch(fn): called with Members() after every whole read
@@ -107,9 +108,13 @@ function Membership.Read()
     return false
   end
   local okReady, ready = pcall(Membership.seams.Ready, found.clubId)
-  if not okReady or ready ~= true then return false end
+  if not okReady or ready ~= true then
+    stale = true
+    return false
+  end
   local ok, members = pcall(Membership.seams.Members, found.clubId)
   if not ok or type(members) ~= "table" or Secret(members) then
+    stale = true
     Host.Log("Curator members: the member list can't be read now (%s)", ok and "secret or empty" or "error")
     return false
   end
@@ -117,6 +122,7 @@ function Membership.Read()
   for _, memberId in ipairs(members) do
     local okInfo, info = pcall(Membership.seams.MemberInfo, found.clubId, memberId)
     if not okInfo or type(info) ~= "table" or Secret(info) then
+      stale = true
       Host.Log("Curator members: a member's info can't be read now (%s)", okInfo and "secret or missing" or "error")
       return false
     end
@@ -131,6 +137,7 @@ function Membership.Read()
     if guid then guids[guid] = { guid = guid, name = name, role = role, presence = presence } end
   end
   roster, byGuid, rosterAt, Membership.unnamed = map, guids, GetServerTime(), unnamed
+  stale = false
   local authors, count = {}, 0
   for _, entry in pairs(map) do
     count = count + 1
@@ -219,6 +226,17 @@ function Membership.ReadAt()
   return rosterAt
 end
 
+-- Current(): whether the map holds now: read whole, with no failed read or
+-- membership change since (what authority is checked against; the last
+-- map stays for display; review CUR-02)
+function Membership.Current()
+  return rosterAt ~= nil and not stale
+end
+
+-- the events that change who is in the community or their role
+local CHANGES = { CLUB_MEMBER_ADDED = true, CLUB_MEMBER_REMOVED = true, CLUB_MEMBER_ROLE_UPDATED = true,
+  CLUB_MEMBERS_UPDATED = true, CLUB_REMOVED = true }
+
 -- Members(): every member of the last whole read by GUID, named or not
 -- ({ [guid] = { guid, name, role, presence } }, a copy)
 function Membership.Members()
@@ -252,7 +270,7 @@ end
 
 -- SetRoster(map): the role map, as a test scripts it
 function Membership.SetRoster(map)
-  roster, rosterAt, refreshing = map or {}, GetServerTime(), false
+  roster, rosterAt, refreshing, stale = map or {}, GetServerTime(), false, false
   byGuid = GuidsOf(roster)
 end
 
@@ -261,7 +279,7 @@ end
 -- it was read and its unnamed count (a test puts the real one back with them)
 function Membership.Swap(map, at, unnamed)
   local previous, previousAt, previousUnnamed = roster, rosterAt, Membership.unnamed
-  roster, rosterAt, Membership.unnamed = map or {}, at, unnamed or 0
+  roster, rosterAt, Membership.unnamed, stale = map or {}, at, unnamed or 0, false
   byGuid = GuidsOf(roster)
   return previous, previousAt, previousUnnamed
 end
@@ -298,5 +316,6 @@ local frame = CreateFrame("Frame")
 for event in pairs(events) do pcall(frame.RegisterEvent, frame, event) end
 frame:SetScript("OnEvent", function(_, event, clubId)
   if not Ours(event, clubId) then return end
+  if CHANGES[event] then stale = true end
   if events[event] == "later" then refreshLater:Call() else refresh:Call() end
 end)

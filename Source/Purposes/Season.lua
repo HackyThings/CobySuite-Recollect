@@ -206,7 +206,9 @@ local function CraftedLook(itemID)
         looked.more = looked.more + 1
       else
         local okLoc, equipLoc = Try(client.GetItemEquipLoc, product)
-        if not okLoc then
+        if not okLoc or equipLoc == nil then
+          -- nil: the client has no record of the product yet, so whether it
+          -- is gear isn't known (review CORE-02); "" is a product that isn't
           looked.unread = looked.unread + 1
         elseif type(equipLoc) == "string" and Gear.SLOTS[equipLoc] then
           local look = Gear.Appearance(client, { facts = { equipLoc = equipLoc }, stack = { itemID = product } })

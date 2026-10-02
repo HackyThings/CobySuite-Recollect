@@ -425,7 +425,36 @@ function Chains.TradeWords(relation, itemID)
   return JoinAnd(parts)
 end
 
+-- QuestPath(questID): the chain of quests that ends in it (the data's E
+-- table, Relations.QuestChain), first quest first and questID last: { {
+-- questID, chain } } where chain is its E record (nil when it has none).
+-- Earlier quests are followed only when every one of them is needed; a quest
+-- that needs only some of them (chain.any) is where the walk stops. At most
+-- MAX_PATH quests, the latest kept; earlier (second return) counts the ones
+-- left out. A quest with no record is a path of one
+local MAX_PATH, MAX_WALK = 12, 60
+function Chains.QuestPath(questID)
+  local order, seen = {}, {}
+  local function Visit(quest, depth)
+    if seen[quest] or depth > MAX_WALK then return end
+    seen[quest] = true
+    local ok, chain = pcall(Relations().QuestChain, quest)
+    chain = ok and chain or nil
+    if chain and not chain.any then
+      for _, before in ipairs(chain.before) do Visit(before, depth + 1) end
+    end
+    order[#order + 1] = { questID = quest, chain = chain }
+  end
+  if not IsPositiveID(questID) then return {}, 0 end
+  Visit(questID, 0)
+  if #order <= MAX_PATH then return order, 0 end
+  local kept = {}
+  for i = #order - MAX_PATH + 1, #order do kept[#kept + 1] = order[i] end
+  return kept, #order - MAX_PATH
+end
+
 Chains._test = {
+  MAX_PATH = MAX_PATH,
   Reset = function()
     structures, kept, rewardsOf = {}, 0, {}
   end,

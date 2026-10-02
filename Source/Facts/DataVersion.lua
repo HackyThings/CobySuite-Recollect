@@ -40,7 +40,7 @@ Recollect.Facts.DataVersion = DataVersion
 -- Each adds codes or tables the one before lacks, so an older file still
 -- reads, a missing table as none (a format 6 record of one place or one
 -- giver reads as a list of one; a format 7 file has no currency V)
-DataVersion.SUPPORTED_FORMATS = { [2] = true, [3] = true, [4] = true, [5] = true, [6] = true, [7] = true, [8] = true }
+DataVersion.SUPPORTED_FORMATS = { [2] = true, [3] = true, [4] = true, [5] = true, [6] = true, [7] = true, [8] = true, [9] = true }
 
 local UNSTAMPED = "unstamped"
 local FILES = { "Relations", "Vendors", "Hints" }

@@ -13,20 +13,29 @@
 -------------------------------------------------------------------------------
 local Curator = Recollect.Curator
 local Host = Curator.Host
-local U = CobySuite_Recollect.Utilities
 
 local OptOut = {}
 Curator.OptOutDialog = OptOut
 
-local WIDTH, HEIGHT, PAD = 420, 200, 16
+-- the room the delete checkbox takes under the text: its gap and its size
+local CHECK_ROOM = 12 + 24
 local LEAVE_TEXT = "Recording has stopped. Please also leave the Recollect Curators community: open the "
   .. "Communities window, right-click the community and choose Leave."
 local dialog
 
+-- Every finding the checkbox deletes: Main.ClearFindings clears the blocks
+-- kept from older databases too, so they count here (with only those left,
+-- it read "(0)" while the dashboard showed 334 waiting)
 local function FindingsCount()
   local counts = Curator.Store.Counts()
-  return counts.records + counts.stamps
+  local n = counts.records + counts.stamps
+  for _, block in ipairs(Curator.Store.DB().frozen or {}) do
+    for _ in pairs(block.records or {}) do n = n + 1 end
+    for _ in pairs(block.confirms or {}) do n = n + 1 end
+  end
+  return n
 end
+OptOut._test = { FindingsCount = FindingsCount }
 
 -- Finish(delete): recording stays off; delete also removes every finding,
 -- note and the collection history (the curator's own record of what was
@@ -45,31 +54,22 @@ end
 
 local function Build()
   if dialog or InCombatLockdown() then return end
-  -- the suite's window shell: Escape and its X close it (both keep the
-  -- findings, as the X always did), the X works in combat, it can be moved
-  dialog = CobySuite_Recollect.UI.CreateWindow({
+  -- the suite's prompt with plain buttons: Escape and its X close it (both
+  -- keep the findings, as the X always did), the X works in combat, it can
+  -- be moved
+  dialog = CobySuite_Recollect.UI.CreateClickPrompt({
     name = "RecollectCuratorOptOutDialog", title = "Stop being a curator?", icon = Host.Icon(),
-    width = WIDTH, height = HEIGHT, strata = "DIALOG", escapeCloses = true,
-    point = { "CENTER", UIParent, "CENTER", 0, 120 },
+    width = 420, extraHeight = CHECK_ROOM,
+    buttons = {
+      { key = "Stop", text = "Stop curating", onClick = function() Finish(dialog.Delete:GetChecked() == true) end },
+      { key = "Keep", text = "Keep curating", side = "right", onClick = function()
+        dialog:Hide()
+        Curator.Config.Set("curator_enabled", true)
+      end },
+    },
   })
-  dialog.Body = dialog:CreateFontString(nil, "OVERLAY", U.Fonts.SMALL)
-  dialog.Body:SetPoint("TOPLEFT", dialog, "TOPLEFT", PAD, -34)
-  dialog.Body:SetWidth(WIDTH - 2 * PAD)
-  dialog.Body:SetJustifyH("LEFT")
-  dialog.Body:SetWordWrap(true)
-  dialog.Body:SetText(LEAVE_TEXT)
   dialog.Delete = CobySuite_Recollect.UI.CreateCheckbox(dialog, { size = 24, label = "Also delete my current findings",
     point = { "TOPLEFT", dialog.Body, "BOTTOMLEFT", -4, -12 } })
-  dialog.Stop = CobySuite_Recollect.UI.CreateButton(dialog, { text = "Stop curating", size = { 130, U.ButtonSize.MEDIUM.height },
-    point = { "BOTTOMLEFT", dialog, "BOTTOMLEFT", PAD, 14 },
-    onClick = function() Finish(dialog.Delete:GetChecked() == true) end })
-  dialog.Keep = CobySuite_Recollect.UI.CreateButton(dialog, { text = "Keep curating", size = { 130, U.ButtonSize.MEDIUM.height },
-    point = { "BOTTOMRIGHT", dialog, "BOTTOMRIGHT", -PAD, 14 },
-    onClick = function()
-      dialog:Hide()
-      Curator.Config.Set("curator_enabled", true)
-    end })
-  dialog:Hide()
 end
 
 -- Show(): after curator mode was turned off
@@ -83,7 +83,8 @@ function OptOut.Show()
   local label = dialog.Delete.text
   if label and label.SetText then label:SetText(("Also delete my findings (%d), notes and collection history"):format(FindingsCount())) end
   dialog.Delete:SetChecked(false)
-  dialog:Show()
+  -- sized to the text, with the checkbox under it
+  dialog:Ask(LEAVE_TEXT)
 end
 
 OptOut.Finish = Finish

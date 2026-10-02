@@ -4,7 +4,9 @@
 -- presence checks, sent on the community channel with result 0, never
 -- reached a friend's game, and the friend's announcement never reached the
 -- author's; "make this count with a TON of tests", and the author runs
--- nothing: his client answers by itself)
+-- nothing: his client answers by itself). Since 2026-09-30 (security design
+-- T12) a curator's client answers only the author's tests, and the author's
+-- client answers others' only while a test session is open (/rec curator pong).
 --
 -- /rec curator ping (a curator's side) runs everything, about five minutes,
 -- then prints a report; every step is in the debug log (CURATOR):
@@ -13,8 +15,9 @@
 --      the community, its channel (what GetChannelName says of it), the
 --      custom test channel, the roster (who is online, with what role) and
 --      Battle.net friends in it.
---   1. Pings over every route, three rounds 10 seconds apart; every client
---      that gets one answers with a pong the same way (round-trip timed).
+--   1. Pings over every route, three rounds 10 seconds apart; a curator's
+--      client answers the author's with a pong the same way (round-trip
+--      timed), and the author's answers others' inside a test session.
 --   2. The routes a pong came back on work. On each:
 --      sizes (texts of 50 to 300 characters: which arrive, what a too-long
 --      one returns), contents (plain text, every printable character, UTF-8,
@@ -618,9 +621,8 @@ local function Decide()
 end
 
 -- Start(target): the whole test; target ("Name-Realm", optional) makes a
--- route count as working only when that player answered, since every
--- Recollect client answers test pings and another member's answer proves
--- nothing about the one being tested
+-- route count as working only when that player answered: another member's
+-- answer proves nothing about the one being tested
 function Ping.Start(target)
   if not Curator.Main.Available() then return false end
   if state.running then

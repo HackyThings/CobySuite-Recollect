@@ -19,7 +19,6 @@
 -------------------------------------------------------------------------------
 local Curator = Recollect.Curator
 local Host = Curator.Host
-local U = CobySuite_Recollect.Utilities
 
 local Join = {}
 Curator.JoinPrompt = Join
@@ -33,7 +32,6 @@ Join.seams = {
   Name = function() return UnitName("player") end,
 }
 
-local WIDTH, HEIGHT, PAD = 420, 190, 16
 Join.DECLINED = "This character won't be asked again. Findings you record here are still collected "
   .. "through your characters in the Recollect Curators community; /rec curator join adds this one later."
 
@@ -74,27 +72,19 @@ end
 
 local function Build()
   if dialog or Join.seams.InCombat() then return end
-  -- the suite's window shell: Escape and its X close it, which declines
-  dialog = CobySuite_Recollect.UI.CreateWindow({
+  -- the suite's prompt with plain buttons: Escape and its X close it, which
+  -- declines
+  dialog = CobySuite_Recollect.UI.CreateClickPrompt({
     name = "RecollectCuratorJoinPrompt", title = "Add this character to Recollect Curators?", icon = Host.Icon(),
-    width = WIDTH, height = HEIGHT, strata = "DIALOG", escapeCloses = true,
-    point = { "CENTER", UIParent, "CENTER", 0, 120 },
+    width = 420,
+    buttons = {
+      { key = "Join", text = "Join", onClick = function() Join.Answer(shownFor, true) end },
+      { key = "No", text = "No thanks", side = "right", onClick = function() Join.Answer(shownFor, false) end },
+    },
+    onHide = function()
+      if shownFor then Join.Answer(shownFor, false) end   -- the X or Escape
+    end,
   })
-  dialog.Body = dialog:CreateFontString(nil, "OVERLAY", U.Fonts.SMALL)
-  dialog.Body:SetPoint("TOPLEFT", dialog, "TOPLEFT", PAD, -34)
-  dialog.Body:SetWidth(WIDTH - 2 * PAD)
-  dialog.Body:SetJustifyH("LEFT")
-  dialog.Body:SetWordWrap(true)
-  dialog.Join = CobySuite_Recollect.UI.CreateButton(dialog, { text = "Join", size = { 130, U.ButtonSize.MEDIUM.height },
-    point = { "BOTTOMLEFT", dialog, "BOTTOMLEFT", PAD, 14 },
-    onClick = function() Join.Answer(shownFor, true) end })
-  dialog.No = CobySuite_Recollect.UI.CreateButton(dialog, { text = "No thanks", size = { 130, U.ButtonSize.MEDIUM.height },
-    point = { "BOTTOMRIGHT", dialog, "BOTTOMRIGHT", -PAD, 14 },
-    onClick = function() Join.Answer(shownFor, false) end })
-  dialog:HookScript("OnHide", function()
-    if shownFor then Join.Answer(shownFor, false) end   -- the X or Escape
-  end)
-  dialog:Hide()
 end
 
 -- The body: the character's name when it reads
@@ -113,8 +103,8 @@ local function Show(guid)
     return false
   end
   shownFor = guid
-  dialog.Body:SetText(Join.BodyText())
-  dialog:Show()
+  -- sized to the text, which a long character name makes taller
+  dialog:Ask(Join.BodyText())
   Host.Log("Curator join prompt shown: this character isn't in the community")
   return true
 end
@@ -142,9 +132,17 @@ function Join.CombatEnded()
   if guid and Join.ShouldAsk(guid) then Show(guid) end
 end
 
--- Tests: Close() closes the window as its X or Escape does
+-- Tests: Close() closes the window as its X or Escape does; Window() is it;
+-- Show(guid) asks for that character key now; Dismiss() closes it with no
+-- answer recorded (a look at the window that must change nothing)
 Join._test = {
   Close = function() if dialog then dialog:Hide() end end,
+  Window = function() return dialog end,
+  Show = function(guid) return Show(guid) end,
+  Dismiss = function()
+    shownFor = nil
+    if dialog and dialog:IsShown() then dialog:Hide() end
+  end,
 }
 
 Host.OnLoaded(function() C_Timer.After(0, Build) end)

@@ -270,8 +270,8 @@ function FlagDialog.Open(itemID, reason)
   end
   flagWindow.Input:SetCommittedValue(state.pending and state.pending.text or "")
   Warn(flagWindow.Problem, state.atLimit and (#state.entries > 0
-    and "This flag holds as much as it can until Recollect's next database update."
-    or "You have as many flagged items as Recollect keeps until its next database update.") or "")
+    and "This flag is full. It clears on a database update once the author has saved all its entries."
+    or "Flag limit reached. Flags the author has fully saved clear on a database update.") or "")
   PaintFlag()
   flagWindow:Show()
   flagWindow:Raise()
@@ -336,7 +336,7 @@ function FeedbackDialog.Open()
   local lines = Shared.HistoryLines(state.entries, false, 2)
   feedbackWindow.History:SetText(table.concat(lines, "\n"))
   feedbackWindow.Input:SetCommittedValue(state.pending and state.pending.text or "")
-  Warn(feedbackWindow.Problem, state.atLimit and "You have as much feedback as Recollect keeps until its next database update." or "")
+  Warn(feedbackWindow.Problem, state.atLimit and "Feedback limit reached. Feedback the author has saved clears on a database update." or "")
   PaintFeedback()
   feedbackWindow:Show()
   feedbackWindow:Raise()

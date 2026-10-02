@@ -462,6 +462,36 @@ function Snapshots.IsOwed(bagID)
   return owed[bagID] == true
 end
 
+-- Freshness(kind): how current the stored tabs of one bank are, for the
+-- settings' source tiles (Locations.KIND_BANK, this character's; or
+-- Locations.KIND_WARBAND). { state, oldest } with state "open" (the bank is
+-- open: its tabs are read live), "never" (no tab list stored yet), "missing"
+-- (a purchased tab with no stored read), "changed" (a tab may have changed
+-- since its read: marked at close, or owed now) or "read" (every tab read,
+-- oldest the earliest of their read times). One fresh tab never makes the
+-- bank look current: the oldest read is the one named
+function Snapshots.Freshness(kind)
+  if bankOpen then return { state = "open" } end
+  local tabs, entries
+  if kind == Locations.KIND_WARBAND then
+    local warband, db = Snapshots.Warband()
+    tabs, entries = db and db.warbandTabs, warband
+  else
+    local char = Snapshots.CurrentCharacter(false)
+    tabs, entries = char and char.bankTabs, char and char.locations
+  end
+  if type(tabs) ~= "table" or #tabs == 0 or type(entries) ~= "table" then return { state = "never" } end
+  local oldest, changed = nil, false
+  for _, bagID in ipairs(tabs) do
+    local entry = entries[bagID]
+    if type(entry) ~= "table" or type(entry.captured) ~= "number" then return { state = "missing" } end
+    if entry.changed or owed[bagID] then changed = true end
+    if not oldest or entry.captured < oldest then oldest = entry.captured end
+  end
+  if changed then return { state = "changed", oldest = oldest } end
+  return { state = "read", oldest = oldest }
+end
+
 Snapshots._test = {
   seams = seams,
   SetBankOpen = function(open)

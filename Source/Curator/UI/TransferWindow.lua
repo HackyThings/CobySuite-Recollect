@@ -18,7 +18,6 @@ local U = CobySuite_Recollect.Utilities
 local TransferWindow = {}
 Curator.TransferWindow = TransferWindow
 
-local WIDTH, HEIGHT, PAD = 380, 150, 14
 local window
 
 local function SetShownButtons(asking)
@@ -46,29 +45,25 @@ end
 function TransferWindow.Refresh()
   if not window or not window:IsShown() then return end
   local text, asking = TransferWindow.Text()
-  window.Body:SetText(text)
+  -- the height follows the text, which changes while it sends
+  window:SetBody(text)
   SetShownButtons(asking)
 end
 
 local function Build()
   if window or InCombatLockdown() then return end
-  window = CobySuite_Recollect.UI.CreateWindow({
+  -- the suite's prompt with plain buttons, kept in the MEDIUM layer: it is
+  -- a status window as well as a request
+  window = CobySuite_Recollect.UI.CreateClickPrompt({
     name = "RecollectCuratorTransferWindow", title = "Recollect curator collection", icon = Curator.Host.Icon(),
-    width = WIDTH, height = HEIGHT, escapeCloses = true, point = { "CENTER", UIParent, "CENTER", 0, 160 },
+    width = 380, strata = "MEDIUM", point = { "CENTER", UIParent, "CENTER", 0, 160 },
+    buttons = {
+      { key = "Allow", text = "Allow", width = 100, onClick = function() Sharing.AnswerPrompt(true) end },
+      { key = "Decline", text = "Decline", width = 100, onClick = function() Sharing.AnswerPrompt(false) end },
+      { key = "Cancel", text = "Cancel", width = 100, side = "right", onClick = function() Sharing.Cancel() end },
+    },
   })
-  window.Body = window:CreateFontString(nil, "OVERLAY", U.Fonts.SMALL)
-  window.Body:SetPoint("TOPLEFT", window, "TOPLEFT", PAD, -34)
-  window.Body:SetWidth(WIDTH - 2 * PAD)
-  window.Body:SetJustifyH("LEFT")
-  window.Body:SetWordWrap(true)
-  local function Button(text, point, onClick)
-    return CobySuite_Recollect.UI.CreateButton(window, { text = text, size = { 100, U.ButtonSize.MEDIUM.height }, point = point, onClick = onClick })
-  end
-  window.Allow = Button("Allow", { "BOTTOMLEFT", window, "BOTTOMLEFT", PAD, 14 }, function() Sharing.AnswerPrompt(true) end)
-  window.Decline = Button("Decline", { "LEFT", window.Allow, "RIGHT", 8, 0 }, function() Sharing.AnswerPrompt(false) end)
-  window.Cancel = Button("Cancel", { "BOTTOMRIGHT", window, "BOTTOMRIGHT", -PAD, 14 }, function() Sharing.Cancel() end)
   window:HookScript("OnShow", TransferWindow.Refresh)
-  window:Hide()
 end
 
 function TransferWindow.Open()

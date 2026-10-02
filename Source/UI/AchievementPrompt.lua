@@ -61,8 +61,6 @@ Prompt.seams = {
   Message = function(text) Recollect.Utilities.Message(text) end,
 }
 
-local WIDTH, HEIGHT, PAD = 400, 150, 16
-
 local dialog
 local pending = nil     -- the achievement waiting for the window to open
 local waiting = false   -- asked in combat: show the window once it ends
@@ -70,10 +68,8 @@ local waiting = false   -- asked in combat: show the window once it ends
 local function Body(achievementID)
   local ok, name = pcall(Prompt.seams.Name, achievementID)
   local what = (ok and type(name) == "string" and name ~= "") and U.WrapColor(U.Colors.STATUS_GOLD, name) or "the achievement"
-  return "Blizzard's achievement window is closed. Open it with the button below, so the game opens it "
-    .. "itself; Recollect then shows " .. what .. " in it.\n\n"
-    .. "(When an addon opens that window itself, the game counts what happens in it afterwards as the "
-    .. "addon's, which can get actions blocked.)"
+  return "Blizzard's achievement window is closed. Click Open achievements so the game opens it itself (an addon "
+    .. "opening it can get actions blocked); Recollect then shows " .. what .. " in it."
 end
 
 -- The window is up: select the waiting achievement and close ours
@@ -98,43 +94,30 @@ end
 
 local function Build()
   if dialog or Prompt.seams.InCombat() then return end
-  dialog = CobySuite_Recollect.UI.CreateWindow({
+  -- the suite's one-click prompt (CobySuite.UI.CreateClickPrompt): its
+  -- button runs the macro on the secure path, once, on release, never with
+  -- a modifier
+  dialog = CobySuite_Recollect.UI.CreateClickPrompt({
     name = "RecollectAchievementPrompt", title = "Show Achievement", icon = Recollect.ICON,
-    width = WIDTH, height = HEIGHT, strata = "DIALOG", escapeCloses = true,
-    point = { "CENTER", UIParent, "CENTER", 0, 120 },
+    macro = Prompt.MACRO, buttonText = "Open achievements",
+    onPostClick = function()
+      if Prompt.seams.InCombat() then
+        Prompt.seams.Message("The achievement window can't be opened from here in combat; click Open achievements again once combat ends.")
+        return
+      end
+      Prompt.seams.After(0, function() Check(1) end)
+    end,
+    -- closed (Cancel, the X, Escape, or done): nothing waits any more
+    onHide = function()
+      pending = nil
+      waiting = false
+    end,
   })
-  dialog.Body = dialog:CreateFontString(nil, "OVERLAY", U.Fonts.SMALL)
-  dialog.Body:SetPoint("TOPLEFT", dialog, "TOPLEFT", PAD, -34)
-  dialog.Body:SetWidth(WIDTH - 2 * PAD)
-  dialog.Body:SetJustifyH("LEFT")
-  dialog.Body:SetWordWrap(true)
-  -- the shared button's look on an insecure action button: its click runs
-  -- the macro on the secure path, once, on release, never with a modifier
-  -- (the pattern of the old channel's leave prompt, verified in game 2026-09-28)
-  dialog.Open = CobySuite_Recollect.UI.CreateButton(dialog, { text = "Open achievements", size = { 150, U.ButtonSize.MEDIUM.height },
-    point = { "BOTTOMLEFT", dialog, "BOTTOMLEFT", PAD, 14 }, template = "UIPanelButtonTemplate, InsecureActionButtonTemplate" })
-  CobySuite_Recollect.UI.ConfigureSecureClicker(dialog.Open, { type = "macro", macrotext = Prompt.MACRO, blockModified = true })
-  dialog.Open:HookScript("PostClick", function()
-    if Prompt.seams.InCombat() then
-      Prompt.seams.Message("The achievement window can't be opened from here in combat; click Open achievements again once combat ends.")
-      return
-    end
-    Prompt.seams.After(0, function() Check(1) end)
-  end)
-  dialog.Cancel = CobySuite_Recollect.UI.CreateButton(dialog, { text = "Cancel", size = { 110, U.ButtonSize.MEDIUM.height },
-    point = { "BOTTOMRIGHT", dialog, "BOTTOMRIGHT", -PAD, 14 },
-    onClick = function() dialog:Hide() end })
   -- the achievements key or the micro menu used while ours is up: select
   -- as soon as the window shows
   dialog:HookScript("OnUpdate", function()
     if pending and Prompt.seams.Shown() then Finish() end
   end)
-  -- closed (Cancel, the X, Escape, or done): nothing waits any more
-  dialog:HookScript("OnHide", function()
-    pending = nil
-    waiting = false
-  end)
-  dialog:Hide()
 end
 
 -- Shows the window for the waiting achievement, or says why it can't
@@ -147,8 +130,8 @@ local function Ask()
   end
   Build()
   if not dialog then return nil end
-  dialog.Body:SetText(Body(pending))
-  dialog:Show()
+  -- sized to the text, which a long achievement name makes taller
+  dialog:Ask(Body(pending))
   return "prompt"
 end
 
