@@ -435,5 +435,4 @@ Endeavors._test = {
   Forget = function() memo, usesMemo = nil, {} end,
   DataChanged = function() listener:ReceiveEvent() end,
   OnEndeavorEvent = OnEndeavorEvent,
-  Display = Display, Plain = Plain, WithoutCount = WithoutCount,
 }

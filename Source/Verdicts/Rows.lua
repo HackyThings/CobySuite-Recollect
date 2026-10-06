@@ -302,6 +302,7 @@ local USED_FOR_WORDS = {
   recipeFor = "Recipe", currency = "Currency", questItem = "Quest item", starts = "Starts a quest", buys = "Buys things",
   opens = "Opens something", usedAt = "Used at an NPC", reagentOf = "Crafting reagent", teaches = "Recipe",
   linked = "Linked achievement",   -- a link, never a need (B10)
+  holds = "Opens into items",      -- what opening it can give (data format 10), informational
 }
 -- The words an item's data gives, kept per parsed list (weakly: they go when
 -- the parse does), so a list redraw reads each item's relations once

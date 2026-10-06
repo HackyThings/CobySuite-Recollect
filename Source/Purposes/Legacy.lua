@@ -28,7 +28,7 @@
 -- whether a memory is known comes from its tooltip's "Already known"
 -- (ITEM_SPELL_KNOWN) alone, like a glyph's (rule 6: done only for a copy no
 -- other character can use). Whether a restored memory's tooltip shows that
--- line is unmeasured until the Lab's legacy probe runs.
+-- line is unmeasured until the Lab's legacyItems probe runs.
 --
 --   no system named                               nothing
 --   teaches something, "Already known", a copy    Purpose done

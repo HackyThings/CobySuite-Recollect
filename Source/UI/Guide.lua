@@ -42,30 +42,54 @@ end
 
 -- The keys as the player set them now, read each time the guide shows
 -- (review 2026-09-30: the guide named the defaults whatever was chosen);
--- the default's words when a key is off or can't be read
+-- nil when a key is off, cleared or the same as another (Task #232: the
+-- guide named the default for a key that did nothing); the default's words
+-- when it can't be read. The shared guide lays every body out once at load,
+-- before the saved settings exist: the defaults then, with no read (each one
+-- logged a CONFIG warning at every login, Task #232)
+local function SettingsLoaded() return type(RECOLLECT_CONFIG) == "table" end
 local function KeyWords(get, default)
+  if not SettingsLoaded() then return default end
   local ok, key = pcall(get)
-  if not ok or type(key) ~= "string" or key == "" then return default end
+  if not ok then return default end
+  if type(key) ~= "string" or key == "" then return nil end
   local okT, text = pcall(CobySuite_Recollect.Utilities.FormatKeyText, key)
   return okT and type(text) == "string" and text ~= "" and text or default
 end
--- the panel's key ("Alt"), and whether the panel always shows
+-- the panel's key ("Alt"), or nil when the panel is off; and whether the
+-- panel always shows
 local function PanelKey()
+  if not SettingsLoaded() then return "Alt", false end
   local ok, key = pcall(Recollect.PanelKeyName)
-  key = ok and key or nil
-  return (key and key ~= "always") and key or "Alt", key == "always"
+  if not ok then return "Alt", false end
+  if key == nil then return nil, false end
+  return key ~= "always" and key or "Alt", key == "always"
 end
+local TURN_ON_PANEL = "turn on the audit panel in /rec settings, Audit panel"
+local TURN_ON_PIN = "turn on the details key in /rec settings, Keys and waypoints"
 local function PinKey()
   return KeyWords(function() return Recollect.UI.DetailWindow.Key() end, "Alt+D")
 end
 local function WaypointKey()
   return KeyWords(function() return Recollect.UI.Waypoint.Key() end, "Alt+W")
 end
--- How to pin with the details key: a key is pressed, a click chord used on the item
+-- How to pin with the details key: a key is pressed, a click chord used on
+-- the item; nil when the key is off
 local function PinAction()
   local key = PinKey()
+  if not key then return nil end
   if key:find("Click", 1, true) then return Key(key) .. " the item" end
   return "press " .. Key(key)
+end
+
+-- Just for fun, the details window's answer (not a verdict): its name in the
+-- band's color, then what it means
+local function ForFun()
+  local text = Recollect.UI.DetailWindow and Recollect.UI.DetailWindow.FOR_FUN or ""
+  local name, meaning = text:match("^(Just for fun): (.+)$")
+  if not name then return Note(text) end
+  local color = Recollect.UI.VerdictColors and Recollect.UI.VerdictColors[V.DONE] or U.Colors.HIGHLIGHT_WHITE
+  return "In the details window, " .. U.WrapColor(color, name) .. ": " .. meaning
 end
 
 local SPYGLASS = ICONS .. "INV_Misc_Spyglass_02"
@@ -85,12 +109,14 @@ Guide.SECTIONS = {
         "Recollect tells you what each item you hold is for, and whether you still need it.",
         -- A step and its caption; the caption starts at the margin (no space
         -- indent, which can't line up with an icon in a proportional font)
-        Key("1.") .. " " .. Icon(SPYGLASS) .. (always and " Point at any item in your bags\n"
+        Key("1.") .. " " .. Icon(SPYGLASS) .. (not panel and (" First, " .. TURN_ON_PANEL .. "\n")
+          or always and " Point at any item in your bags\n"
           or (" Hold " .. Key(panel) .. " over any item in your bags\n"))
           .. Note("The audit panel opens beside its tooltip."),
         Key("2.") .. " " .. Icon(LIST) .. " Type " .. Key("/rec") .. ", or click the " .. Icon(Recollect.ICON) .. " minimap button\n"
           .. Note("The Recollect Audit lists everything you hold."),
-        Key("3.") .. " " .. Icon(DETAILS) .. (pin:find("Click", 1, true) and (" " .. Key(pin) .. " any item\n")
+        Key("3.") .. " " .. Icon(DETAILS) .. (not pin and " Click a row of the Recollect Audit\n"
+          or pin:find("Click", 1, true) and (" " .. Key(pin) .. " any item\n")
           or (" Press " .. Key(pin) .. " while the panel shows\n"))
           .. Note("Everything about that one item, in its own window."),
         Note("Open your bank once, so Recollect can remember what's in it."),
@@ -108,7 +134,8 @@ Guide.SECTIONS = {
         Block("USED FOR") .. ": its most important uses, and where you stand",
         Block("COMES FROM") .. ": where to get more",
         Block("GUIDE NOTES") .. ": a short note Recollect researched, for a few items no data explains",
-        "A short summary: " .. PinAction() .. " for everything, in the item's details",
+        PinAction() and ("A short summary: " .. PinAction() .. " for everything, in the item's details")
+          or ("A short summary; for everything, " .. TURN_ON_PIN .. ", or click the item's row in the Recollect Audit"),
       }),
       Bullets({
         "Works on any item: bags, bank, chat links, vendors, loot, the auction house",
@@ -135,8 +162,9 @@ Guide.SECTIONS = {
         Verdict(V.DONE, "every use Recollect checks is finished"),
       }, "\n"),
       Note("Recollect never decides for you: the details window's Still needed? answer is a suggestion with its reason, and a Tip may say an item is most likely safe to let go. Your call."),
-      -- the band's Your call answer, in the band's own words (DetailWindow.FOR_FUN)
-      Note(Recollect.UI.DetailWindow and Recollect.UI.DetailWindow.FOR_FUN or ""),
+      -- the band's Your call answer, in the band's own words (DetailWindow.FOR_FUN),
+      -- named as the details window's answer, in its color (Task #232)
+      ForFun(),
     },
   },
   {
@@ -153,8 +181,9 @@ Guide.SECTIONS = {
         "Search: the box at the top",
         "Filter: the funnel, by verdict, where it is, its uses, or why Can't tell",
         "Tabs along the bottom once another character is stored: My Items, All Characters, one per character",
-        (select(2, PanelKey()) and "Point at a row for its panel" or ("Hold " .. Key((PanelKey())) .. " over a row for its panel"))
-          .. "; click a row for its details",
+        (not PanelKey() and "Click a row for its details"
+          or ((select(2, PanelKey()) and "Point at a row for its panel" or ("Hold " .. Key((PanelKey())) .. " over a row for its panel"))
+          .. "; click a row for its details")),
       }),
       Note("With the bank closed, your bank and warband bank show as of your last visit; other characters as of their last login. "
         .. "Their items get only the checks that hold for the whole account. Turn them off in /rec settings."),
@@ -177,6 +206,9 @@ Guide.SECTIONS = {
         Key("Alt-click") .. " an item to open it here; Back and Forward return",
         "Right-click a row for a menu: link it in chat, preview it, set a waypoint, or copy its name or Wowhead link",
         "The " .. Icon(ICONS .. "INV_Misc_Map_01") .. " Map button sets a waypoint",
+        "An achievement's button shows it in the game's achievement window. With that window closed, one more "
+          .. "click on " .. Key("Open achievements") .. " lets the game open it itself, since an addon opening it "
+          .. "can get your actions blocked",
       }),
       Note("The details key can be a click instead, such as Alt-click on any item: set it in /rec settings."),
     },
@@ -188,7 +220,8 @@ Guide.SECTIONS = {
     summary = "One key to go where the panel points",
     body = function() return {
       Bullets({
-        "When the panel names a vendor, a treasure or an NPC, press " .. Key(WaypointKey()),
+        WaypointKey() and ("When the panel names a vendor, a treasure or an NPC, press " .. Key(WaypointKey()))
+          or "When the panel names a vendor, a treasure or an NPC, a waypoint key takes you there: set one in /rec settings, Keys and waypoints",
         "A waypoint appears on your map, or on TomTom's arrow when TomTom is installed",
       }),
       Note("Not during combat. Change the key in /rec settings."),
@@ -206,7 +239,7 @@ Guide.SECTIONS = {
         "The minimap button: show or hide it",
         "Waypoints: TomTom's arrow or the game's map pin",
       }),
-      Note("Changes wait until you click Apply."),
+      Note("Changes wait until you click Apply; Undo edits drops them."),
     },
     try = {
       { "/rec settings", "Open the settings" },
@@ -234,7 +267,7 @@ Guide.SECTIONS = {
 
 local window = CobySuite_Recollect.UI.CreateGuideWindow({
   name = "RecollectGuideWindow",
-  title = "Recollect Guide",
+  title = CobySuite_Recollect.Utilities.WrapColor(Recollect.BRAND_COLOR, "Recollect") .. " Guide",
   icon = Recollect.ICON,
   intro = "New here? Start with the first section. Click any heading to open or close it.",
   footer = "Open this guide any time with " .. Key("/rec guide"),

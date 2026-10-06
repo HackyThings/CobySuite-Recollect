@@ -16,7 +16,7 @@
 --   FINDING_COLUMNS   the table's columns; their text reads names live
 --   HistoryRows(), HISTORY_COLUMNS, HistoryState(entry), HistoryEmpty()
 --                     the History tab
---   Waiting()         findings, stamps and notes not sent yet (the badge)
+--   Waiting()         findings, stamps and notes not sent yet (the title's and Findings tab's count)
 --   Ago(at), Short(at) how long ago, in words and in a table cell
 -- Everything is read from the curator's modules and the store in use (a
 -- suite's sandbox too). Names come from the game in the player's language,
@@ -80,6 +80,10 @@ Dashboard.ICONS = {
   vendor = ICONS .. "inv_misc_coin_01", loot = ICONS .. "INV_Misc_Bone_Skull_02",
   quest = ICONS .. "Achievement_Quests_Completed_06", crafting = ICONS .. "inv_gizmo_03", place = ICONS .. "inv_misc_map02",
   use = ICONS .. "INV_Misc_Key_05", market = ICONS .. "TradingPostCurrency", other = ICONS .. "INV_Misc_QuestionMark",
+  -- the Connection and Connection details tiles
+  character = ICONS .. "Achievement_Character_Human_Male", author = ICONS .. "INV_Misc_Book_09",
+  members = ICONS .. "INV_Misc_GroupNeedMore", messages = ICONS .. "INV_Letter_15", pace = ICONS .. "Spell_Holy_BorrowedTime",
+  addon = ICONS .. "INV_Gizmo_02", database = ICONS .. "INV_Misc_Book_11", never = "atlas:UI-LFG-DeclineMark",
 }
 
 -------------------------------------------------------------------------------

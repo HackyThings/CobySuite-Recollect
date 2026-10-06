@@ -19,13 +19,15 @@ Recollect.Curator = Curator
 local Host = {}
 Curator.Host = Host
 
-Host.HOST_VERSION = 6   -- 2: Versions fails closed, Hints is fact-keyed, PurchasesOf;
+Host.HOST_VERSION = 7   -- 2: Versions fails closed, Hints is fact-keyed, PurchasesOf;
                         -- 3: NpcName, ZoneName, OpenSettings (the curator dashboard);
                         -- 4: Knows, StoredItems, OnSnapshotCaptured (items with no information);
                         -- 5: NpcPlaces, QuestPlace, EncounterOfObject, ObjectAlias (data format 7),
                         --    Sources' event, QuestGiver's second answer (every giver);
                         -- 6: Sources' costs and unlisted (a V code's price in currencies, data
-                        --    format 8, 2026-09-29)
+                        --    format 8, 2026-09-29);
+                        -- 7: QuestTurnIns (who takes a quest's turn-in, the Z table, data
+                        --    format 10, 2026-10-05)
 
 -------------------------------------------------------------------------------
 -- Versions (D13)
@@ -389,6 +391,20 @@ function Host.QuestPlace(questID)
     return nil
   end
   return record
+end
+
+-- The NPCs the shipped data says take a quest's turn-in (the Z table, data
+-- format 10), a new list of IDs, ascending; empty when it names none
+function Host.QuestTurnIns(questID)
+  local Relations = Recollect.Facts and Recollect.Facts.Relations
+  local out = {}
+  if not (Relations and Relations.QuestTurnIns) then return out end
+  local ok, list = pcall(Relations.QuestTurnIns, questID)
+  if not ok or type(list) ~= "table" then return out end
+  for _, npc in ipairs(list) do
+    if type(npc) == "number" then out[#out + 1] = npc end
+  end
+  return out
 end
 
 -- A quest's shipped frequency letters ("d" daily, "w" weekly, "y" yearly,

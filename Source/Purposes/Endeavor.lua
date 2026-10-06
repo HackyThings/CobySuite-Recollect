@@ -6,7 +6,8 @@
 --   a task that names it is open           Useful, naming the endeavor, the
 --                                          task, its progress and the
 --                                          endeavor's
---   only tasks whose state can't be read   Unknown (unreadable)
+--   a task whose state can't be read,      Unknown (unreadable)
+--   none open
 --   every task that names it is done       Unknown: the endeavor's use is
 --                                          known and finished for now, and
 --                                          whether it counts again (another
@@ -55,7 +56,8 @@ R.Register({
     if #open > 0 then
       local first = open[1]
       return R.Result(V.USEFUL, ("The neighborhood endeavor %s has an open task that names it: %s (%s)%s%s"):format(
-        Quote(title), Quote(first.taskName), first.progressText, More(#open - 1, "open"), EndeavorProgress()))
+        Quote(title), Quote(first.taskName), first.progressText, More(#open - 1, "open"), EndeavorProgress()),
+        ("An open task of the endeavor %s names it"):format(Quote(title)))
     end
     if #unread > 0 then
       return R.Unknown(("The neighborhood endeavor %s has a task that names it, %s, whose state can't be read"):format(

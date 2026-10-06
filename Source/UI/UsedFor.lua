@@ -36,9 +36,9 @@
 --
 -- Lines(itemID, stack, owner, opts) returns the uses { { text, color,
 -- detail, tier, header, note, place } }, the first position found for the waypoint
--- key ({ mapID, x, y, zone, what }; a key's object or an NPC it is used at
--- first, then a vendor that takes the item, then one it buys from, then one
--- that sells it), the sources in the same form, and extra = { pending (quests of the uses still
+-- key ({ mapID, x, y, zone, what }; a key's object, an NPC it is used at or
+-- a currency's vendor first, then a vendor that takes the item, then one it
+-- buys from, then a source such as a seller, a creature or a spot), the sources in the same form, and extra = { pending (quests of the uses still
 -- being checked), pendingSources (quests it comes from still being
 -- checked, noted under COMES FROM, never under USED FOR), buys (every
 -- purchase summed up in one line, BuySummary: "Buys 4 decor and 2 pets you
@@ -523,7 +523,7 @@ end
 -- Relations.Conditions with class and race names read here. applies is
 -- Relations.Applies' answer for the owner (or a quest's QuestApplies
 -- answer, which another code of the quest may have decided) and chooses
--- which tags say why: "unavailable" "No longer obtainable"; nil or
+-- which tags say why: "unavailable" "No longer available"; nil or
 -- "unknown", a condition the owner's record can't answer (a stored alt with
 -- no race recorded), is worded as not recorded, as the checks word it
 -- (PI-14), never as a mismatch; "other" names each condition missed
@@ -1481,6 +1481,14 @@ local function Line(relation, places, budget, stateless, itemID, owner, tip)
     local zone = Recollect.Facts.Vendors.ZoneName(relation.id)
     return zone and { text = "Drops from enemies in " .. zone, color = U.Colors.LIGHT_GRAY } or nil
   end
+  -- Data format 10's curator findings: a fishing zone (no spot), a container
+  -- it comes out of, and what opening this container can give
+  if kind == "fishedIn" then
+    local zone = Recollect.Facts.Vendors.ZoneName(relation.id)
+    return zone and { text = "Fished in " .. zone, color = U.Colors.LIGHT_GRAY } or nil
+  end
+  if kind == "openedFrom" then return { text = "From opening " .. ItemName(relation.id), color = U.Colors.LIGHT_GRAY } end
+  if kind == "holds" then return { text = "Opening it can give " .. ItemName(relation.id), color = U.Colors.LIGHT_GRAY } end
   if kind == "craftedBy" then return CraftedLine(relation, stateless) end
   if kind == "foundIn" then
     local object = Recollect.Facts.Vendors.Object(relation.id)
@@ -1859,7 +1867,7 @@ function UsedFor.Lines(itemID, stack, owner, opts)
   local lines, sources, decor, buys, buyApplies, reagents, unavailable, linked = {}, {}, {}, {}, {}, {}, {}, {}
   -- places for the waypoint: what a key opens or an NPC it is used at and a
   -- currency's vendor (in the relations' order), then one that takes it, one
-  -- it buys from, and last one that sells it
+  -- it buys from, and last a source (a seller, a creature or a spot)
   local places, takingPlaces, sourcePlaces = {}, {}, {}
   local pending, pendingSources = 0, 0   -- quests still being read: uses, and where it comes from
   local relations = R.For(itemID)
@@ -1965,7 +1973,7 @@ function UsedFor.Lines(itemID, stack, owner, opts)
   else
     local goneSources = GoneSources(unavailable)
     if goneSources > 0 then
-      comesFrom[#comesFrom + 1] = Note(("%d %s no longer in the game"):format(goneSources,
+      comesFrom[#comesFrom + 1] = Note(("%d %s no longer available"):format(goneSources,
         goneSources == 1 and "way to get it is" or "ways to get it are"))
     end
   end
@@ -2133,7 +2141,7 @@ end
 -- What the pinned view's tables share with these lines (UI.DetailData), so a
 -- row and a line never disagree about a state or its words
 UsedFor.parts = {
-  QuestState = QuestState, Tags = Tags, TagText = TagText, AnyShown = AnyShown,
+  QuestState = QuestState, Tags = Tags, TagText = TagText, AnyShown = AnyShown, NamedWords = NamedWords,
   STATE_WORDS = STATE_WORDS,
   WHAT_LABEL = WHAT_LABEL, Currency = Currency, GrantedFaction = GrantedFaction, FactionName = FactionName,
   SourceSellers = SourceSellers, Owned = Owned, SkillLineName = SkillLineName, QUEST_KIND = QUEST_KIND,

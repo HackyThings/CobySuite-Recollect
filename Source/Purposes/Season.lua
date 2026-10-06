@@ -93,7 +93,7 @@ end
 -- season shown now), "disagree" (between the two numbers read) or "unread"
 -- (the current season can't be read); nil for no tag, an expansion name not
 -- recognized ("Warlords", "Trial of Style") or a client not in English.
--- Kept on ctx for the other checks (Consumable asks).
+-- Kept on ctx for the other checks (Consumable and Gear.OlderWords ask).
 local function Read(ctx)
   local tip = ctx.Tooltip()
   if not tip or type(tip.seasonExpansion) ~= "string" then return nil end
@@ -209,6 +209,7 @@ local function CraftedLook(itemID)
         if not okLoc or equipLoc == nil then
           -- nil: the client has no record of the product yet, so whether it
           -- is gear isn't known (review CORE-02); "" is a product that isn't
+          -- gear, which counts nowhere
           looked.unread = looked.unread + 1
         elseif type(equipLoc) == "string" and Gear.SLOTS[equipLoc] then
           local look = Gear.Appearance(client, { facts = { equipLoc = equipLoc }, stack = { itemID = product } })
@@ -276,7 +277,7 @@ local function PastSeason(ctx, tag)
   if looked.found then
     local name = Recollect.Facts.Item.Name(looked.found) or ("item " .. looked.found)
     return R.Result(V.USEFUL, ("Useful for transmog only: it makes %s, whose appearance you haven't collected; for gear, it is %s")
-      :format(name, facts:sub(1, 1):lower() .. facts:sub(2)))
+      :format(name, facts:sub(1, 1):lower() .. facts:sub(2)), ("Useful for transmog only: it makes %s"):format(name))
   end
   if looked.unread > 0 or looked.loading > 0 or looked.uncollectable > 0 or looked.more > 0 then
     local parts = {}

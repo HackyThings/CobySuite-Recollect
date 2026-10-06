@@ -48,7 +48,7 @@ R.Register({
     if missing > 0 then
       local more = missing - #names
       return R.Result(V.USEFUL, ("Buys %d decor you don't own: %s%s"):format(missing, table.concat(names, ", "),
-        more > 0 and (" and %d more"):format(more) or ""))
+        more > 0 and (" and %d more"):format(more) or ""), ("Buys %d decor you don't own"):format(missing))
     end
     if unread > 0 then return R.Unknown("Buys decor whose owned count can't be read") end
     return R.Unknown(("Buys %d decor, %s you own; anything else it buys isn't checked yet"):format(owned,

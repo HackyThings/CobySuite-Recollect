@@ -216,4 +216,228 @@ Recollect.Data.Notes = {
     confirmed = false,
     researched = "2026-09-25",
   },
+  {
+    items = { 271424 },   -- Diver's Key Fragment
+    text = "Three fragments combine into a Diver's Key for the Sunken Diver's Chest, which holds a mask toy.",
+    howMany = "3 per key",
+    where = "The Coiled Isle: the chest at 65.4, 5.6",
+    from = "Glittering Grouper Brinetail along the north shore of the Coiled Isle (61.2, 14.0; 63.6, 13.2; 65.4, 5.6; 67.2, 5.0)",
+    confirmInGame = "Combine three fragments, then open the Sunken Diver's Chest with the key and check its loot.",
+    confirmed = false,
+    researched = "2026-10-05",
+  },
+  {
+    items = { 274481 },   -- Keepsake Corruption
+    text = "Paid to the Cursed Keepsake: its quest takes it, and further copies of its decoration cost 100 each.",
+    howMany = "100 for each further decoration",
+    where = "The Cursed Keepsake in your housing neighborhood",
+    from = "Enemies in the Cursed Keepsake scenario; those defeated over its floor pools give more",
+    quest = 98204,
+    confirmInGame = "In the scenario, compare what enemies give on and off a floor pool, then check the quest and the decoration's price.",
+    confirmed = false,
+    researched = "2026-10-05",
+  },
+  {
+    items = { 276547 },   -- Afflicted Soul
+    text = "Use it before accepting a Nightmare Prey hunt for a faster hunt and an extra Preyhunter's Champion Chest at its end; in a group, each hunter uses their own.",
+    from = "Heavy Trunks in Bountiful Delves of tier 6 or higher, once your Preyhunter's Journey reaches rank 4",
+    confirmInGame = "With no hunt active, use one Soul, accept a Nightmare hunt, and check the hunt's progress and the extra chest.",
+    confirmed = false,
+    researched = "2026-10-05",
+  },
+  {
+    items = { 245929, 245931, 245933 },   -- Fleeting flasks
+    text = "Taken from a Midnight flask cauldron an alchemist places; which flasks it offers follows the recipes its makers know.",
+    from = "A flask cauldron (item 241318) placed by an alchemist",
+    confirmInGame = "Take each flask from a placed cauldron and check its item.",
+    confirmed = false,
+    researched = "2026-10-05",
+  },
+  {
+    items = { 245902, 245916, 245898 },   -- Fleeting potions
+    text = "Taken from a Midnight potion cauldron an alchemist places; which potions it offers follows the recipes its makers know.",
+    from = "A potion cauldron (item 241284) placed by an alchemist",
+    confirmInGame = "Take each potion from a placed cauldron and check its item.",
+    confirmed = false,
+    researched = "2026-10-05",
+  },
+  {
+    items = { 239142, 240995 },   -- Bottle of Mysterious Wisdom, Fortuitous Satchel
+    text = "Rewards of the Winds of Mysterious Fortune leveling event.",
+    from = "Mysterious Satchels (item 235054) during Winds of Mysterious Fortune",
+    confirmInGame = "Open the event's satchels and check for these items.",
+    confirmed = false,
+    researched = "2026-10-05",
+  },
+  {
+    items = { 116403 },   -- Frightened Bush Chicken
+    text = "Teaches a companion pet, found in Pilgrim's Bounty's seasonal reward package.",
+    from = "The Pilgrim's Bounty reward container (item 116404)",
+    confirmInGame = "Open the reward container during Pilgrim's Bounty and check for this pet.",
+    confirmed = false,
+    researched = "2026-10-05",
+  },
+  {
+    items = { 117393 },   -- Keg-Shaped Treasure Chest
+    text = "Coren Direbrew's Brewfest reward chest; it can hold mounts, a toy and other Brewfest loot.",
+    from = "Defeating Coren Direbrew in the queued Brewfest encounter",
+    confirmInGame = "During Brewfest, finish the Coren Direbrew encounter and open the chest.",
+    confirmed = false,
+    researched = "2026-10-05",
+  },
+  {
+    items = { 118391 },   -- Worm Supreme
+    text = "A Draenor fishing lure.",
+    from = "Draenor fishing, and the Lunarfall and Frostdeep Cavedwellers at garrison fishing spots",
+    confirmInGame = "Fish in Draenor or defeat a garrison cavedweller and check its loot for the lure.",
+    confirmed = false,
+    researched = "2026-10-05",
+  },
+  {
+    items = { 33820 },   -- Weather-Beaten Fishing Hat
+    text = "A fishing hat with a reusable lure.",
+    from = "Fishing daily reward bags",
+    confirmInGame = "Open fishing daily reward bags and check for the hat; use its lure.",
+    confirmed = false,
+    researched = "2026-10-05",
+  },
+  {
+    items = { 140999, 141000 },   -- Replica Lion's Fang, Replica Lion's Heart
+    text = "Alliance replica weapon appearances from the Warcraft movie promotion.",
+    from = "The promotion's Alliance appearance package (item 140997)",
+    confirmInGame = "Check the appearance in your collection.",
+    confirmed = false,
+    researched = "2026-10-05",
+  },
+  {
+    items = { 141001, 141002 },   -- Replica Blood Guard's Cleaver, Replica Staff of Gul'dan
+    text = "Horde replica weapon appearances from the Warcraft movie promotion.",
+    from = "The promotion's Horde appearance package (item 140998)",
+    confirmInGame = "Check the appearance in your collection.",
+    confirmed = false,
+    researched = "2026-10-05",
+  },
+  {
+    items = { 44124 },   -- Peculiar Key
+    text = "A step of the Felcycle secret: with the Torch of Pyrreth, it opens the way into the puzzle scenario at the Karazhan Catacombs.",
+    where = "The Karazhan Catacombs entrance in Deadwind Pass",
+    confirmInGame = "Put the key together from items 228938 and 228941, then use the torch at the entrance.",
+    confirmed = false,
+    researched = "2026-10-05",
+  },
+  {
+    items = { 53156 },   -- Key of Shadows
+    text = "A step of the Felcycle secret: it opens the two doors beside the red-button room in the puzzle scenario.",
+    from = "The Ny'alotha Obelisk above the Seat of Knowledge in the Vale of Eternal Blossoms",
+    confirmInGame = "Get the key at the obelisk and try it on both doors in the scenario.",
+    confirmed = false,
+    researched = "2026-10-05",
+  },
+  {
+    items = { 228965 },   -- Astral Key
+    text = "A step of the Felcycle secret: it opens the Astral Chest, which holds the goggles for the next stage.",
+    where = "The room left of the red button, reached with the Key of Shadows",
+    from = "Fishing in the bowl on that room's left bookshelf",
+    confirmInGame = "Fish the key from the bowl and use it on the Astral Chest (object 466393).",
+    confirmed = false,
+    researched = "2026-10-05",
+  },
+  {
+    items = { 228300 },   -- Sun-Baked Ransom Note
+    text = "A clue in the anniversary detective hunt: Search the sunken gnome building off the Tanaris coast, by the bed on its upper floor.",
+    where = "Tanaris: 69.2, 68.6",
+    achievement = 40979,
+    quest = 84426,
+    confirmInGame = "Follow the clue to its spot and check that the crate or next clue is there.",
+    confirmed = false,
+    researched = "2026-10-05",
+  },
+  {
+    items = { 228321 },   -- Dirt-Caked Ransom Note
+    text = "A clue in the anniversary detective hunt: In the Karazhan crypt, cross the pool of hanging bodies and search the back left of the next room.",
+    where = "Deadwind Pass: the crypt entrance at 39.8, 73.1",
+    achievement = 40979,
+    quest = 84470,
+    confirmInGame = "Follow the clue to its spot and check that the crate or next clue is there.",
+    confirmed = false,
+    researched = "2026-10-05",
+  },
+  {
+    items = { 228694 },   -- Damp Ransom Note
+    text = "A clue in the anniversary detective hunt: Buy a Clam Digger from Nikto in Zuldazar and hand it to Gerald nearby.",
+    where = "Zuldazar: Nikto at 54.3, 54.5, Gerald at 54.2, 54.2",
+    achievement = 40979,
+    quest = 83794,
+    confirmInGame = "Follow the clue to its spot and check that the crate or next clue is there.",
+    confirmed = false,
+    researched = "2026-10-05",
+  },
+  {
+    items = { 228766 },   -- Sandy Ransom Note
+    text = "A clue in the anniversary detective hunt: Search behind the pipes in the underwater tunnel of Thousand Needles for the next receipt.",
+    where = "Thousand Needles: the tunnel at 66.3, 86.2",
+    achievement = 40979,
+    quest = 84624,
+    confirmInGame = "Follow the clue to its spot and check that the crate or next clue is there.",
+    confirmed = false,
+    researched = "2026-10-05",
+  },
+  {
+    items = { 228769 },   -- Surprisingly Pristine Ransom Note
+    text = "A clue in the anniversary detective hunt: A dog companion digs up bones behind Andrestrasz's cave; bring them to the Unmarked Grave in Stormheim.",
+    where = "Stormheim: the grave at 37.3, 47.7",
+    achievement = 40979,
+    quest = 84625,
+    confirmInGame = "Follow the clue to its spot and check that the crate or next clue is there.",
+    confirmed = false,
+    researched = "2026-10-05",
+  },
+  {
+    items = { 228977 },   -- Burnt Ransom Note
+    text = "A clue in the anniversary detective hunt: Search the trampoline area in Mount Hyjal.",
+    where = "Mount Hyjal: 13.6, 33.5",
+    achievement = 40979,
+    quest = 84767,
+    confirmInGame = "Follow the clue to its spot and check that the crate or next clue is there.",
+    confirmed = false,
+    researched = "2026-10-05",
+  },
+  {
+    items = { 228985 },   -- Shiny Ransom Note
+    text = "A clue in the anniversary detective hunt: Search near Oshu'gun in Outland's Nagrand.",
+    where = "Nagrand (Outland): 35.3, 74.7",
+    achievement = 40979,
+    quest = 84773,
+    confirmInGame = "Follow the clue to its spot and check that the crate or next clue is there.",
+    confirmed = false,
+    researched = "2026-10-05",
+  },
+  {
+    items = { 229369 },   -- Ghostly Ransom Note
+    text = "A clue in the anniversary detective hunt: Search atop the Seat of the Primus, behind the portal on the right.",
+    where = "Maldraxxus: 50.0, 73.8",
+    achievement = 40979,
+    quest = 84909,
+    confirmInGame = "Follow the clue to its spot and check that the crate or next clue is there.",
+    confirmed = false,
+    researched = "2026-10-05",
+  },
+  {
+    items = { 178675 },   -- Dream Catcher
+    text = "Lets you into Night Mare's realm, where the rare that drops the Swift Gloomhoof mount waits.",
+    where = "Ardenweald: behind Hibernal Hollow, around 62.5, 51.6",
+    from = "Ysera, once you bring her a Repaired Soulweb",
+    confirmInGame = "Use it behind Hibernal Hollow and check that Night Mare appears.",
+    confirmed = false,
+    researched = "2026-10-05",
+  },
+  {
+    items = { 265361 },   -- Pollinic Incense
+    text = "Placed at marked flower spots to finish tasks of the Niffen neighborhood endeavor.",
+    where = "The Common in a housing neighborhood while its Niffen endeavor runs",
+    from = "The incense pot on a traveling cart, once Incense Materials are added",
+    confirmInGame = "Fill the cart's incense pot, then place incense at a marked flower spot and check the endeavor's credit.",
+    confirmed = false,
+    researched = "2026-10-05",
+  },
 }

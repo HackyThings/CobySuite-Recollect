@@ -22,7 +22,7 @@ Recollect shows what each item in your bags, bank and warband bank is for, and w
 - **Can't tell**: Recollect can't confirm yet, and says why (and what to do, where it can).
 - **Junk**: a gray item with a vendor price, the game's own junk label.
 - **Outdated**: it has been replaced (older gear, an older expansion's potions, flasks, food, weapon oils and sharpening stones, an old-season reagent and the like).
-- **Lower level**: gear below what you wear, not shown to be from an older season.
+- **Lower level**: gear below what you wear, not shown to be from an earlier season.
 - **Purpose done**: every use Recollect checks is finished.
 
 Recollect never decides for you. Its suggestions, such as "most likely safe to sell or delete, but that's your call", always come with their reason.
@@ -35,7 +35,7 @@ A short summary beside the tooltip: the verdict and why, the uses that matter mo
 
 Everything Recollect knows about one item, so you don't need a website. Open it with Alt+D, or click a row in the Recollect Audit. A setting can make the key a click instead (Alt+click, for example), which works on any item, even in combat.
 
-- **Still needed?** Recollect's suggestion (Keep it, Sell it, Likely safe to delete, Probably done, Replaced, Lower level or Can't tell yet) with a short reason; hover for the rest.
+- **Still needed?** Recollect's suggestion (Keep it, Sell it, Likely safe to delete, Probably done, Just for fun, Replaced, Lower level or Can't tell yet) with a short reason; hover for the rest.
 - **What it's for:** what the item is, its Use line, and a tile for each kind of use with how many there are and how many are still open.
 - **Achievements:** what it counts toward, with progress bars.
 - **How to get more:** each way to get it (sold by, drops from, rewards) with the whole price and what buying requires first. With no source recorded yet, it says so, and whether another player could trade you one.

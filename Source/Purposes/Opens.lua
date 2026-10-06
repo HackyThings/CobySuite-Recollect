@@ -90,9 +90,12 @@ R.Register({
     end
     local noun = function(object) return #object.contents > 0 and "a treasure" or "a spot" end
     if open then
-      local where = Where(open)
-      return R.Result(V.USEFUL, (where and ("Opens %s in %s you haven't looted yet"):format(noun(open), where)
-        or ("Opens %s you haven't looted yet"):format(noun(open))) .. Holds(open))
+      local where, zone = Where(open)
+      local opens = where and ("Opens %s in %s you haven't looted yet"):format(noun(open), where)
+        or ("Opens %s you haven't looted yet"):format(noun(open))
+      -- the band's short why names the zone, never the spot (Task #262)
+      return R.Result(V.USEFUL, opens .. Holds(open), zone and ("Opens %s in %s you haven't looted yet"):format(noun(open), zone)
+        or opens)
     end
     local any = unread or looted
     if any then

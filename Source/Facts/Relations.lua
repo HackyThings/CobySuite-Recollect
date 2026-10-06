@@ -81,6 +81,12 @@
 --                      (n is always 1, reserved)
 --   U<yyyymm>          offered at the Trading Post, in the month AllTheThings
 --                      files it under (202503), 0 when not known (id = yyyymm)
+-- Since data format 10, from accepted curator findings only:
+--   F<map>             fished in zone <map> (a source, like z; no spot)
+--   Y<item>            comes from opening the container item <item> (a source)
+--   H<item>            opening it can give <item> (a use, informational: the
+--                      reverse of Y, which the build writes from every Y)
+-- F, Y and H are number-only, like D (no "x<n>").
 -- Any code may end in "|" and flags, the route's conditions (flags):
 --   x unavailable (no longer available), f0 / f1 faction (Horde / Alliance
 --   only, as PvPFaction), c<id.id> classes (class IDs), h event (only
@@ -100,10 +106,10 @@
 -- For(itemID) returns { { kind, id, criteria, count, level, thing, vendors, plus,
 -- costs, costText, unlisted, mapID, seller, unresolved, parts, price, flags, shows } }, uses first (objective, questItem, starts, opens,
 -- usedAt, criterion, linked, buysDecor, buys, partOf, makes, reagentOf, currency,
--- recipeFor, teaches), then where it comes from (Relations.SOURCE: madeFrom,
+-- recipeFor, teaches, holds), then where it comes from (Relations.SOURCE: madeFrom,
 -- craftedBy, taughtBy, reward, choice, achievementReward, soldBy,
--- renownReward, blackMarket, tradingPost, dropsFrom, journalDrop, foundIn,
--- zoneDrop; ORDER lists every kind, since the sort compares by it), parsed when first asked
+-- renownReward, blackMarket, tradingPost, openedFrom, dropsFrom, journalDrop, foundIn,
+-- zoneDrop, fishedIn; ORDER lists every kind, since the sort compares by it), parsed when first asked
 -- for and kept while recently used (Keep: two generations, the newer one rotated out once
 -- it would pass CACHE_RELATIONS relations, so both together can hold up to about twice
 -- that, and one larger item's list is kept whole). Names, titles and states are read live by the
@@ -112,7 +118,10 @@
 -- conditions the character misses, as tags for display only (D34: an event
 -- route is tagged but served as any other). QuestGiver(questID) says where a quest
 -- starts (the data's G table: its givers and place, from AllTheThings; every
--- giver since data format 7, the one standing at that place first).
+-- giver since data format 7, the one standing at that place first), and
+-- QuestTurnIns(questID) who takes its turn-in (the Z table, data format 10,
+-- from accepted curator findings; kept apart from G, which says only where a
+-- quest starts).
 -- EncountersOfObject(objectID) lists the Encounter Journal encounters whose
 -- loot comes out of a boss loot chest (the L table, format 7), and
 -- EncounterOfObject the first.
@@ -145,22 +154,25 @@ local KIND = {
   b = "buys", u = "questItem", s = "starts", v = "soldBy", c = "dropsFrom", j = "opens", n = "usedAt",
   l = "linked", r = "teaches", i = "foundIn", z = "zoneDrop", y = "craftedBy", e = "partOf",
   A = "achievementReward", V = "soldBy", D = "journalDrop", N = "renownReward", O = "blackMarket", U = "tradingPost",
+  F = "fishedIn", Y = "openedFrom", H = "holds",
 }
 -- Every kind must be here: Less compares ORDER[kind], and a kind missing
 -- from it would throw in the sort (build_data.py's KIND_RANK ships the codes
 -- in this order, so the sort is skipped)
 local ORDER = { objective = 1, questItem = 2, starts = 3, opens = 4, usedAt = 5, criterion = 6, linked = 7,
   buysDecor = 8, buys = 9, partOf = 10, makes = 11, reagentOf = 12, currency = 13, recipeFor = 14, teaches = 15,
-  madeFrom = 16, craftedBy = 17, taughtBy = 18, reward = 19, choice = 20, achievementReward = 21, soldBy = 22,
-  renownReward = 23, blackMarket = 24, tradingPost = 25, dropsFrom = 26, journalDrop = 27, foundIn = 28, zoneDrop = 29 }
+  holds = 16, madeFrom = 17, craftedBy = 18, taughtBy = 19, reward = 20, choice = 21, achievementReward = 22,
+  soldBy = 23, renownReward = 24, blackMarket = 25, tradingPost = 26, openedFrom = 27, dropsFrom = 28,
+  journalDrop = 29, foundIn = 30, zoneDrop = 31, fishedIn = 32 }
 
 -- Kinds that say where an item comes from, not what it is for
 Relations.SOURCE = { madeFrom = true, taughtBy = true, reward = true, choice = true, soldBy = true, dropsFrom = true,
   foundIn = true, zoneDrop = true, craftedBy = true, achievementReward = true, journalDrop = true, renownReward = true,
-  blackMarket = true, tradingPost = true }
+  blackMarket = true, tradingPost = true, fishedIn = true, openedFrom = true }
 
 -- Kinds whose body is a number alone (no "x<n>")
-local NUMBER_ONLY = { journalDrop = true, blackMarket = true, tradingPost = true }
+local NUMBER_ONLY = { journalDrop = true, blackMarket = true, tradingPost = true, fishedIn = true, openedFrom = true,
+  holds = true }
 
 -- "xf0c8.13h": the route's conditions, or nil for none. One table per
 -- distinct text, shared by every relation that carries it (read-only):
@@ -378,7 +390,8 @@ local function Data()
   return Recollect.Data and Recollect.Data.Relations
 end
 
--- The record for key in a bucketed table (B by item, Q by quest), or nil
+-- The record for key in a bucketed table (B by item, Q by quest, and the
+-- other bucketed tables), or nil
 local function Record(tbl, key)
   local bucket = tbl and tbl[math.floor(key / BUCKET)]
   if type(bucket) ~= "string" then return nil end
@@ -559,8 +572,8 @@ end
 
 -- Whether a route serves a character (SRC-01): owner = { faction (0 Horde,
 -- 1 Alliance, nil unknown), classID, raceID }. Returns true; "unavailable" for a
--- route no longer in the game; "other" for another faction's or class's
--- route; nil when a condition names what the owner's record can't say.
+-- route no longer in the game; "other" for another faction's, class's or
+-- race's route; nil when a condition names what the owner's record can't say.
 function Relations.Applies(relation, owner)
   local flags = relation.flags
   if not flags then return true end
@@ -587,7 +600,7 @@ end
 -- conditions the owner does not meet, as tags for a dimmed row or line; never
 -- read by a check, so no verdict moves (Applies decides those). A list of
 -- { kind, words, after, ids }, in this order:
---   unavailable  "No longer obtainable" (x)
+--   unavailable  "No longer available" (x)
 --   unknown      a condition the owner's record can't answer (a stored alt
 --                with no race recorded): words as the checks say it (PI-14)
 --   faction      "Horde only" / "Alliance only"
@@ -607,7 +620,7 @@ end
 -- after another tag ("Horde only, during a holiday or event"). Empty when
 -- the route has no condition the owner misses.
 local CONDITION_WORDS = {
-  unavailable = { "No longer obtainable", "no longer obtainable" },
+  unavailable = { "No longer available", "no longer available" },
   unknown = { "whether it's for this character isn't recorded yet", "whether it's for this character isn't recorded yet" },
   event = { "During a holiday or event", "during a holiday or event" },
   [0] = { "Horde only", "Horde only" },
@@ -676,8 +689,8 @@ end
 -- dump's own objective and reward codes can lack conditions ATT gives the
 -- same quest). { [questID] = true | "unknown" | "other" | "unavailable" }
 -- A reward code's "x" can also mean only that reward is no longer given by
--- a quest still in the game (the Dilated Time Pod, w77236|x); no item in the
--- 2026-09-25 data has such a code beside a live use code of the same quest.
+-- a quest still in the game (the Dilated Time Pod, w77236|x); the data build refuses such a
+-- code beside a live use code of the same quest (a release gate, review F10).
 local QUEST_KINDS = { objective = true, questItem = true, starts = true, reward = true, choice = true }
 local APPLIES_RANK = { [true] = 1, unknown = 2, other = 3, unavailable = 4 }
 -- QuestAppliesOf(relations, owner): the same, over a list already parsed
@@ -742,6 +755,22 @@ function Relations.QuestGiver(questID)
   end
   return { npcID = first and first > 0 and first or nil, npcIDs = ids, mapID = tonumber(map), x = tonumber(x) / 1000,
     y = tonumber(y) / 1000 }
+end
+
+-- Who takes a quest's turn-in: the NPC IDs of the data's Z table ("npc/npc",
+-- ascending, bucketed by quest ID like G; data format 10, from accepted
+-- curator findings), a new list each call; empty when the data names none
+-- or has no such table (a file of an older format)
+function Relations.QuestTurnIns(questID)
+  local list = {}
+  if not Recollect.Utilities.IsPositiveID(questID) then return list end
+  local data = Data()
+  local text = Record(data and data.Z, questID)
+  for npc in (text or ""):gmatch("%d+") do
+    npc = tonumber(npc)
+    if npc > 0 then list[#list + 1] = npc end
+  end
+  return list
 end
 
 -- QuestChain(questID): what comes before a quest of a chain that ends in a

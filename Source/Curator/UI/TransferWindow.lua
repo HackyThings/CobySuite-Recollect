@@ -55,7 +55,7 @@ local function Build()
   -- the suite's prompt with plain buttons, kept in the MEDIUM layer: it is
   -- a status window as well as a request
   window = CobySuite_Recollect.UI.CreateClickPrompt({
-    name = "RecollectCuratorTransferWindow", title = "Recollect curator collection", icon = Curator.Host.Icon(),
+    name = "RecollectCuratorTransferWindow", title = "Recollect: Curator Collection", icon = Curator.Host.Icon(),
     width = 380, strata = "MEDIUM", point = { "CENTER", UIParent, "CENTER", 0, 160 },
     buttons = {
       { key = "Allow", text = "Allow", width = 100, onClick = function() Sharing.AnswerPrompt(true) end },

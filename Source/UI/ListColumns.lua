@@ -104,7 +104,7 @@ end
 -- it, so a fitted column is as wide as what it paints
 local CELL_TEXT = {
   name = function(entry) return entry.name or "?" end,
-  count = function(entry) return tostring(entry.count or 1) end,
+  count = function(entry) return Recollect.Utilities.Count(entry.count or 1) end,
   where = function(entry) return entry.where or "" end,
   purposeText = function(entry) return entry.purposeText or "-" end,
   usedForText = function(entry) return entry.usedForText or "" end,

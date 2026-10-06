@@ -14,7 +14,7 @@
 --      on (state "off" when opted out, "nodata" when the data files failed
 --      their check); a challenge's checksum is Protocol.Challenge over this
 --      character's own name
---   Q  a pull: refused with S (busy, off, nodata, empty, declined, large)
+--   Q  a pull: refused with S (busy, off, nodata, empty, declined, pack, large)
 --      or started: one block of the pending records, stamps and notes (at
 --      most Protocol.OBSERVATIONS, fewer until it packs within BLOCK_RAW
 --      bytes, or LARGE_RAW when Q asks for a large pull; a frozen block or

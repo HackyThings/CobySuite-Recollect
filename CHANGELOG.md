@@ -4,6 +4,23 @@ All notable changes to Recollect are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-10-06
+
+### Changed
+
+- **A bigger database.** A few fishing zones, what some containers hold, who takes in a few quests, and about 50 more item descriptions and guide notes.
+- **Item details.** The Still needed? band gives a short answer ("Keep it: Leads to Phoenix Wishwing, a pet you don't have"), and What it's for gives the full explanation, so the two no longer say the same thing.
+- **Item details.** The No longer available tab has a For column, so a removed way for one faction no longer looks like a duplicate.
+- **Guide.** It names the keys you actually set, and when the panel or a key is off, says where to turn it on instead of naming a key that does nothing.
+- **Settings:** the Cancel button is now **Undo edits**, with the same job: it drops changes you have not applied.
+- Performance improvements.
+- Many smaller look and wording improvements across the windows.
+
+### Fixed
+
+- **Item details.** Hovering a cell cut short ("Leads to a...") shows its whole text.
+- Several smaller bug fixes.
+
 ## [1.0.1] - 2026-10-01
 
 A bigger database, a new look for the settings, and clearer item details.
@@ -82,6 +99,7 @@ The first release of Recollect: what every item in your bags, bank and warband b
 
 - **Settings, a guide and a changelog.** `/rec settings` (also a right-click on the minimap button or Options > AddOns), `/rec guide`, which opens by itself on your first login, and `/rec changelog`.
 
-[Unreleased]: https://github.com/HackyThings/CobySuite-Recollect/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/HackyThings/CobySuite-Recollect/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/HackyThings/CobySuite-Recollect/releases/tag/v1.0.2
 [1.0.1]: https://github.com/HackyThings/CobySuite-Recollect/releases/tag/v1.0.1
 [1.0.0]: https://github.com/HackyThings/CobySuite-Recollect/releases/tag/v1.0.0

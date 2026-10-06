@@ -11,8 +11,7 @@
 -- nothing about it.
 --
 -- The vendor price: the slot read's hasNoValue (C_Container) when there is
--- one, else the item's sell price (a stand-in copy, such as the Lab's
--- catalog).
+-- one, else the item's sell price (a slot whose read gave no answer).
 -------------------------------------------------------------------------------
 local R = Recollect.Purposes.Registry
 local V = R.Verdict

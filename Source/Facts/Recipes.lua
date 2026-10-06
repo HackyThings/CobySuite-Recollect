@@ -437,8 +437,6 @@ frame:SetScript("OnEvent", OnEvent)
 
 Recipes._test = {
   seams = seams,
-  CRAFTING = CRAFTING,
-  PROFESSIONS = PROFESSIONS,
   INDEX_VERSION = INDEX_VERSION,
   IsScanning = function() return scan ~= nil end,
   Cancel = function() scan = nil end,

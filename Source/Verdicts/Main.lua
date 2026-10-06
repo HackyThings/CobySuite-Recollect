@@ -3,8 +3,8 @@
 --
 -- The accuracy contract, as code:
 --   * No facts (item data not loaded) means Unknown before any check runs.
---   * No check that applies means Unknown ("no purpose check covers this
---     item yet").
+--   * No check that applies means Unknown ("No check covers this item
+--     yet").
 --   * Needed beats Use now, which beats Useful, which beats Unknown, which
 --     beats Junk, then Outdated, then Lower level, then Purpose done: an
 --     Unknown in any purpose blocks Junk, Outdated, Lower level and Purpose
@@ -26,6 +26,8 @@
 --     spell can't be read, and no other check deciding, is Unknown (Settle).
 -- An Unknown result carries the deciding check's category (G-04,
 -- Registry.CATEGORY), so the panel can name the one step that changes it.
+-- A result carries the deciding check's brief (Registry.Result), the
+-- answer band's short why.
 -- No verdict is cached: collections, quests and recipes change without a
 -- bag event, so each redraw evaluates again; what a check keeps (Buys,
 -- Season, Reagent, through Facts.Buys.Stamp) lasts only until data changes
@@ -70,9 +72,6 @@ local function Settled(purposes)
   return any
 end
 
--- Combine(purposes, otherUses): the verdict for a list of purpose results.
--- A Can't tell whose every purpose is done or settled carries settled = true
--- and the category "finished", so it is never listed as "no check covers it"
 -- The signs of other uses no check covers (OtherUses), in words: the note
 -- a Combine result carries, and the Tip's "Not checked" (UI.Tooltip)
 Verdicts.UNCHECKED_WORDS = {
@@ -81,6 +80,9 @@ Verdicts.UNCHECKED_WORDS = {
   ["quest info (unreadable)"] = "its quest info, which can't be read",
 }
 
+-- Combine(purposes, otherUses): the verdict for a list of purpose results.
+-- A Can't tell whose every purpose is done or settled carries settled = true
+-- and the category "finished", so it is never listed as "no check covers it"
 function Verdicts.Combine(purposes, otherUses)
   if #purposes == 0 then
     return { verdict = V.UNKNOWN, reason = "No check covers this item yet", purposes = purposes, category = "unsupported" }
@@ -103,7 +105,7 @@ function Verdicts.Combine(purposes, otherUses)
     if first[verdict] then
       local p = first[verdict]
       local unknown = verdict == V.UNKNOWN
-      return { verdict = verdict, reason = p.reason, purposes = purposes,
+      return { verdict = verdict, reason = p.reason, brief = p.brief, purposes = purposes,
         category = unknown and (p.category or (settled and "finished")) or nil, recovery = unknown and p.recovery or nil,
         settled = unknown and settled or nil }
     end
@@ -128,9 +130,9 @@ function Verdicts.Combine(purposes, otherUses)
     return { verdict = V.UNKNOWN, reason = reason .. "; " .. note, note = note, unchecked = otherUses, purposes = purposes,
       category = unreadable and "unreadable" or "unsupported" }
   end
-  return { verdict = (first[V.JUNK] and V.JUNK) or (first[V.OUTDATED] and V.OUTDATED) or (first[V.LOWER] and V.LOWER) or V.DONE,
-    reason = reason,
-    purposes = purposes }
+  local verdict = (first[V.JUNK] and V.JUNK) or (first[V.OUTDATED] and V.OUTDATED) or (first[V.LOWER] and V.LOWER) or V.DONE
+  -- the band's short why is the first reason's, as the reasons' order
+  return { verdict = verdict, reason = reason, brief = first[verdict].brief, purposes = purposes }
 end
 
 -- Evaluate(ctx): { verdict, reason, purposes = { { key, label, verdict, reason } } }
@@ -189,6 +191,7 @@ function Verdicts.Settle(ctx, purposes)
   end
   if removed and removed.verdict == V.OUTDATED and not decidedOther and ctx.facts and ctx.facts.hasSpell ~= false then
     removed.verdict = V.UNKNOWN
+    removed.brief = nil   -- the Outdated summary no longer says it
     removed.reason = removed.reason .. (ctx.facts.hasSpell == nil and "; whether it has a Use effect can't be read"
       or "; it has a Use effect, which isn't checked")
     removed.category = ctx.facts.hasSpell == nil and "unreadable" or nil

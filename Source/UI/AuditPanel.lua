@@ -490,7 +490,7 @@ function Panel.PinText(model, pinLive, pinAfterCombat, trimmed)
   local clash = Detail.ClashText()
   if clash then return clash end
   if trimmed and type(model) == "table" and model.source then
-    return "More in the item's full details: turn on the details key (/rec settings > Keys and waypoints)"
+    return "More in the item's full details: turn on the details key (in /rec settings, Keys and waypoints)"
   end
   return nil
 end

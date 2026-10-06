@@ -34,7 +34,7 @@ Curator.DashboardWindow = Window
 
 local NAME = "RecollectCuratorDashboard"
 local L = { WIDTH = 1000, HEIGHT = 660, PAD = 14, TOP = 64, FOOTER = 40, HEADER = 32, ICON = 22, BODY_X = 12,
-  TILE_W = 150, TILE_H = 42, BANNER_TILES = 3, SECTION_TILES = 10, GRIDS = 3, LINE_GAP = 3, SECTION_GAP = 6,
+  TILE_W = 150, TILE_H = 42, BANNER_TILES = 3, SECTION_TILES = 10, GRIDS = 5, LINE_GAP = 3, SECTION_GAP = 6,
   BANNER_ICON = 28, BAR_H = 14, BUTTON_H = 22, HEADERS = 8, FONTS = 90, BARS = 3, REFRESH = 2, REBUILD = 10 }
 Window.LAYOUT = L
 
@@ -166,7 +166,7 @@ end
 local function SectionButtons(parent)
   local P = Curator.Provider
   local defs = {
-    { key = "join", text = "Join the community", width = 150, tip = "Prints the community's invite link in chat; click it there",
+    { key = "join", text = "Join the curator community", width = 200, tip = "Prints the community's invite link in chat; click it there",
       onClick = function() P.PrintJoinLink() end },
     { key = "test", text = "Test the connection", width = 150,
       tip = "Runs the connection test with the author's character (about five minutes); the report goes to chat. It works only while the author has a test session open, so ask in the community first",
@@ -463,10 +463,18 @@ local function SetFilter(key, on)
   Window.PaintFindings(false)
 end
 
--- FindingsNote(shown, all): the line over an empty table, or nil
+-- FindingsNote(shown, all): the line over an empty table, or nil; an empty
+-- store after collections never says nothing was recorded (Task #232: it
+-- did beside 30 collections)
 function Window.FindingsNote(shown, all)
   if shown > 0 then return nil end
-  if all == 0 then return "Nothing recorded yet. What curator mode records while you play shows here." end
+  if all == 0 then
+    local ok, history = pcall(Curator.History.DB)
+    if ok and type(history) == "table" and #history.entries > 0 then
+      return "Nothing waiting: what you found was collected (see History). New findings show here as you play."
+    end
+    return "Nothing recorded yet. What curator mode records while you play shows here."
+  end
   return "Nothing matches the search or the filter."
 end
 

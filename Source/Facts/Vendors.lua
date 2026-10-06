@@ -61,8 +61,9 @@ local function Data()
   return Recollect.Data and Recollect.Data.Vendors or EMPTY
 end
 
--- An NPC's or object's record: the shipped data's bucketed strings (P, O),
--- else a plain table of strings (npcs, objects: what a suite scripts)
+-- An NPC's or object's record: the shipped data's bucketed strings (P, O, S),
+-- else a plain table of strings (npcs, objects, objectAliases: what a suite
+-- scripts)
 local function Placed(bucketed, plain, id)
   local data = Data()
   if not Recollect.Utilities.IsPositiveID(id) then return nil end

@@ -37,7 +37,8 @@
 -- reported["ni:<item>"] = true: an item with no information whose record a
 -- V deleted, live or in a frozen block (the author has it), so it isn't
 -- recorded again, under this data version or a later one (at most
--- NOINFO_REPORTED_CAP marks; only Main.ClearFindings empties it).
+-- NOINFO_REPORTED_CAP marks; only Main.ClearFindings, or a saved-data
+-- layout change (Main.DB), empties it).
 --
 -- confirmed[source] = round: this account's confirmation of a source with a
 -- shipped listing (a stamp with a total) that a V saved, in that round (spec
@@ -640,7 +641,7 @@ end
 
 -- A frozen block's delivery: K marks it awaiting its request, V deletes it
 -- whole, a lost V (or none within AWAITING_DAYS) makes it pending again
--- quarantined: the stamp keys K set apart, which get no marker on V (review STORE-01)
+-- quarantined: the record IDs and stamp keys K set apart, which get no marker on V (review STORE-01)
 function Store.FrozenAcknowledged(block, requestID, quarantined)
   block.awaiting, block.awaitingAt = requestID, GetServerTime()
   local set

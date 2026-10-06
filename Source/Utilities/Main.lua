@@ -65,3 +65,17 @@ function Utilities.Build()
   local _, build = GetBuildInfo()
   return build and tostring(build) or "?"
 end
+
+---------------------------------------------------------------------------
+-- Count(n): a count or cost as the player reads it, with the game's own
+-- thousands separators ("4,119"; Task #232); for display only, never for a
+-- sort key or a sentence the suites read whole
+---------------------------------------------------------------------------
+function Utilities.Count(n)
+  if type(n) ~= "number" then return tostring(n) end
+  if type(BreakUpLargeNumbers) == "function" then
+    local ok, text = pcall(BreakUpLargeNumbers, n)
+    if ok and type(text) == "string" and text ~= "" then return text end
+  end
+  return tostring(n)
+end

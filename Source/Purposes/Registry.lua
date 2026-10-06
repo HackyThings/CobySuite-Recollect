@@ -21,19 +21,23 @@
 --   owner     whose copy it is (Verdicts.Rows.Owner): { faction, classID,
 --             raceID, isViewer (the character logged in), name, guid }
 --
--- Every call a check makes goes through Purposes.client, so suites can
--- script the client with Tests.Override on its fields.
+-- Every client call a check makes goes through Purposes.client (Legacy's
+-- spell reads through its own seams), so suites can script the client with
+-- Tests.Override on its fields.
 -------------------------------------------------------------------------------
 local Registry = {}
 Recollect.Purposes.Registry = Registry
 
 -- Needed: something unfinished uses it. Use now: learn, open or start it.
--- Useful: usable now (current-expansion consumables and reagents, gear at or
--- above what is worn in its slot, the keystone). Outdated: the facts say it
+-- Useful: worth keeping (current-expansion consumables, gems and reagents,
+-- gear at or above what is worn in its slot, the keystone, owned decor, a
+-- purchase, quest or endeavor task still open). Outdated: the facts say it
 -- has been replaced (gear of a past season or an older expansion below what
 -- is worn there with its appearance collected, in none of your equipment
 -- sets and with no empty slot it could go in, older-expansion potions,
--- flasks and food, a bag no bigger than every bag worn); the reason names the
+-- flasks and food, older gems and permanent enchantments, trade goods none
+-- of your recipes use, an older season's item, every use gone, a bag no
+-- bigger than every bag worn); the reason names the
 -- facts, never "delete" or "sell". Lower level: the same gear not shown to
 -- be from before this season (Cobanyte, 2026-09-26: gear merely below what
 -- is worn isn't "outdated").
@@ -79,8 +83,13 @@ function Registry.All()
   return checks
 end
 
-function Registry.Result(verdict, reason)
-  return { verdict = verdict, reason = reason }
+-- brief (optional): the answer band's short why (UI.DetailWindow's
+-- Detail.Brief), a glance answer with no costs, vendors, lists or chains
+-- ("Leads to Phoenix Wishwing, a pet you don't have"); the reason keeps the
+-- whole, which WHAT IT'S FOR and CHECKS show (Task #262). A check whose
+-- reason is short already gives none: the band shortens the reason itself
+function Registry.Result(verdict, reason, brief)
+  return { verdict = verdict, reason = reason, brief = brief }
 end
 
 -- headline (optional): what the item is for, in a few words, which the audit
@@ -250,8 +259,8 @@ function Registry.CharacterOnlyCopy(ctx)
 end
 
 -- Whether a collection check (toy, mount, pet, ensemble, weapon illusion)
--- covers the item: the kind checks (Consumable, Enhancement) then leave it
--- to that check, so a known toy is never also "a current consumable".
+-- covers the item: the kind checks (Consumable, Enhancement, Use effect,
+-- Season) then leave it to that check, so a known toy is never also "a current consumable".
 -- true, false, or "unreadable" when a read failed and none found it (BA-02:
 -- the kind checks then say Unknown, never pass it as a plain consumable).
 -- Cached on ctx.

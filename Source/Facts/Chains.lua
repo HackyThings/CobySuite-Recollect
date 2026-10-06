@@ -7,7 +7,7 @@
 -- ({ kind = "buys", thing, id }, one table per thing for the session, so
 -- Facts.Buys' memo holds), with choice = true for a choice reward.
 --
--- Leads(itemID) follows a plain item through its own relations, at most
+-- Leads(itemID, from) follows a plain item through its own relations, at most
 -- MAX_DEPTH items deep (the item, then a plain item it buys or makes), and
 -- returns the ends it reaches: { thing (a relation Facts.Buys reads), via =
 -- { steps } }, a step being { kind = "quest", questID, of } (of is the item
@@ -27,7 +27,7 @@
 -- game), "plain" (the end is a plain item with nothing to own, every link
 -- read) or "unread" (a link or
 -- the end can't be read yet, or is another character's to read), and the
--- thing as Facts.Buys resolved it. Summary(itemID, owner, budget) tallies
+-- thing as Facts.Buys resolved it. Summary(itemID, owner, budget, from) tallies
 -- the ends and names the first open one (else the first unread, else any).
 -- Words(entry, owner, thing, quests) and ThingWords(thing) word them for a
 -- line.
@@ -150,7 +150,8 @@ Current = function()
   end
 end
 
--- Leads(itemID): { ends } for a plain item (see the header)
+-- Leads(itemID, from): { ends } for a plain item (see the header); from is
+-- an item counted as already on the path
 function Chains.Leads(itemID, from)
   if not IsPositiveID(itemID) then return { ends = {} } end
   Current()
@@ -454,9 +455,7 @@ function Chains.QuestPath(questID)
 end
 
 Chains._test = {
-  MAX_PATH = MAX_PATH,
   Reset = function()
     structures, kept, rewardsOf = {}, 0, {}
   end,
-  MAX_ENDS = MAX_ENDS,
 }

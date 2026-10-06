@@ -8,10 +8,12 @@
 --   Overview            the reason again only when the header's answer
 --                       band cut it, and the verdict note (the band,
 --                       Detail.Keep, a suggestion for an item held,
---                       carries the verdict's why, the recovery step and
---                       the Tip); WHAT IT'S FOR, opening
+--                       carries a short why, Detail.Brief, the recovery
+--                       step and the Tip); WHAT IT'S FOR, opening
 --                       with what the item is (FOR.Explain; the game's own
---                       filing of it only when it names an added patch),
+--                       filing of it only when it names an added patch;
+--                       the verdict's whole reason under it when the band
+--                       left some out and no line of uses says it),
 --                       then its groups of uses (with the endeavor's tasks
 --                       that name it, and, when every use is gone, what they
 --                       were: the No longer available tab summed up as the
@@ -838,7 +840,7 @@ end
 -- out of it"): each treasure or spot it opens, where, what it holds and
 -- whether you've looted it; each NPC it is used at, and where; and what a
 -- use takes together with it. Returns the sentences and which kinds they
--- covered, so UseWords doesn't count those again.
+-- covered (treasures and NPCs), so UseWords doesn't count those again.
 FOR.SPELLED = 2
 function FOR.Specific(j)
   local sentences, handled = {}, {}
@@ -885,7 +887,6 @@ function FOR.Specific(j)
     end
   end
   if #order > 0 and #order <= FOR.SPELLED then
-    handled.takes = true
     for _, record in ipairs(order) do
       local parts = records[record]
       if #parts > 1 then
@@ -1081,7 +1082,10 @@ function FOR.Explain(model, j, itemID)
   -- still never does)
   local tip = Recollect.Utilities.IsPositiveID(itemID) and ItemTip(model, itemID) or nil
   if tip and type(tip.useText) == "string" and tip.useText ~= "" then
-    lines[#lines + 1] = { text = ("\"%s\""):format(tip.useText), sub = true, textColor = U.Colors.LIGHT_GRAY, lead = true,
+    -- one line: the tooltip's own breaks ("\n(1 Sec Cooldown)") split the
+    -- quote across lines (Task #232)
+    lines[#lines + 1] = { text = ("\"%s\""):format((tip.useText:gsub("%s*\n%s*", " "))), sub = true,
+      textColor = U.Colors.LIGHT_GRAY, lead = true,
       quote = true }
   end
   -- the game's own filing of it only when it says more than the sentence:
@@ -1317,18 +1321,24 @@ local function RemovedLine(itemID)
 end
 
 -- HOW TO GET MORE's one-line summary: how many ways, by kind, most first
--- ("22 ways to get it: Reward 20, Sold by 2"), and how many are gone
+-- ("22 ways to get it: 20 quest rewards, 2 vendors"), and how many are gone
 local SUMMARY_KINDS = 3
--- One kind of source in words after "N ways to get it:": { one, several }
+-- One kind of source in words after "N ways to get it:": { one, several },
+-- and, when several kinds are counted ("1 treasure, 1 quest reward"; Task
+-- #232: it read "Found at 1, Reward 1"), the counted { one, several } where
+-- those aren't the first two without their article
 local KIND_NOUNS = {
-  ["Drops from"] = { "a drop", "drops" }, ["Boss loot"] = { "boss loot", "boss loot" },
+  ["Drops from"] = { "a drop", "drops" }, ["Boss loot"] = { "boss loot", "boss loot", "boss", "bosses" },
   ["Zone drop"] = { "a zone drop", "zone drops" }, ["World drop"] = { "a world drop", "world drops" },
-  ["Sold by"] = { "a vendor", "vendors" }, ["Crafted by"] = { "crafting", "crafting" },
+  ["Sold by"] = { "a vendor", "vendors" }, ["Crafted by"] = { "crafting", "crafting", "recipe", "recipes" },
   ["Found at"] = { "a treasure", "treasures" }, Reward = { "a quest reward", "quest rewards" },
-  Achievement = { "an achievement", "achievements" }, Renown = { "renown", "renown" },
-  ["Choice reward"] = { "a quest choice", "quest choices" }, ["Trading Post"] = { "the Trading Post", "the Trading Post" },
+  Achievement = { "an achievement", "achievements" }, Renown = { "renown", "renown", "renown reward", "renown rewards" },
+  ["Choice reward"] = { "a quest choice", "quest choices" },
+  ["Trading Post"] = { "the Trading Post", "the Trading Post", "Trading Post offer", "Trading Post offers" },
   ["Made from"] = { "a combine", "combines" }, ["Recipe item"] = { "a recipe item", "recipe items" },
-  ["Black Market"] = { "the Black Market", "the Black Market" },
+  ["Black Market"] = { "the Black Market", "the Black Market", "Black Market offer", "Black Market offers" },
+  Fishing = { "fishing", "fishing", "fishing zone", "fishing zones" },
+  ["Opened from"] = { "a container", "containers" },
 }
 Detail.KIND_NOUNS = KIND_NOUNS
 local function GetSummary(rows, removed, goneSources)
@@ -1343,7 +1353,16 @@ local function GetSummary(rows, removed, goneSources)
     return (SOURCE_ORDER[a] or 20) < (SOURCE_ORDER[b] or 20)
   end)
   local parts = {}
-  for i = 1, math.min(#order, SUMMARY_KINDS) do parts[i] = ("%s %d"):format(order[i], counts[order[i]]) end
+  for i = 1, math.min(#order, SUMMARY_KINDS) do
+    local kind, noun = order[i], KIND_NOUNS[order[i]]
+    local n = counts[kind]
+    if noun then
+      local word = n == 1 and (noun[3] or noun[1]:gsub("^an? ", "")) or (noun[4] or noun[2])
+      parts[i] = ("%d %s"):format(n, word)
+    else
+      parts[i] = ("%s %d"):format(kind, n)
+    end
+  end
   -- one kind: a noun for it ("1 way to get it: a quest reward", never "Reward 1")
   if #order == 1 then
     local noun = KIND_NOUNS[order[1]]
@@ -1357,7 +1376,7 @@ local function GetSummary(rows, removed, goneSources)
     return removed.text
   end
   if goneSources > 0 then
-    words = (words and (words .. "; ") or "") .. ("%d no longer in the game"):format(goneSources)
+    words = (words and (words .. "; ") or "") .. ("%d no longer available"):format(goneSources)
   end
   return words
 end
@@ -1492,7 +1511,7 @@ local function GetLines(j, model, itemID)
   local craftTally = FOR.Group(lines, crafts, "get:craft", "takes", "What crafting it takes")
   local _, _, goneSources = Gone.Read(j.tabs.gone)
   if goneSources > 0 and not removed then
-    lines[#lines + 1] = Plain(("%d %s no longer in the game (the No longer available tab)"):format(goneSources,
+    lines[#lines + 1] = Plain(("%d %s no longer available (the No longer available tab)"):format(goneSources,
       goneSources == 1 and "way to get it is" or "ways to get it are"), U.Colors.LABEL_GRAY)
   end
   lines.summary = GetSummary(rows, removed, goneSources)
@@ -1626,7 +1645,7 @@ local function HaveLines(itemID)
       end
       tiles[#tiles + 1] = { label = place.label, count = place.count, icon = PLACE_ICONS[place.label] or PLACE_ICONS.Bags, tip = tip }
       words[#words + 1] = ("%s: %d"):format(place.label, place.count)
-      if place.count > 0 then found[#found + 1] = place.words:format(place.count) end
+      if place.count > 0 then found[#found + 1] = (place.words:gsub("%%d", Recollect.Utilities.Count(place.count))) end
     end
     lines[#lines + 1] = { text = table.concat(words, "; "), tiles = tiles }
   else
@@ -1661,7 +1680,9 @@ local function HaveLines(itemID)
   if not held then
     summary = "How many you have can't be read"
   elseif held.total > 0 then
-    summary = ("You have %d: %s"):format(held.total, table.concat(found, "; "))
+    -- one place says its count once ("You have 3 in your bags", never "You
+    -- have 3: 3 in your bags"; Task #232)
+    summary = #found == 1 and ("You have " .. found[1]) or ("You have %s: %s"):format(Recollect.Utilities.Count(held.total), table.concat(found, "; "))
   else
     summary = "You have none"
   end
@@ -1777,6 +1798,20 @@ function Detail.Content(model, j)
     tallies = forLines.tallies or {}
     -- under the explanation, above the quote; first when there is no explanation
     if forLines.tiles then table.insert(lead, explained and 2 or 1, forLines.tiles) end
+    -- the band says a short why (Detail.Brief, Task #262); WHAT IT'S FOR
+    -- holds the longer one: the verdict's whole reason, under the
+    -- explanation, when the band left some of it out and no line of uses
+    -- here spells it out already (the Phoenix Ember's purchase line does)
+    local okKeep, keep = pcall(Detail.Keep, model)
+    local whole = Detail.WholeReason(model, true)
+    if #uses == 0 and okKeep and type(keep) == "table" and keep.why == Detail.Brief(model)
+      and type(whole) == "string" and whole ~= "" and not tostring(keep.why):find(whole, 1, true) then
+      local line = Plain(whole)
+      line.lead, line.why = true, true
+      line.done = Recollect.UI.Icons.DoneWords(type(model.result) == "table" and model.result.purposes or nil)
+      reasons[#reasons + 1] = line
+      table.insert(lead, explained and 2 or 1, line)
+    end
   end
   if #uses > 0 or #lead > 0 then
     sections[#sections + 1] = { title = "WHAT IT'S FOR", lines = uses, lead = lead,
@@ -1809,6 +1844,7 @@ function Detail.Content(model, j)
     local checks, labels, colors = {}, {}, Recollect.UI.VerdictColors
     local okKeep, keep = pcall(Detail.Keep, model)
     local banded = okKeep and type(keep) == "table" and type(keep.why) == "string" and keep.why or nil
+    local wholeReason = tostring(Detail.WholeReason(model, true) or "")
     local VerdictLabel = Recollect.Purposes.Registry.VerdictLabel
     for _, purpose in ipairs(result.purposes) do
       -- a check whose use is done: its check mark for the bullet and its
@@ -1818,7 +1854,9 @@ function Detail.Content(model, j)
       -- check's verdict, pointing at it (Task #164); a reason that opens with
       -- the check's own label doesn't say it twice ("Buys: Buys ...")
       local label, reason = tostring(purpose.label), tostring(purpose.reason)
-      if banded and purpose.reason and banded:find(reason, 1, true) then
+      -- the band's why is short (Task #262): a reason the verdict's whole
+      -- reason holds is the one WHAT IT'S FOR spells out, said above too
+      if banded and purpose.reason and (banded:find(reason, 1, true) or wholeReason:find(reason, 1, true)) then
         reason = ("%s (the reason above)"):format(VerdictLabel[purpose.verdict] or tostring(purpose.verdict))
       elseif reason:sub(1, #label + 1) == label .. " " then
         reason = reason:sub(#label + 2)
@@ -1855,8 +1893,9 @@ end
 
 -- Text(text, links, prefix): text with every name links holds as a link,
 -- longer names first, never one inside another or inside a longer word, in
--- brackets as the game's chat links are (Cobanyte, 2026-09-25); each link's
--- row kept under prefix for the handlers
+-- brackets as the game's chat links are (Cobanyte, 2026-09-25), dropping
+-- quotes that wrap the name; each link's row kept under prefix for the
+-- handlers
 function Hyper.Text(text, links, prefix)
   text = tostring(text)
   if type(links) ~= "table" or #links == 0 then return text end
@@ -1888,10 +1927,13 @@ function Hyper.Text(text, links, prefix)
   local out, at = {}, 1
   for _, span in ipairs(spans) do
     rows[#rows + 1] = span[3].row
-    out[#out + 1] = text:sub(at, span[1] - 1)
+    -- a quoted name loses its quotes: the brackets mark it (Task #232: a
+    -- quest chain read "[A Mech in Need]" in quotes)
+    local quoted = span[1] - 1 >= at and text:sub(span[1] - 1, span[1] - 1) == "\"" and text:sub(span[2] + 1, span[2] + 1) == "\""
+    out[#out + 1] = text:sub(at, span[1] - (quoted and 2 or 1))
     out[#out + 1] = ("|cFF%s|Haddon:Recollect:%s:%d|h[%s]|h|r"):format(Hex(span[3].color or U.Colors.HIGHLIGHT_WHITE),
       prefix or "o", #rows, text:sub(span[1], span[2]))
-    at = span[2] + 1
+    at = span[2] + (quoted and 2 or 1)
   end
   out[#out + 1] = text:sub(at)
   return table.concat(out)
@@ -2278,7 +2320,7 @@ local function PaintOverview()
           Fold.Texture(U.Colors.CONTENT_BG, x, y, tileW, T.TILE_H, 1)
           PoolIcon(tile.icon, x + 7, y - (T.TILE_H - T.TILE_ICON) / 2, T.TILE_ICON, none)
           local textX, textW = x + T.TILE_ICON + 14, tileW - T.TILE_ICON - 18
-          Block(U.Fonts.TITLE, none and gray or white, tostring(tile.count), textX, y - 4, textW)
+          Block(U.Fonts.TITLE, none and gray or white, Recollect.Utilities.Count(tile.count), textX, y - 4, textW)
           labelText:ClearAllPoints()
           labelText:SetPoint("TOPLEFT", window.Overview.Child, "TOPLEFT", textX, y - T.TILE_H + 14)
           labelText:SetWidth(math.max(textW, 40))
@@ -2326,7 +2368,7 @@ local function PaintOverview()
   -- the first section shown is the one open by default
   local first = nil
   for _, section in ipairs(content.sections) do
-    if section.title and not section.inline and (#section.lines > 0 or #(section.lead or {}) > 0) then
+    if section.title and (#section.lines > 0 or #(section.lead or {}) > 0) then
       first = Sections.Meta(section).key
       break
     end
@@ -2339,7 +2381,7 @@ local function PaintOverview()
       if line.header ~= "verdict" and (line.header ~= "reason" or reasonCut) then lines[#lines + 1] = line end
     end
     if #lines > 0 then
-      local folded = section.title and not section.inline
+      local folded = section.title
       if not folded then
         if painted then y = y - SECTION_GAP end
         PaintLines(lines, 0, width, true)
@@ -2456,7 +2498,7 @@ end
 -- the trade takes other costs too (the cell's tooltip lists them)
 local function CostText(row)
   local icon = shown and shown.source and shown.source.itemID and Data().Icon({ itemID = shown.source.itemID, what = "item" })
-  local text = tostring(row.count or 1)
+  local text = Recollect.Utilities.Count(row.count or 1)
   if type(icon) == "number" then text = ("%s |T%d:0|t"):format(text, icon) end
   return MoreCosts(row) and (text .. " +") or text
 end
@@ -2513,7 +2555,7 @@ local function Count(key, label, width, field)
   return { key = key, label = label, width = width, justify = "RIGHT", color = White,
     text = function(row)
       local n = field(row)
-      return n and tostring(n) or ""
+      return n and Recollect.Utilities.Count(n) or ""
     end, sort = field }
 end
 
@@ -2571,7 +2613,11 @@ local COLUMNS = {
     { key = "others", label = "Others", width = 100, color = Gray, text = function(row) return Data().Others(row) or "" end,
       sort = function(row) return Lower(Data().Others(row)) end,
       tooltip = "What your other characters held when last seen: listed, never counted" }, Last(STATUS) },
-  gone = { NAME, KIND, Count("count", "Count", 60, function(row) return row.count end), Last(WHERE("Was at", 200)) },
+  gone = { NAME, KIND, Count("count", "Count", 60, function(row) return row.count end),
+    { key = "for", label = "For", width = 100, color = Gray, text = function(row) return Data().RouteFor(row) end,
+      sort = function(row) return Data().RouteFor(row) end,
+      tooltip = "Who that way was for: a faction, class or race; empty when it was for everyone" },
+    Last(WHERE("Was at", 200)) },
 }
 
 local STATUS_DEFS = {
@@ -2833,9 +2879,9 @@ local JOIN_WIDTH = 150    -- "Want to be a curator?"
 local JOIN_TIP = "Help improve Recollect's data: curator mode notes what the game shows that the database gets "
   .. "wrong or lacks, as game IDs only. Click for the Curator settings."
 local FLAG_TIPS = {
-  pending = "Your flag isn't sent yet: click to change it",
-  sent = "Your flag was sent; the author hasn't saved it yet. Click to add more information",
-  delivered = "Your flag was delivered. Click to add more information",
+  pending = "Your flag isn't sent yet: click to change it.",
+  sent = "Your flag was sent; the author hasn't saved it yet. Click to add more information.",
+  delivered = "Your flag was delivered. Click to add more information.",
 }
 
 -- FlagButton(model, provider): nil (no button), or { text, tooltip, itemID,
@@ -2864,10 +2910,10 @@ function Detail.FlagButton(model, provider)
   end
   if state.noInfo then
     return { text = "Request info", itemID = itemID,
-      tooltip = "Recollect's database knows nothing about this item yet. Ask the author to look into it; your own words are optional" }
+      tooltip = "Recollect's database knows nothing about this item yet. Ask the author to look into it; your own words are optional." }
   end
   return { text = "Curator Flag", itemID = itemID,
-    tooltip = "Something missing or wrong here? Flag it for Recollect's author, with a reason and your own words" }
+    tooltip = "Something missing or wrong here? Flag it for Recollect's author, with a reason and your own words." }
 end
 
 local function CuratorProvider()
@@ -3024,7 +3070,8 @@ function Detail.Describe(itemID)
 end
 
 -- The Still needed? box (Cobanyte, 2026-09-28): for an item you hold, one
--- suggestion, never a certainty, with a short why: { word, color, why,
+-- suggestion, never a certainty, with a short why (Detail.Brief, below;
+-- the whole reason is WHAT IT'S FOR's and the hover's): { word, color, why,
 -- detail } or nil (an item not held gets none). The answer follows the
 -- verdict: a use still open is Keep; Junk is Sell it; Purpose done with the
 -- Tip, or a Can't tell whose every use is done (category finished) for an
@@ -3083,9 +3130,9 @@ end
 -- WholeReason(model): the verdict's reason with its headline. The panel
 -- splits a reason's first words off as its headline ("Buys 3 things from 1
 -- vendor" / "none of them is a collectible"), and model.reason keeps only the
--- rest; the band and its hover say them together, never the second half
--- alone. full keeps every part of the reason (the band's hover), else its
--- first part only (the band). Returns the whole and the reason without it
+-- rest; the band's hover and WHAT IT'S FOR say them together, never the
+-- second half alone. full keeps every part of the reason, else its first
+-- part only. Returns the whole and the reason without it
 function Detail.WholeReason(model, full)
   local own = type(model.reason) == "string" and model.reason ~= "" and model.reason or nil
   local reason = full and own or FirstPart(own)
@@ -3101,6 +3148,39 @@ function Detail.WholeReason(model, full)
   return whole, reason
 end
 
+-- The band's short why (Task #262, Cobanyte 2026-10-05: "The top banner line
+-- should be a simple summary. The What's it For should be a longer
+-- explanation. This should be the paradigm for all items."): a glance
+-- answer, never the reason WHAT IT'S FOR spells out. The deciding check's
+-- brief (Registry.Result, carried by Verdicts.Combine), else the reason's
+-- first part with an Unknown's headline (WholeReason) made short
+-- (Detail.Shorten). The hover still says the whole reason.
+Detail.BRIEF_MAX = 80   -- characters a why may have before it is shortened
+
+-- Shorten(text): a why no longer than BRIEF_MAX where its own words allow:
+-- a price in parentheses ("(for 1 Ember and 20 Ash)") goes, then what
+-- follows a colon after a few words of its own (a list, a detail), then
+-- what follows ", which " or ", through " (a chain); never cut mid-word
+function Detail.Shorten(text)
+  if type(text) ~= "string" or #text <= Detail.BRIEF_MAX then return text end
+  local short = text:gsub(" %(for [^()]*%)", "")
+  if #short > Detail.BRIEF_MAX then
+    local head = short:match("^(.-): ")
+    if head and select(2, head:gsub("%S+", "")) >= 3 then short = head end
+  end
+  if #short > Detail.BRIEF_MAX then
+    short = short:match("^(.-), which ") or short:match("^(.-), through ") or short
+  end
+  return short
+end
+
+function Detail.Brief(model)
+  if type(model) ~= "table" then return nil end
+  local result = type(model.result) == "table" and model.result or {}
+  if type(result.brief) == "string" and result.brief ~= "" then return result.brief end
+  return Detail.Shorten((Detail.WholeReason(model)))
+end
+
 function Detail.Keep(model)
   if type(model) ~= "table" or model.reference then return nil end
   local result = type(model.result) == "table" and model.result or nil
@@ -3109,9 +3189,9 @@ function Detail.Keep(model)
   local itemID = model.source and model.source.itemID
   local residual = itemID and Recollect.Data and Recollect.Data.Residual and Recollect.Data.Residual[itemID] or nil
   local verdict = result.verdict
-  local whole, reason = Detail.WholeReason(model)
+  local brief = Detail.Brief(model)
   if verdict == V.NEEDED or verdict == V.USE or verdict == V.USEFUL then
-    return { word = "Keep it", color = colors[verdict], icon = KEEP_ICONS.keep, why = whole or "It still has a use." }
+    return { word = "Keep it", color = colors[verdict], icon = KEEP_ICONS.keep, why = brief or "It still has a use." }
   end
   if verdict == V.JUNK then
     return { word = "Sell it", color = colors[V.JUNK], icon = KEEP_ICONS.sell, why = "The game marks it as junk: a gray item any vendor buys." }
@@ -3121,7 +3201,7 @@ function Detail.Keep(model)
       return { word = "Likely safe to delete", color = colors[V.DONE], icon = KEEP_ICONS.done,
         why = "Every use Recollect knows is done.", detail = model.tip }
     end
-    return { word = "Probably done", color = colors[V.DONE], icon = KEEP_ICONS.done, why = reason or "Its uses are done." }
+    return { word = "Probably done", color = colors[V.DONE], icon = KEEP_ICONS.done, why = brief or "Its uses are done." }
   end
   if verdict == V.UNKNOWN and result.category == "finished" then
     if type(residual) == "table" and type(residual.note) == "string" then
@@ -3135,16 +3215,16 @@ function Detail.Keep(model)
   if fun then
     -- with a use done, that use's reason (an achievement earned) leads
     return { word = "Just for fun", color = colors[V.DONE], icon = KEEP_ICONS.fun,
-      why = anyDone and whole and (whole .. "; beyond that it's a drink for roleplay")
+      why = anyDone and brief and (brief .. "; beyond that it's a drink for roleplay")
         or "A drink for roleplay; nothing Recollect checks still needs it",
       detail = Detail.FOR_FUN }
   end
   if verdict == V.OUTDATED or verdict == V.LOWER then
     return { word = verdict == V.OUTDATED and "Replaced" or "Lower level", color = colors[verdict], icon = KEEP_ICONS.check,
-      why = reason or (verdict == V.OUTDATED and "It has been replaced." or "It's below what you wear.") }
+      why = brief or (verdict == V.OUTDATED and "It has been replaced." or "It's below what you wear.") }
   end
   return { word = "Can't tell yet", color = colors[V.UNKNOWN] or U.Colors.LABEL_GRAY, icon = KEEP_ICONS.unknown,
-    why = model.recovery or whole or "Recollect can't read enough about it yet." }
+    why = model.recovery or brief or "Recollect can't read enough about it yet." }
 end
 
 -- The kind line under the name: what the item is, its expansion, PvP gear
@@ -3206,10 +3286,15 @@ local function PaintBand()
     if held and held.total > 0 then
       local found = {}
       for _, place in ipairs(held.places) do
-        if place.count > 0 then found[#found + 1] = place.words:format(place.count) end
+        if place.count > 0 then found[#found + 1] = (place.words:gsub("%%d", Recollect.Utilities.Count(place.count))) end
       end
-      text = ("%s  %s"):format(U.WrapColor(Hex(gold), ("You have %d:"):format(held.total)),
-        U.WrapColor(Hex(light), table.concat(found, "; ") .. ". Hover one of your copies to see whether you still need it."))
+      local hover = "Hover one of your copies to see whether you still need it."
+      if #found == 1 then
+        text = ("%s  %s"):format(U.WrapColor(Hex(gold), "You have " .. found[1] .. "."), U.WrapColor(Hex(light), hover))
+      else
+        text = ("%s  %s"):format(U.WrapColor(Hex(gold), ("You have %s:"):format(Recollect.Utilities.Count(held.total))),
+          U.WrapColor(Hex(light), table.concat(found, "; ") .. ". " .. hover))
+      end
     elseif held then
       text = U.WrapColor(Hex(gold), "You don't have this item.")
     else
@@ -3505,7 +3590,18 @@ local function OnRowEnter(frame, row, column)
     end
     return GameTooltip:Show()
   end
-  if column ~= "name" then return GameTooltip:Hide() end
+  if column ~= "name" then
+    -- any other cell cut short at its column's width ("Leads to a..."): its
+    -- whole text (Task #232, review DET-01)
+    local cell
+    for c, col in ipairs(COLUMNS[activeTab] or {}) do
+      if col.key == column then cell = frame.cells and frame.cells[c] end
+    end
+    if not (cell and type(cell.IsTruncated) == "function" and cell:IsTruncated()) then return GameTooltip:Hide() end
+    GameTooltip:SetOwner(frame, "ANCHOR_RIGHT")
+    GameTooltip:SetText(cell:GetText() or "", 1, 1, 1, 1, true)
+    return GameTooltip:Show()
+  end
   ThingTooltip(frame, row, "ANCHOR_RIGHT")
 end
 
@@ -4041,7 +4137,7 @@ end
 local function Build()
   window = CobySuite_Recollect.UI.CreateWindow({
     name = WINDOW_NAME,
-    title = "Recollect: Item Details",
+    title = CobySuite_Recollect.Utilities.WrapColor(Recollect.BRAND_COLOR, "Recollect") .. ": Item Details",
     icon = Recollect.ICON,
     width = WIDTH, height = HEIGHT,
     resizable = { minWidth = 620, minHeight = 380, maxWidth = 1400, maxHeight = 240 + POOL * ROW_HEIGHT },
@@ -4057,8 +4153,21 @@ local function Build()
   BuildBody()
   BuildTabs()
   BuildCopy()
-  window:SetScript("OnSizeChanged", function()
+  -- A drag fires a size change every frame, and the Overview rebuilds its
+  -- whole content: repaint at most every 0.08 seconds, once the new layout
+  -- has settled (the scroll's width read in the event itself is the old
+  -- one), the band too, whose wrapped reason changes height with the width
+  local RESIZE_DELAY, resizePending = 0.08, false
+  local function Resized()
+    resizePending = false
+    if not window:IsShown() or not shown then return end
+    PaintBand()
     if activeTab == "overview" then PaintOverview() end
+  end
+  window:SetScript("OnSizeChanged", function()
+    if resizePending then return end
+    resizePending = true
+    C_Timer.After(RESIZE_DELAY, Resized)
   end)
   window:SetScript("OnHide", function()
     CancelJobs()

@@ -68,8 +68,9 @@ local waiting = false   -- asked in combat: show the window once it ends
 local function Body(achievementID)
   local ok, name = pcall(Prompt.seams.Name, achievementID)
   local what = (ok and type(name) == "string" and name ~= "") and U.WrapColor(U.Colors.STATUS_GOLD, name) or "the achievement"
-  return "Blizzard's achievement window is closed. Click Open achievements so the game opens it itself (an addon "
-    .. "opening it can get actions blocked); Recollect then shows " .. what .. " in it."
+  -- the action and what it shows first (Task #239); why the game must open
+  -- it itself is in the guide's Item details section
+  return "Open achievements to see " .. what .. " in the game's achievement window."
 end
 
 -- The window is up: select the waiting achievement and close ours

@@ -13,7 +13,9 @@
 --   s:<item>                         the quest an item starts
 --   G:<quest>                        who gives the quest (never a conflict:
 --                                    a quest may have several givers)
---   T:<quest>                        who takes the turn-in (not shipped yet)
+--   T:<quest>                        who takes the turn-in (shipped: the Z
+--                                    table of data format 10, any NPC it
+--                                    lists for the quest)
 --   Q:<quest>                        a daily or weekly the game states
 -- Every reward, choice and turn-in item is also handed to the
 -- items-with-no-information recorder as seen at "q:<quest>"
@@ -98,9 +100,19 @@ function Compare.QuestGiver(questID, npc, ctx)
   return "addition"
 end
 
--- QuestTurnIn(questID, npc, ctx): no turn-in NPC ships yet
+-- QuestTurnIn(questID, npc, ctx): confirmed when the data lists the NPC
+-- among those who take the quest's turn-in (Host.QuestTurnIns, any of them),
+-- else an addition naming the first it lists, if any
 function Compare.QuestTurnIn(questID, npc, ctx)
-  Record("addition", "T:" .. questID, tostring(npc), nil, ctx)
+  local takers = Host.QuestTurnIns(questID)
+  for _, taker in ipairs(takers) do
+    if taker == npc then
+      Curator.Store.Confirm("T:" .. questID, { 1 }, 1, ctx)
+      return "confirmed"
+    end
+  end
+  Record("addition", "T:" .. questID, tostring(npc), takers[1] and tostring(takers[1]) or nil, ctx)
+  return "addition"
 end
 
 -- QuestFrequency(questID, letter ("d" or "w"), ctx)

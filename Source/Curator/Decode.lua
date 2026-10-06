@@ -17,7 +17,7 @@
 --               seen: bag, bank, wb, or c:<npc>, v:<npc>, q:<quest> ...)
 -- The stamps' sources: v:<npc> m:<input> p:<npc> c: ob: f: x: de: pp:
 -- R:<skillLine> r:<item> n:<item> $:<item> q:<quest> o:<quest> s:<item>
--- G:<quest> Q:<quest> bm tp e:<encounter>. A record's R: with two numbers is
+-- G:<quest> T:<quest> Q:<quest> bm tp e:<encounter>. A record's R: with two numbers is
 -- a recipe a window didn't list; a stamp's R: is a profession's recipes,
 -- and a stamp's o: (a quest's turn-in items) is not the loot prefix ob:.
 --
@@ -102,6 +102,7 @@ local STAMP_TYPES = {
   ["quest-needs"] = { group = "quest", label = "Quest turn-in items" },
   ["starts"] = { group = "quest", label = "Starts a quest" },
   ["giver"] = { group = "quest", label = "Quest giver" },
+  ["turnin"] = { group = "quest", label = "Quest turn-in NPC" },
   ["frequency"] = { group = "quest", label = "Daily or weekly" },
   ["black-market"] = { group = "market", label = "Black Market" },
   ["trading-post"] = { group = "market", label = "Trading Post" },
@@ -185,7 +186,7 @@ local STAMP_PREFIX = {
   ob = { "object", "object" }, f = { "fishing", "map" }, x = { "container", "item" }, de = { "disenchant", "item" },
   pp = { "pickpocket", "npc" }, e = { "encounter", "encounter" }, R = { "recipes", "skill" }, r = { "teaches", "item" },
   n = { "used-on", "item" }, ["$"] = { "grant", "item" }, q = { "quest-reward", "quest" }, o = { "quest-needs", "quest" },
-  s = { "starts", "item" }, G = { "giver", "quest" }, Q = { "frequency", "quest" },
+  s = { "starts", "item" }, G = { "giver", "quest" }, T = { "turnin", "quest" }, Q = { "frequency", "quest" },
 }
 
 -- Stamp(source): what a confirmation stamp vouches for (its source, without

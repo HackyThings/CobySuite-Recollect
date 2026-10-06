@@ -20,8 +20,9 @@
 -- entry keeps its GUID, every member is also kept by GUID named or not
 -- (Members), and Watch lets the author's side hear every whole read (the
 -- dev console's live roster and member watch). Roles: 1 Owner, 2 Leader, 3 Moderator,
--- 4 Member (Enum.ClubRoleIdentifier); only Owner and Leader may pull, and
--- only their messages are honoured as the author's.
+-- 4 Member (Enum.ClubRoleIdentifier); only Owner and Leader may pull (MayPull), and
+-- a curator honours only the author's collector characters among them
+-- (IsCollector).
 --
 -- Client calls go through Membership.seams.
 -------------------------------------------------------------------------------

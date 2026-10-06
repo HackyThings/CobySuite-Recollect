@@ -2,7 +2,7 @@
 -- UI.DetailData: the pinned view's rows, as data, built a slice at a time
 --
 -- The pinned view (UI.DetailWindow) shows what an item is for and where it
--- comes from as tables, one per tab. Build(itemID, stack, owner) starts a
+-- comes from as tables, one per tab. Build(itemID, stack, owner, onProgress) starts a
 -- job that turns the item's relations (Facts.Relations), the journals'
 -- costs, the recipe index, recorded alt use, recorded vendors and what a use
 -- takes (Facts.Requirements) into rows, spending at most BUDGET_MS of each
@@ -17,7 +17,7 @@
 -- tags are the route's conditions the owner misses, and an event route's
 -- for everyone (UsedFor.parts.Tags, D19; display only, D34): a gone,
 -- restricted or untold row's state is their words ("Blood Elf only", "No
--- longer obtainable"; stateInline as they read inside a sentence), and an
+-- longer available"; stateInline as they read inside a sentence), and an
 -- event route that serves the owner adds its tag after its state ("Not
 -- done, during a holiday or event"), and so does a display-only condition
 -- the owner misses (a profession, a reputation standing, a completed quest;
@@ -259,7 +259,7 @@ end
 MAKERS.opens = function(relation)
   local object = Vendors().Object(relation.id)
   return { tab = "quests", what = "object", kindLabel = object and #object.contents > 0 and "Treasure" or "Spot",
-    id = relation.id, objectID = relation.id, count = relation.count, contents = object and object.contents or nil }
+    id = relation.id, objectID = relation.id, count = relation.count }
 end
 
 MAKERS.usedAt = function(relation)
@@ -317,6 +317,21 @@ end
 MAKERS.zoneDrop = function(relation)
   return { tab = "sources", what = "zone", kindLabel = relation.id == 0 and "World drop" or "Zone drop", id = relation.id,
     mapID = relation.id }
+end
+
+-- Data format 10's curator findings: a fishing zone (no spot, so no place),
+-- a container item it comes out of, and on the container what opening it
+-- can give (a use, informational: its state is how many you have)
+MAKERS.fishedIn = function(relation)
+  return { tab = "sources", what = "zone", kindLabel = "Fishing", id = relation.id, mapID = relation.id }
+end
+
+MAKERS.openedFrom = function(relation)
+  return { tab = "sources", what = "item", kindLabel = "Opened from", id = relation.id, itemID = relation.id }
+end
+
+MAKERS.holds = function(relation)
+  return { tab = "crafting", what = "item", kindLabel = "Opening it gives", id = relation.id, itemID = relation.id }
 end
 
 -- Sources of data format 4: a boss in the Encounter Journal (a click opens
@@ -415,7 +430,8 @@ local function AddJournal(job)
 end
 
 -- Rows that aren't relations: the recipe index, other characters' scans,
--- vendors the Lab saw take or sell it, and what a use takes
+-- the running endeavor's tasks, vendors the data says take or sell it, what
+-- crafting it takes and what a use takes
 local function AddExtras(job)
   local itemID, owner = job.itemID, job.owner
   for _, row in pairs(job.linked or {}) do Data.Resolve(row, owner, job.budget) end
@@ -629,8 +645,8 @@ end
 
 local RESOLVE = {}
 
--- A followed plain purchase that leads to a collectible still missing
--- each with its article ("an heirloom": no vowel test gets that one right)
+-- A collectible's kind as a followed purchase's state names it ("Leads to
+-- a pet you lack"), each with its article ("an heirloom": no vowel test gets that one right)
 local KIND_NAME = { toy = "a toy", mount = "a mount", pet = "a pet", decor = "a decor item", ensemble = "an ensemble",
   heirloom = "an heirloom", recipe = "a recipe", illusion = "an illusion", achievement = "an achievement" }
 
@@ -912,6 +928,8 @@ local function HeldRow(row, owner)
 end
 RESOLVE.makes = HeldRow
 RESOLVE.madeFrom = HeldRow
+RESOLVE.openedFrom = HeldRow
+RESOLVE.holds = HeldRow
 
 -- A combine of several parts: how many of the parts you have
 RESOLVE.partOf = function(row, owner)
@@ -1132,7 +1150,6 @@ local function Spend(counter, cap)
   return true
 end
 
--- An item's name, or nil while it loads (asked for within NAME_LOADS a frame)
 -- A load that fails, or is never answered, is asked again after LOAD_WAIT
 -- seconds (PI-13)
 local function Waiting(itemID)
@@ -1140,6 +1157,7 @@ local function Waiting(itemID)
   return at ~= nil and seams.Now() - at < LOAD_WAIT
 end
 
+-- An item's name, or nil while it loads (asked for within NAME_LOADS a frame)
 function Data.ItemName(itemID)
   if not IsPositiveID(itemID) then return nil end
   local ok, name = Try(seams.ItemNameByID, itemID)
@@ -1271,9 +1289,23 @@ function Data.Costs(row)
   return ok and type(costs) == "table" and costs or nil
 end
 
+-- TurnIn(row, text, giverID): a quest row's Where with who takes its turn-in after it
+-- (Relations.QuestTurnIns, the Z table of data format 10): "Giver (Zone);
+-- turned in to <NPC>", or "Turned in to <NPC>" with no place. Left out when
+-- the first turn-in NPC is the giver the place names, or its name isn't read
+-- yet; any other row's text as it is
+function Data.TurnIn(row, text, giverID)
+  if row.what ~= "quest" or not IsPositiveID(row.questID) then return text end
+  local npcID = Relations().QuestTurnIns(row.questID)[1]
+  if not npcID or npcID == giverID then return text end
+  local name = NpcName(npcID)
+  if not name then return text end
+  return text and ("%s; turned in to %s"):format(text, name) or ("Turned in to " .. name)
+end
+
 -- Where(row): who and where, for a Where or Sold by column: "Belbi
 -- Quikswitch (Dun Morogh)", "Dun Morogh (53.1, 38.2)", a recipe's
--- profession, or nil
+-- profession, or nil; a quest row adds who takes its turn-in (TurnIn)
 function Data.Where(row)
   if row.kind == "endeavor" then return EndeavorWhere(row) end
   if row.what == "recipe" and row.skillLine and row.skillLine > 0 then return Data.Profession(row) end
@@ -1288,12 +1320,32 @@ function Data.Where(row)
   if not place then
     -- a boss with no place in the data: its dungeon or raid
     local boss = row.npcID and Vendors().Boss(row.npcID)
-    return boss and boss.instance or nil
+    return Data.TurnIn(row, boss and boss.instance or nil)
   end
   -- a creature's or vendor's row already names it: its place only
   local name = place.npcID and NpcName(place.npcID)
-  if name then return ("%s (%s)"):format(name, place.zone) end
-  return PlaceWords(place)
+  if name then return Data.TurnIn(row, ("%s (%s)"):format(name, place.zone), place.npcID) end
+  return Data.TurnIn(row, PlaceWords(place))
+end
+
+-- RouteFor(row): who a route is for by its own conditions, whoever looks
+-- ("Alliance only", "Mage only"), "" when it is for everyone: the No longer
+-- available tab's For column, where a quest's two removed routes, one for
+-- everyone and one Alliance only, read the same (Task #232)
+function Data.RouteFor(row)
+  local flags = type(row.relation) == "table" and row.relation.flags
+  if type(flags) ~= "table" then return "" end
+  local words = {}
+  if flags.faction == 0 then words[1] = "Horde only" elseif flags.faction == 1 then words[1] = "Alliance only" end
+  for _, set in ipairs({ { "classes", "class" }, { "races", "race" } }) do
+    if type(flags[set[1]]) == "table" then
+      local ids = {}
+      for id in pairs(flags[set[1]]) do ids[#ids + 1] = id end
+      table.sort(ids)
+      words[#words + 1] = Parts().NamedWords({ kind = set[2], ids = ids })
+    end
+  end
+  return table.concat(words, ", ")
 end
 
 -- Name(row): the row's name for its first column; nil while it loads. A
@@ -1330,7 +1382,7 @@ function Data.Name(row)
     name = select(2, Parts().Renown(row.factionID, row.level, false))
   elseif what == "zone" then
     name = row.mapID == 0 and "Any enemy, anywhere" or Vendors().ZoneName(row.mapID)
-    if name and row.mapID ~= 0 then name = "Enemies in " .. name end
+    if name and row.mapID ~= 0 then name = (row.kind == "fishedIn" and "Fishing in " or "Enemies in ") .. name end
   end
   if row.unresolved then name = "Unconfirmed product" end
   -- a part any of several items fill: the first, and how many others would do
@@ -1362,7 +1414,10 @@ function Data.Clock() return seams.Clock() end
 function Data.DisplayName(row)
   local name = Data.Name(row)
   if name then return name end
-  if row.what == "quest" then return ("Quest %s (name not loaded)"):format(tostring(row.questID)) end
+  -- a gone route's quest may never answer with its title (Task #232)
+  if row.what == "quest" then
+    return ("Quest %s (%s)"):format(tostring(row.questID), row.gone and "name unavailable" or "name not loaded")
+  end
   if row.what == "encounter" then return ("Encounter %s"):format(tostring(row.encounterID or row.id or "?")) end
   if row.what == "npc" then
     return ("%s %s"):format(row.kind == "dropsFrom" and "Creature" or "NPC", tostring(row.npcID or row.id or "?"))

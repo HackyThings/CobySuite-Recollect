@@ -469,9 +469,9 @@ function TooltipUI.HeldText(itemID)
   local parts = {}
   for _, place in ipairs(held.places) do
     -- only the places holding some ("3 in your bags; 1 in your bank"), as the details window lists them
-    if place.count > 0 then parts[#parts + 1] = place.words:format(place.count) end
+    if place.count > 0 then parts[#parts + 1] = (place.words:gsub("%%d", Recollect.Utilities.Count(place.count))) end
   end
-  return ("You have %d"):format(held.total), table.concat(parts, "; ")
+  return ("You have %s"):format(Recollect.Utilities.Count(held.total)), table.concat(parts, "; ")
 end
 
 -- The journal's own words for where a mount or pet comes from, as COMES
@@ -507,7 +507,7 @@ local function Append(into, list)
 end
 
 -- Reference mode (contract rule 28): no verdict for an item you are not
--- holding in that slot; how many you have, then the same USED FOR and ABOUT
+-- holding in that slot; how many you have, then the same USED FOR, COMES FROM and ABOUT
 function TooltipUI.ReferenceModel(data, source)
   local itemID = data and data.id
   if not Recollect.Utilities.IsPositiveID(itemID) then return nil end

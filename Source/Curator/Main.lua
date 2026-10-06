@@ -196,9 +196,8 @@ function Main.RunDeferred()
   runner:Cancel()
 end
 
--- Empties the recorder fields; the ID, intake and received stay
 -- ClearFindings(): every finding goes, the frozen blocks too (opting out
--- with delete, a test)
+-- with delete, a test); the ID, intake and received stay
 function Main.ClearFindings()
   local db = Main.DB()
   for _, field in ipairs(RECORDER_FIELDS) do db[field] = {} end

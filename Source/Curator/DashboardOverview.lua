@@ -66,6 +66,19 @@ local function Line(text, color, bullet, small)
   return { text = text, color = color, bullet = bullet, small = small }
 end
 
+-- An icon drawn into a line's text, in place of its bullet (an "atlas:"
+-- icon or a texture path, as the tiles take them)
+local function IconText(icon, text)
+  local atlas = icon:match("^atlas:(.+)$")
+  local mark = atlas and ("|A:%s:14:14|a"):format(atlas) or ("|T%s:14:14:0:0:64:64:5:59:5:59|t"):format(icon)
+  return mark .. "  " .. text
+end
+
+-- "Label: value" with the label in gold
+local function Labeled(label, value)
+  return U.WrapColor(C.STATUS_GOLD, label .. ":") .. " " .. value
+end
+
 -------------------------------------------------------------------------------
 -- Where things stand
 -------------------------------------------------------------------------------
@@ -344,6 +357,12 @@ local function WaitingSection(ctx)
   if #tiles == 0 then
     lines[#lines + 1] = Line(ctx.standing == "author" and "Nothing waits. What you record shows here until you collect it."
       or "Nothing waits. What you record shows here until the author collects it.", C.LABEL_GRAY)
+    -- the size counts more than what waits (Store.Recount): what the author
+    -- saved, so it isn't recorded or sent again, and where things were seen
+    if size.bytes > 0 then
+      lines[#lines + 1] = Line(("The %s in use is Recollect's own record keeping: which findings the author already saved,"
+        .. " so none is sent twice, and where each was seen."):format(size.text), C.LABEL_GRAY, false, true)
+    end
   elseif #none > 0 then
     lines[#lines + 1] = Line("None yet: " .. table.concat(none, ", ") .. ".", C.LABEL_GRAY, false, true)
   end
@@ -359,7 +378,7 @@ local function WaitingSection(ctx)
   end
   local total = ctx.waiting.total
   return { key = "waiting", title = "Waiting to be sent", icon = ICONS.waiting,
-    summary = (total > 0 and (Plural(total, "finding") .. " waiting") or "Nothing waiting") .. ", " .. size.text,
+    summary = total > 0 and (Plural(total, "finding") .. " waiting, " .. size.text) or "Nothing waiting",
     size = size, tiles = tiles, bar = bar, lines = lines,
     buttons = (#tiles > 0 or sent > 0) and { "findings" } or nil }
 end
@@ -400,60 +419,91 @@ local function Sum(tbl)
   return n
 end
 
-local function CharacterLine(ctx)
+-- The pace tile's word and color for Transport.Activity()
+local PACE_TILE = { idle = { "Ready", C.SUCCESS_GREEN }, resting = { "Ready", C.SUCCESS_GREEN },
+  moving = { "Slower", C.STATUS_GOLD }, combat = { "Slowest", C.STATUS_GOLD }, lockdown = { "Held back", C.CAUTION_ORANGE } }
+
+-- This character's tile: its role in the community, its name and faction in the tip
+local function CharacterTile(ctx)
   local T, M = Curator.Transport, Curator.Membership
   local me = tostring(T.Self() or "?")
   local faction = Dashboard.Seam("Faction")
-  faction = type(faction) == "string" and (faction .. ", ") or ""
-  if ctx.standing == "outside" then return ("This character: %s, %snot in the Recollect Curators community."):format(me, faction) end
-  if ctx.standing == "unknown" then return ("This character: %s, %sthe community's member list hasn't been read yet."):format(me, faction) end
-  local role = M.RoleOf(T.Self())
-  return ("This character: %s, %s%s Recollect Curators."):format(me, faction, role and (M.ROLE_NAMES[role] .. " of") or "in")
+  local value, color, note
+  if ctx.standing == "outside" then
+    value, color, note = "Not a member", C.CAUTION_ORANGE, "Not in the Recollect Curators community."
+  elseif ctx.standing == "unknown" then
+    value, note = "Checking", "The community's member list hasn't been read yet."
+  else
+    local role = M.RoleOf(T.Self())
+    value = role and M.ROLE_NAMES[role] or "Member"
+    note = ("%s of Recollect Curators."):format(value)
+  end
+  return Tile("character", ICONS.character, value, "This character", Tip(me, note,
+    type(faction) == "string" and { { "Faction", faction } } or nil), color, ctx.standing == "unknown")
 end
 
-local function MembersLine()
+-- Members online, and who may collect (the author's own characters, Membership.IsCollector)
+local function MembersTile()
   local M = Curator.Membership
   local members, online, authors = 0, 0, {}
   for _, entry in ipairs(M.Roster()) do
     members = members + 1
     if entry.presence == "online" then online = online + 1 end
-    -- who may collect: the author's own characters (Membership.IsCollector)
     if M.IsCollector(entry.name) then
-      authors[#authors + 1] = ("%s (%s)"):format(entry.name, entry.presence == "online" and "online" or "offline")
+      authors[#authors + 1] = { entry.name, entry.presence == "online" and "online" or "offline" }
     end
   end
-  if members == 0 then return nil end
-  return ("%d of %d members online; who may collect: %s."):format(online, members,
-    #authors > 0 and table.concat(authors, ", ") or "nobody")
+  if members == 0 then
+    return Tile("members", ICONS.members, "?", "Members online", Tip("Members online", "The member list hasn't been read yet."), nil, true)
+  end
+  local tip = Tip("Members online", ("%d of %d members are online. Who may collect:"):format(online, members), authors)
+  if #authors == 0 then tip.lines = { { "Nobody", "" } } end
+  return Tile("members", ICONS.members, ("%d / %d"):format(online, members), "Members online", tip)
 end
 
 local function ConnectionSection(ctx)
   local T, S = Curator.Transport, Curator.Sharing
   local author = Dashboard.AuthorName()
-  local lines, buttons, disabled = { Line(CharacterLine(ctx), C.LIGHT_GRAY) }, nil, nil
-  local summary
+  local lines, buttons, disabled = {}, nil, nil
+  local summary, authorTile
   if ctx.standing == "author" then
     summary = "You are the author"
-    lines[#lines + 1] = Line("You collect: this character is the author, so your own findings never leave your game.", C.LIGHT_GRAY)
+    authorTile = Tile("author", ICONS.author, "You", "The author", Tip("The author",
+      "This character is the author, so your own findings never leave your game."), C.SUCCESS_GREEN)
+    lines[#lines + 1] = Line(IconText(ICONS.ok, "You collect: this character is the author, so your own findings never leave your game."),
+      C.LIGHT_GRAY)
   elseif author then
     summary = "The author is reached by whisper"
-    lines[#lines + 1] = Line(("Messages to the author are whispered to %s%s."):format(author,
-      S.lastHello and (", last heard from " .. Dashboard.Ago(S.lastHello.at)) or ""), C.LIGHT_GRAY)
+    local heard = S.lastHello and Dashboard.Ago(S.lastHello.at) or nil
+    authorTile = Tile("author", ICONS.author, (author:match("^[^%-]+") or author), "The author", Tip("The author",
+      ("Messages to the author are whispered to %s."):format(author), heard and { { "Last heard from", heard } } or nil),
+      C.SUCCESS_GREEN)
+    lines[#lines + 1] = Line(IconText(ICONS.ok, ("Messages to the author are whispered to %s%s."):format(author,
+      heard and (", last heard from " .. heard) or "")), C.LIGHT_GRAY)
   else
     summary = "The author hasn't been in touch this session"
-    lines[#lines + 1] = Line("The author hasn't been in touch this session. Until then, what goes to the author is whispered"
-      .. " to each of Recollect's author's characters that is online.", C.LIGHT_GRAY)
+    authorTile = Tile("author", ICONS.author, "Not yet", "The author", Tip("The author",
+      "The author hasn't been in touch this session."), nil, true)
+    lines[#lines + 1] = Line(IconText(ICONS.wait, "The author hasn't been in touch this session. Until then, what goes to the author"
+      .. " is whispered to each of Recollect's author's characters that is online."), C.LIGHT_GRAY)
   end
-  local members = MembersLine()
-  if members then lines[#lines + 1] = Line(members, C.LIGHT_GRAY) end
   local counts = T.Counts()
-  lines[#lines + 1] = Line(("Messages this session: %d received, %d sent; sending is %s."):format(Sum(counts.got),
-    Sum(counts.sent), PACE[T.Activity()] or tostring(T.Activity())), C.LIGHT_GRAY)
+  local got, sent = Sum(counts.got), Sum(counts.sent)
+  local activity = T.Activity()
+  local pace = PACE_TILE[activity] or { tostring(activity) }
+  local tiles = {
+    CharacterTile(ctx), authorTile, MembersTile(),
+    Tile("messages", ICONS.messages, ("%d in, %d out"):format(got, sent), "Messages this session",
+      Tip("Messages this session", "Curator messages this client received and sent since you logged in.",
+        { { "Received", tostring(got) }, { "Sent", tostring(sent) } }), nil, got + sent == 0),
+    Tile("pace", ICONS.pace, pace[1], "Sending", Tip("Sending", "Sending is " .. (PACE[activity] or tostring(activity)) .. "."),
+      pace[2]),
+  }
   if S.lastDropped then
     local d = S.lastDropped
-    lines[#lines + 1] = Line(("Last message not answered: %s from %s (%s): %s."):format(
+    lines[#lines + 1] = Line(IconText(ICONS.problem, ("Last message not answered: %s from %s (%s): %s."):format(
       Curator.Protocol.KIND_WORDS[d.kind] or tostring(d.kind), tostring(d.sender),
-      Dashboard.Ago(d.at), tostring(d.why)), C.CAUTION_ORANGE)
+      Dashboard.Ago(d.at), tostring(d.why))), C.CAUTION_ORANGE)
   end
   if ctx.standing == "author" then
     lines[#lines + 1] = Line("To test a curator's connection, type /rec curator pong to open a test session, then the curator runs"
@@ -469,18 +519,33 @@ local function ConnectionSection(ctx)
   lines[#lines + 1] = Line(("Your characters share one random curator ID: %s."):format(tostring(Curator.Main.CuratorID())),
     C.LABEL_GRAY, false, true)
   return { key = "connection", title = "Connection", icon = ICONS.connection, summary = summary, closed = true,
-    lines = lines, buttons = buttons, disabled = disabled }
+    tiles = tiles, lines = lines, buttons = buttons, disabled = disabled }
 end
 
+-- Connection details: the versions and the mode as tiles, then each line
+-- /rec curator diag prints with its label in gold (one line per diag line)
 local function DetailsSection()
   local lines = {}
   local ok, diag = pcall(Curator.Provider.Diagnose)
   for _, text in ipairs(ok and diag or { "The connection details can't be read right now." }) do
-    lines[#lines + 1] = Line(text, C.LIGHT_GRAY, false, true)
+    local label, value = text:match("^([^:]+):%s(.+)$")
+    lines[#lines + 1] = Line(label and Labeled(label, value) or text, C.LIGHT_GRAY, false, true)
   end
   lines[#lines + 1] = Line("/rec curator diag prints these lines in chat and the debug log, for a bug report.", C.LABEL_GRAY, false, true)
+  local okV, versions = pcall(Host.Versions)
+  versions = okV and type(versions) == "table" and versions or {}
+  local on = Curator.Main.IsEnabled()
+  local tiles = {
+    Tile("addon", ICONS.addon, tostring(versions.addon or "?"), "Recollect", Tip("Recollect", "The addon version this client runs.")),
+    Tile("database", ICONS.database, tostring(versions.data or "?"), "Database", Tip("Database",
+      versions.ok and "The database this client loaded; it passed its check."
+        or "The database files failed their check, so nothing is recorded until they match (reinstall Recollect)."),
+      not versions.ok and C.CAUTION_ORANGE or nil),
+    Tile("mode", on and ICONS.ok or ICONS.problem, on and "On" or "Off", "Curator mode", Tip("Curator mode",
+      on and "Recording while you play." or "Nothing is recorded."), on and C.SUCCESS_GREEN or nil, not on),
+  }
   return { key = "details", title = "Connection details", icon = ICONS.details, summary = "What /rec curator diag reports",
-    closed = true, lines = lines }
+    closed = true, tiles = tiles, lines = lines }
 end
 
 -------------------------------------------------------------------------------
@@ -498,11 +563,16 @@ Dashboard.NEVER = {
   "Anything while curator mode is off",
 }
 
+-- Each RECORDED line's icon, in its order
+local RECORDED_ICONS = { ICONS.different, ICONS.noinfo, ICONS.confirmed, ICONS.place, ICONS.flag }
+
 local function RecordedSection()
-  local lines = { Line("Recorded", C.HIGHLIGHT_WHITE) }
-  for _, text in ipairs(Dashboard.RECORDED) do lines[#lines + 1] = Line(text, C.LIGHT_GRAY, true) end
-  lines[#lines + 1] = Line("Never recorded", C.HIGHLIGHT_WHITE)
-  for _, text in ipairs(Dashboard.NEVER) do lines[#lines + 1] = Line(text, C.LIGHT_GRAY, true) end
+  local lines = { Line(IconText(ICONS.ok, "Recorded"), C.SUCCESS_GREEN) }
+  for i, text in ipairs(Dashboard.RECORDED) do
+    lines[#lines + 1] = Line(IconText(RECORDED_ICONS[i] or ICONS.other, text), C.LIGHT_GRAY)
+  end
+  lines[#lines + 1] = Line(IconText(ICONS.never, "Never recorded"), C.CAUTION_ORANGE)
+  for _, text in ipairs(Dashboard.NEVER) do lines[#lines + 1] = Line(IconText(ICONS.never, text), C.LIGHT_GRAY) end
   lines[#lines + 1] = Line("Names on this page are read from your game, in its language; the findings hold IDs only.",
     C.LABEL_GRAY, false, true)
   return { key = "recorded", title = "What gets recorded", icon = ICONS.recorded, closed = true,

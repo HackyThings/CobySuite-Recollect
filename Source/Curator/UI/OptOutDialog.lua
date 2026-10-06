@@ -6,8 +6,10 @@
 -- actions, such as using a bag item) says recording
 -- stopped and how to leave the community (leaving is restricted, so the
 -- addon never calls it), with a checkbox to delete the current findings.
--- "Stop curating" deletes them if ticked and tells the author (L); "Keep
--- curating" turns curator mode back on. In combat, where no window may be
+-- It opens once Apply has turned recording off, so it says so and its buttons
+-- are "Done" (deletes them if ticked and tells the author, L) and "Turn it
+-- back on" (Task #232: "Stop curating" and "Keep curating" read as if nothing
+-- had happened yet). In combat, where no window may be
 -- built, the same words go to chat and the findings are kept. Deleting also
 -- clears the collection history (Curator.History).
 -------------------------------------------------------------------------------
@@ -58,11 +60,11 @@ local function Build()
   -- keep the findings, as the X always did), the X works in combat, it can
   -- be moved
   dialog = CobySuite_Recollect.UI.CreateClickPrompt({
-    name = "RecollectCuratorOptOutDialog", title = "Stop being a curator?", icon = Host.Icon(),
+    name = "RecollectCuratorOptOutDialog", title = "Curator mode is off", icon = Host.Icon(),
     width = 420, extraHeight = CHECK_ROOM,
     buttons = {
-      { key = "Stop", text = "Stop curating", onClick = function() Finish(dialog.Delete:GetChecked() == true) end },
-      { key = "Keep", text = "Keep curating", side = "right", onClick = function()
+      { key = "Stop", text = "Done", onClick = function() Finish(dialog.Delete:GetChecked() == true) end },
+      { key = "Keep", text = "Turn it back on", side = "right", onClick = function()
         dialog:Hide()
         Curator.Config.Set("curator_enabled", true)
       end },

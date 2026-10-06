@@ -25,7 +25,7 @@ end
 
 local changelog = CobySuite_Recollect.UI.CreateWhatsNewWindow({
   name = "RecollectChangelogWindow",
-  title = "Recollect: What's New",
+  title = CobySuite_Recollect.Utilities.WrapColor(Recollect.BRAND_COLOR, "Recollect") .. ": What's New",
   icon = Recollect.ICON,
   intro = "What changed in each version of Recollect, newest first. Click a version to open or close it.",
   footer = "Open this window any time with " .. U.WrapColor(U.Colors.HELP_COMMAND, "/rec changelog"),

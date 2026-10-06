@@ -12,7 +12,8 @@
 --   lab = { ... },   -- development builds only; never touched here
 -- }
 --
--- The character's bags are captured on login and on BAG_UPDATE_DELAYED
+-- The character's bags are captured on entering the world (login, reload,
+-- every loading screen) and on BAG_UPDATE_DELAYED
 -- (folded, and held until combat ends). The bank is captured only while it
 -- is open: through a banker (Banker, CharacterBanker or AccountBanker
 -- interaction) or BANKFRAME_OPENED, and only for a bank type that
@@ -448,7 +449,7 @@ frame:SetScript("OnEvent", function(_, event, ...)
 end)
 
 -------------------------------------------------------------------------------
--- Test seams
+-- Owed reads and freshness
 -------------------------------------------------------------------------------
 local function CopySet(set)
   local copy = {}
@@ -492,6 +493,7 @@ function Snapshots.Freshness(kind)
   return { state = "read", oldest = oldest }
 end
 
+-- Test seams
 Snapshots._test = {
   seams = seams,
   SetBankOpen = function(open)

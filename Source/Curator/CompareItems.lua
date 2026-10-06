@@ -12,8 +12,10 @@
 --                             also under the container a spawn is filed
 --                             under, or the loot of the encounter whose
 --                             loot chest it is)
---   f:<map>:i:<item>          fished in a zone (shipped: zoneDrop)
---   x:<container>:i:<item>    found in a container item (no shipped code yet)
+--   f:<map>:i:<item>          fished in a zone (shipped: fishedIn, the F code
+--                             of data format 10; a z code no longer counts)
+--   x:<container>:i:<item>    found in a container item (shipped: openedFrom,
+--                             the Y code of data format 10)
 --   de:<item>:i:<out>         disenchanting the item gave out (none yet)
 --   pp:<npc>:i:<item>         pickpocketed from a creature (none yet)
 --   R:<recipe>                a recipe's product and count, "<item>x<n>"
@@ -57,8 +59,8 @@ end
 local LOOT = {
   drop = { prefix = "c", kind = "dropsFrom" },
   object = { prefix = "ob", kind = "foundIn" },
-  fishing = { prefix = "f", kind = "zoneDrop" },
-  container = { prefix = "x" },
+  fishing = { prefix = "f", kind = "fishedIn" },
+  container = { prefix = "x", kind = "openedFrom" },
   disenchant = { prefix = "de" },
   pickpocket = { prefix = "pp" },
 }

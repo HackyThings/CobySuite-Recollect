@@ -74,9 +74,10 @@ R.Register({
     end
     if t.missing > 0 then
       local more = t.missing - #t.names
+      local what = t.missing == 1 and "collectible" or "collectibles"
       return R.Result(V.NEEDED, ("Buys %d %s you don't have: %s%s"):format(t.missing,
-        t.missing == 1 and "collectible" or "collectibles", table.concat(t.names, ", "),
-        more > 0 and (" and %d more"):format(more) or ""))
+        what, table.concat(t.names, ", "),
+        more > 0 and (" and %d more"):format(more) or ""), ("Buys %d %s you don't have"):format(t.missing, what))
     end
     if t.unread > 0 then return R.Unknown("Buys collectibles whose collection can't be read yet", nil, "loading") end
     local what = ("Buys %d %s"):format(total, total == 1 and "mount or pet" or "mounts and pets")

@@ -5,7 +5,7 @@
 -- settings say so
 --
 -- Built at login (no CreateFrame in combat), refreshed when shown and on
--- InventoryChanged while shown. The scroll box makes its row frames when
+-- InventoryChanged or ConfigChanged while shown. The scroll box makes its row frames when
 -- rows first fill it, on the first show, so a first open asked for in combat
 -- waits for combat to end.
 --
@@ -65,7 +65,7 @@ local openAfterCombat = false  -- a first open asked for in combat is waiting
 -- The verdicts in the order the list sorts them: what to act on first
 local VERDICT_ORDER = { V.NEEDED, V.USE, V.USEFUL, V.UNKNOWN, V.JUNK, V.OUTDATED, V.LOWER, V.DONE }
 
--- What each verdict means, as the feature guide says it (a menu row's tooltip)
+-- What each verdict means, close to the feature guide's words (a menu row's tooltip)
 local VERDICT_MEANING = {
   [V.NEEDED] = "Something unfinished still uses it.",
   [V.USE] = "Learn it, open it, or start its quest.",
@@ -521,7 +521,7 @@ end
 local function Build()
   window = CobySuite_Recollect.UI.CreateWindow({
     name = "RecollectListWindow",
-    title = "Recollect Audit",
+    title = CobySuite_Recollect.Utilities.WrapColor(Recollect.BRAND_COLOR, "Recollect") .. " Audit",
     icon = Recollect.ICON,
     width = 1100, height = 520,
     resizable = { minWidth = 900, minHeight = 300, maxWidth = 1800, maxHeight = 1200 },

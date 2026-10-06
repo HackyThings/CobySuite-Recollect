@@ -356,8 +356,6 @@ function Notes.Acknowledged(request, keys)
   Changed()
 end
 
--- Saved(request) and Lost(request): V's answer for a request that carried
--- notes; true when it named one
 -- Rejected(keys): the author turned down the pull that carried these entries
 -- (an X "rejected:" before K): never sent again until they change, as the
 -- store's revisions aren't (an edit raises the revision); not marked
@@ -375,6 +373,8 @@ function Notes.Rejected(keys)
   return changed
 end
 
+-- Saved(request) and Lost(request): V's answer for a request that carried
+-- notes; true when it named one
 function Notes.Saved(request)
   local notes = Notes.DB()
   local waiting = notes.awaiting[request]

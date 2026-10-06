@@ -146,7 +146,6 @@ end)
 
 Ready._test = {
   seams = seams,
-  QUEST_SETTLE = QUEST_SETTLE,
   -- Also closes every latch, so a scripted seam starts from closed gates
   SetEnteredWorldAt = function(at) enteredWorldAt = at; ResetLatches() end,
   GetEnteredWorldAt = function() return enteredWorldAt end,

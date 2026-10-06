@@ -319,7 +319,7 @@ local function BuildFeedback()
   w.Intro:SetText("Tell the author anything: a bug, an idea, something confusing. It's sent with your next curator collection, and only the author reads it.")
   w.History = Row(w, U.Fonts.SMALL, w.Intro, 8)
   w.History:SetMaxLines(4)
-  BuildBox(w, w.History, Notes.LIMITS.FEEDBACK_TEXT, "Your feedback", function() PaintFeedback() end)
+  BuildBox(w, w.History, Notes.LIMITS.FEEDBACK_TEXT, "What would you like to report or improve?", function() PaintFeedback() end)
   w.Words:SetText("Your feedback")
   feedbackWindow = w
   w:Hide()

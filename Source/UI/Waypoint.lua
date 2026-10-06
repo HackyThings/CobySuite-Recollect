@@ -236,7 +236,7 @@ function Waypoint.Disarm()
   Unbind()
 end
 
--- Combat is over: bind the key for the panel still showing a vendor, else
+-- Combat is over: bind the key for the panel still showing a place, else
 -- run the clear that waited for this
 local function OnCombatEnded()
   if target then

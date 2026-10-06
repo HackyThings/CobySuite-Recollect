@@ -29,18 +29,23 @@ Recollect.Facts.DataVersion = DataVersion
 -- the stamps and the curator indexes; 3: the gold-only trade code V and the
 -- display-only route conditions P, E and Q; 4: the sources D (Encounter
 -- Journal loot), N (a renown reward), O (the Black Market) and U (the
--- Trading Post; 5: the meta achievement tables H and I, Relations.MetasOf and
+-- Trading Post); 5: the meta achievement tables H and I, Relations.MetasOf and
 -- ChildrenOf, and the display-only route conditions N (a renown level) and A
 -- (an achievement earned), with E and Q, on purchases from AllTheThings; 6:
 -- Hints.lua's settled sources and confirmation rounds, which only curator
 -- mode reads; 7: every place of an NPC in Vendors.lua's P, every giver of a
 -- quest in Relations' G, the boss loot chests (Relations' L) and a
 -- treasure's spawn objects (Vendors.lua's S), 2026-09-28; 8: a V code's
--- price in currencies, with the stack "?" when it isn't known, 2026-09-29).
+-- price in currencies, with the stack "?" when it isn't known, 2026-09-29;
+-- 9: Relations' E table, the quest chains that end in a collectible's
+-- reward, 2026-10-01; 10: the curator-only codes F (fished in a zone), Y
+-- (comes from opening a container item) and H (what opening it can give),
+-- and Relations' Z table (who takes each quest's turn-in), 2026-10-05).
 -- Each adds codes or tables the one before lacks, so an older file still
 -- reads, a missing table as none (a format 6 record of one place or one
 -- giver reads as a list of one; a format 7 file has no currency V)
-DataVersion.SUPPORTED_FORMATS = { [2] = true, [3] = true, [4] = true, [5] = true, [6] = true, [7] = true, [8] = true, [9] = true }
+DataVersion.SUPPORTED_FORMATS = { [2] = true, [3] = true, [4] = true, [5] = true, [6] = true, [7] = true, [8] = true, [9] = true,
+  [10] = true }
 
 local UNSTAMPED = "unstamped"
 local FILES = { "Relations", "Vendors", "Hints" }

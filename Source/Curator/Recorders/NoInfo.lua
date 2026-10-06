@@ -27,7 +27,7 @@
 -- bags, through the shared bag observer (its first compared change after a
 -- store or mode change sweeps every item held, later ones the items that
 -- went up), and the character's stored bank tabs and the warband bank's
--- (Host.StoredItems, 2 seconds after a burst of stored bank reads and 20
+-- (Host.StoredItems, 2 seconds after the first of a burst of stored bank reads and 20
 -- seconds after login).
 -- Sweeps run in Main.Defer jobs of NOINFO_SLICE items, out of combat.
 --
@@ -56,7 +56,7 @@ Curator.Recorders.NoInfo = NoInfo
 NoInfo.LOGIN_NOTICE = 10   -- seconds after login: the one-time chat line
 NoInfo.LOGIN_SWEEP = 20    -- seconds after login: the stored banks' sweep
 NoInfo.COUNT_EVERY = 10    -- seconds between two counts of the live ni: records
-NoInfo.STORED_AFTER = 2    -- seconds after the last stored bank read: the stored banks' sweep
+NoInfo.STORED_AFTER = 2    -- seconds from the first stored bank read of a burst to the stored banks' sweep
 
 -- The one-time line for a curator who opted in before bags and banks were included
 NoInfo.NOTICE_TEXT = "Curator mode now also notes items Recollect's database knows nothing about, including ones in "
@@ -479,7 +479,7 @@ function NoInfo.OnEnteringWorld(isInitialLogin, isReloadingUi)
 end
 
 -- A bank open stores every tab, and each later bag update of a tab stores it
--- again: one sweep for a burst
+-- again: one sweep for a burst of up to 2 seconds
 local storedSoon = CobySuite_Recollect.Utilities.Coalesce(NoInfo.STORED_AFTER, function() NoInfo.SweepStored() end)
 
 Bags.Subscribe(function(before, after) NoInfo.OnBags(before, after) end)

@@ -14,24 +14,42 @@
 -------------------------------------------------------------------------------
 Recollect.Data.Changelog = {
   {
+    version = "1.0.2",
+    title = "A bigger database and a clearer answer",
+    date = "2026-10-06",
+    changed = {
+      "Database: fishing zones, containers, turn-ins and 50 more notes",
+      "Still needed?: a short answer; What it's for has the full story",
+      "No longer available: a For column",
+      "Guide: names the keys you actually set",
+      "Settings: Cancel is now Undo edits",
+      "Performance improvements",
+      "Many smaller look and wording improvements",
+    },
+    fixed = {
+      "Item details: hovering a cut-off cell shows its whole text",
+      "Several smaller bug fixes",
+    },
+  },
+  {
     version = "1.0.1",
     title = "Bigger database, new settings",
     date = "2026-10-01",
     new = {
-      "Just for fun: a roleplay drink such as an old ale says so instead of Can't tell yet",
+      "Just for fun: roleplay drinks such as old ale, not Can't tell yet",
     },
     changed = {
       "Database: many more items now say where they come from",
-      "Settings: four pages, an example of the panel, key-clash warnings and clearer curator controls",
-      "Done: an earned achievement or finished part shows green with a check mark",
-      "Quest chains: item details list the quests, who starts them and what they ask for",
+      "Settings: four pages, a preview, key-clash warnings, curator controls",
+      "Done: earned achievements and finished parts show a green check mark",
+      "Quest chains: item details list the quests, their starters and needs",
       "Item details: why you'd keep an item is said once, not repeated",
       "Old ales and wines are no longer Outdated on English clients",
     },
     fixed = {
-      "Still needed? band: no stray semicolon, and the reason keeps the achievement's name",
-      "Item details: no more \"at A vendor\", \"Buys: Buys\" or doubled parentheses",
-      "Audit panel: Still needed? matches the details window, and \"Shown elsewhere\" replaces a wrong \"Not in your bags\"",
+      "Still needed? band: no stray semicolon; keeps the achievement name",
+      "Item details: no more \"at A vendor\", \"Buys: Buys\", doubled parentheses",
+      "Audit panel: Still needed? matches details; fixed \"Not in your bags\"",
       "Quests whose details hadn't loaded yet now show them once they arrive",
     },
   },

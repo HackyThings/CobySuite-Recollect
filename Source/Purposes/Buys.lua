@@ -288,8 +288,10 @@ local function Answer(relations, owner, itemID)
     :format(u.total, u.total == 1 and "depends" or "depend", Kinds(unknown)) or nil
   if t.missing > 0 then
     local more = t.missing - #t.names
-    return R.Result(V.USEFUL, ("Buys %d %s you don't have yet: %s%s"):format(t.missing, t.missing == 1 and "thing" or "things",
-      table.concat(t.names, ", "), more > 0 and (" and %d more"):format(more) or ""))
+    local things = t.missing == 1 and "thing" or "things"
+    return R.Result(V.USEFUL, ("Buys %d %s you don't have yet: %s%s"):format(t.missing, things,
+      table.concat(t.names, ", "), more > 0 and (" and %d more"):format(more) or ""),
+      ("Buys %d %s you don't have yet"):format(t.missing, things))
   end
   if t.achievement then
     return R.Result(V.USEFUL, ("Counts toward \"%s\", which you haven't earned"):format(t.achievement.name or "an achievement"))
@@ -299,16 +301,20 @@ local function Answer(relations, owner, itemID)
   -- character's (playerCanCollect)
   local looks = owner.isViewer and t.plain > 0 and Looks(t, owner) or nil
   if looks and #looks.missing > 0 then
+    local looksWord = #looks.missing == 1 and "appearance" or "appearances"
     return R.Result(V.USEFUL, ("Buys %d %s you haven't collected: %s"):format(#looks.missing,
-      #looks.missing == 1 and "appearance" or "appearances", LookNames(looks.missing, itemID)))
+      looksWord, LookNames(looks.missing, itemID)), ("Buys %d %s you haven't collected"):format(#looks.missing, looksWord))
   end
   -- a plain item it buys that leads to a collectible still missing (rule 39)
   local open, summary, chainUnread, unfollowed = FollowPlain(t, owner, itemID)
   if open then
     local Chains, best = Recollect.Facts.Chains, summary.best
     local name = Recollect.Facts.Buys.Name(open.thing) or ("item " .. open.thing.id)
+    -- the band says only where it leads (Task #262); the price and the path
+    -- are WHAT IT'S FOR's
     return R.Result(V.USEFUL, ("Buys %s (for %s), which leads to %s"):format(name,
-      Chains.TradeWords(open.relation, itemID), Chains.Words(best.entry, owner, best.thing, best.quests)))
+      Chains.TradeWords(open.relation, itemID), Chains.Words(best.entry, owner, best.thing, best.quests)),
+      "Leads to " .. Chains.ThingWords(best.thing))
   end
   local plainWords = PlainWords(chainUnread, unfollowed)
   local otherWords = o.total > 0 and ("%d more for another %s"):format(o.total, Kinds(mismatch)) or nil
@@ -517,6 +523,7 @@ R.Register({
     end
     local Season = Recollect.Purposes.Season
     local removedIn = Season and Season.RemovedWords(ctx.stack.itemID) or ""
-    return R.Result(V.OUTDATED, "Every use Recollect knows is gone from the game: " .. table.concat(parts, "; ") .. removedIn)
+    return R.Result(V.OUTDATED, "Every use Recollect knows is gone from the game: " .. table.concat(parts, "; ") .. removedIn,
+      "Every use Recollect knows is gone from the game")
   end,
 })
