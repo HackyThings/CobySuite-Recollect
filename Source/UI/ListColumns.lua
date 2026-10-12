@@ -11,8 +11,7 @@ local ICON_SIZE = 16
 
 -- Keys are the row fields each column sorts on. The columns before Reason
 -- add up to 764, so the default window (1100) leaves Reason about 300, and
--- the list keeps it at least REASON_MIN (BA-15: the old defaults added up to
--- 900 in a 1000-wide window and left it about 60)
+-- the list keeps it at least REASON_MIN (BA-15)
 Columns.REASON_MIN = 240
 Columns.DEFS = {
   { key = "name", label = "Item", width = 200,

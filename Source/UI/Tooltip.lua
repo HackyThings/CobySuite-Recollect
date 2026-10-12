@@ -113,9 +113,16 @@ local KEY_NAMES = { alt = "Alt", shift = "Shift", ctrl = "Ctrl" }
 
 local current = nil   -- { tooltip, data, source, guid, model, dirty } for the item the tooltip showed last
 local rowContext = nil   -- the list row being hovered (UI.ListWindow)
+-- The last model built, for the same tooltip still showing the same item
+-- and the same list row (ModelFor)
+local MODEL_REUSE = 1
+local built = nil   -- { tooltip, guid, source, model, at }
 
--- The list window says which row its next tooltip is for, and nil on leave
+-- The list window says which row its next tooltip is for, and nil on leave.
+-- Another row may hold the same link with another owner, place or verdict,
+-- so the model kept for reuse goes with the row it was built for (Task #315 UI-03)
 function TooltipUI.SetRowContext(entry)
+  if entry ~= rowContext then built = nil end
   rowContext = entry
 end
 
@@ -477,28 +484,43 @@ end
 -- The journal's own words for where a mount or pet comes from, as COMES
 -- FROM lines ("Mount Journal: Drop: X; Zone: Y"); nothing when it has none
 local JOURNAL_CHARS = 200
-function TooltipUI.JournalLines(kind, id)
-  local text = IsPositiveID(id) and Recollect.Facts.Journals.SourceText(kind, id)
-  if not text or text == "" then return {} end
+
+-- The journal's whole source text, cleaned (colors, links and textures out,
+-- its lines joined "; "); nil when it has none or can't be read
+function TooltipUI.JournalText(kind, id)
+  local ok, text = Try(Recollect.Facts.Journals.SourceText, kind, id)
+  if not (IsPositiveID(id) and ok and type(text) == "string" and text ~= "") then return nil end
   local parts = {}
   for line in (text:gsub("\r?\n", "|n") .. "|n"):gmatch("(.-)|n") do
     local plain = CobySuite_Recollect.Utilities.StripColors(line):gsub("|H.-|h(.-)|h", "%1"):gsub("|T.-|t", "")
     plain = plain:match("^%s*(.-)%s*$")
     if plain ~= "" then parts[#parts + 1] = plain end
   end
-  if #parts == 0 then return {} end
+  if #parts == 0 then return nil end
+  return table.concat(parts, "; ")
+end
+
+function TooltipUI.JournalLines(kind, id)
+  local text = TooltipUI.JournalText(kind, id)
+  if not text then return {} end
   local label = kind == "mount" and "Mount Journal: " or "Pet Journal: "
-  return { { text = label .. U.Truncate(table.concat(parts, "; "), JOURNAL_CHARS), color = U.Colors.LIGHT_GRAY } }
+  return { { text = label .. U.Truncate(text, JOURNAL_CHARS), color = U.Colors.LIGHT_GRAY } }
+end
+
+-- The mount or pet species an item teaches: "mount" or "pet", and its ID
+function TooltipUI.ItemJournalTarget(itemID)
+  local client = Recollect.Purposes.client
+  local okMount, mountID = Try(client.GetMountFromItem, itemID)
+  if okMount and IsPositiveID(mountID) then return "mount", mountID end
+  local okPet, _, _, _, _, _, _, _, _, _, _, _, _, species = Try(client.GetPetInfoByItemID, itemID)
+  if okPet and IsPositiveID(species) then return "pet", species end
+  return nil
 end
 
 -- The journal lines for an item that teaches a mount or a pet
 local function ItemJournalLines(itemID)
-  local client = Recollect.Purposes.client
-  local okMount, mountID = Try(client.GetMountFromItem, itemID)
-  if okMount and IsPositiveID(mountID) then return TooltipUI.JournalLines("mount", mountID) end
-  local okPet, _, _, _, _, _, _, _, _, _, _, _, _, species = Try(client.GetPetInfoByItemID, itemID)
-  if okPet and IsPositiveID(species) then return TooltipUI.JournalLines("pet", species) end
-  return {}
+  local kind, id = TooltipUI.ItemJournalTarget(itemID)
+  return kind and TooltipUI.JournalLines(kind, id) or {}
 end
 
 local function Append(into, list)
@@ -614,6 +636,9 @@ local function BuildModel(data, source)
       kind = Locations.KindOf(bagID), bagID = bagID, slot = slot },
   })
 end
+-- Named on the module and called through it, so a development timing probe
+-- reaches it (Task #294); the same function either way
+TooltipUI.BuildModel = BuildModel
 
 -- The pin key's click on an item (UI.DetailWindow): a bag or bank slot gets
 -- the full audit, as its tooltip would; an equipped item, a chat link, loot
@@ -633,7 +658,7 @@ function TooltipUI.ClickModel(link, itemLocation)
     if okTip and type(data) == "table" and okGuid and type(guid) == "string" then
       data.id = itemID
       data.guid = guid
-      return BuildModel(data, "GetBagItem")
+      return TooltipUI.BuildModel(data, "GetBagItem")
     end
   end
   local okWorn, worn = false, false
@@ -696,17 +721,13 @@ function TooltipUI.Rebuild(model, opts)
     buySummary = buySummary, source = source })
 end
 
--- The last model built, for the same tooltip still showing the same item
-local MODEL_REUSE = 1
-local built = nil   -- { tooltip, guid, source, model, at }
-
 local function ModelFor(entry)
   local now = seams.Now()
   if built and built.tooltip == entry.tooltip and built.guid == entry.guid and built.source == entry.source
       and now - built.at < MODEL_REUSE then
     return built.model
   end
-  local model = BuildModel(entry.data, entry.source)
+  local model = TooltipUI.BuildModel(entry.data, entry.source)
   built = model and { tooltip = entry.tooltip, guid = entry.guid, source = entry.source, model = model, at = now } or nil
   return model
 end
@@ -790,16 +811,19 @@ local function Section(tooltip, data, kind)
   end
   refreshSoon:Call()   -- the tooltip shows after its post-calls; decide once it has (one per frame)
 end
+-- The post-calls below call it through the module, so a development timing
+-- probe reaches it (Task #294); the same function either way
+TooltipUI.Section = Section
 
 if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall and Enum and Enum.TooltipDataType then
   TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, function(tooltip, data)
-    local ok, err = pcall(Section, tooltip, data)
+    local ok, err = pcall(TooltipUI.Section, tooltip, data)
     if not ok then Recollect.Debug.Warn("UI", "Tooltip section failed: %s", tostring(err)) end
   end)
   -- A mount link in chat, or a mount in the Mount Journal (TooltipDataType 10)
   if Enum.TooltipDataType.Mount then
     TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Mount, function(tooltip, data)
-      local ok, err = pcall(Section, tooltip, data, "mount")
+      local ok, err = pcall(TooltipUI.Section, tooltip, data, "mount")
       if not ok then Recollect.Debug.Warn("UI", "Mount tooltip section failed: %s", tostring(err)) end
     end)
   end

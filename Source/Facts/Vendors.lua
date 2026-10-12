@@ -12,8 +12,9 @@
 -- currencies. The zone's name is read live (C_Map.GetMapInfo), and a
 -- creature's name from its tooltip by a unit link (NpcName; the first ask of
 -- a creature the client hasn't seen makes the server send it, so a first
--- miss is asked again after 2 seconds, any later one after 30); Describe(npc) words a vendor (or another
--- NPC) for a panel line. Object(objectID) is an object a key opens:
+-- miss is asked again after 2 seconds, any later one after 30); Describe(npc)
+-- words a vendor (or another NPC) for a panel line. Object(objectID) is an
+-- object a key opens:
 -- { objectID, mapID, x, y, questID, contents }, with no map when its
 -- position isn't known. ObjectAliases(objectID) lists the container objects
 -- a treasure's spawn object is filed under (the S table, from AllTheThings;
@@ -170,23 +171,15 @@ function Vendors.ZoneName(mapID)
   return ok and type(info) == "table" and type(info.name) == "string" and info.name or nil
 end
 
--- NpcName(npcID): a creature's name in the player's language, or nil until
--- the client has it, and whether a read went out just now. The first read
--- of a creature the client hasn't seen makes the server send it, so a first
--- miss is read again after FIRST_MISS_AFTER seconds, any later one after
--- MISS_AFTER (BA-11: a list naming many vendors builds no tooltip for each
--- one again)
+-- JOURNAL_COLOR: the game's color for a journal link (66bbff, as
+-- ItemRef.lua colors one)
+Vendors.JOURNAL_COLOR = { 0.4, 0.733, 1 }
+
 -- Encounter(encounterID): an Encounter Journal encounter, read from the
 -- client's own journal data (no server ask): { name, instance (its dungeon
 -- or raid), link (opens the journal at it) }, or nil when the journal can't
 -- name it. The instance is asked for only by its ID: EJ_GetInstanceInfo with
 -- none answers for the journal's selected instance instead
--- Boss(npcID): the same for a boss the data maps to its encounter
--- (Relations.EncounterOf), or nil
--- JOURNAL_COLOR: the game's color for a journal link (66bbff, as
--- ItemRef.lua colors one)
-Vendors.JOURNAL_COLOR = { 0.4, 0.733, 1 }
-
 function Vendors.Encounter(encounterID)
   if not Recollect.Utilities.IsPositiveID(encounterID) then return nil end
   local ok, name, _, _, _, link, instanceID = Try(seams.EncounterInfo, encounterID)
@@ -199,11 +192,19 @@ function Vendors.Encounter(encounterID)
   return { name = name, instance = instance, link = type(link) == "string" and link ~= "" and link or nil }
 end
 
+-- Boss(npcID): the same for a boss the data maps to its encounter
+-- (Relations.EncounterOf), or nil
 function Vendors.Boss(npcID)
   local encounterID = Recollect.Facts.Relations.EncounterOf(npcID)
   return encounterID and Vendors.Encounter(encounterID) or nil
 end
 
+-- NpcName(npcID): a creature's name in the player's language, or nil until
+-- the client has it, and whether a read went out just now. The first read
+-- of a creature the client hasn't seen makes the server send it, so a first
+-- miss is read again after FIRST_MISS_AFTER seconds, any later one after
+-- MISS_AFTER (BA-11: a list naming many vendors builds no tooltip for each
+-- one again)
 function Vendors.NpcName(npcID)
   if not Recollect.Utilities.IsPositiveID(npcID) then return nil end
   if names[npcID] then return names[npcID] end

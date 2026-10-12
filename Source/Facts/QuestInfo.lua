@@ -14,8 +14,16 @@
 -- isAccount (an account quest: Done reads the account's completion), onQuest,
 -- repeatable, rewards and choices ({ itemID, count }) through the quest-log
 -- reward getters that take a quest ID (Blizzard's Journeys UI reads them for
--- a quest never in the log). Every read goes through seams and
+-- a quest never in the log), and tradeskillLineID (the profession the quest's
+-- tag names, when it names one: Task #338). Every read goes through seams and
 -- Utilities.Try; a failed read is nil, never a guess.
+--
+-- A quest still loading is waited for whoever asked for it (Task #338): the
+-- answer to a request of ours fires the redraw, and a short re-check
+-- (RECHECK_EVERY, RECHECKS times) catches data that arrived by another route
+-- without an event. A quest the server answered with no data, or failed to
+-- answer three times, is "unavailable" (Get says so, asking no more) until
+-- its data shows up.
 -------------------------------------------------------------------------------
 local QuestInfo = {}
 Recollect.Facts.QuestInfo = QuestInfo
@@ -24,6 +32,8 @@ local Try = Recollect.Utilities.Try
 local IsPositiveID = Recollect.Utilities.IsPositiveID
 
 local RETRY_AFTER = 30
+local RECHECK_EVERY, RECHECKS = 3, 6   -- seconds between looks at the quests waited for, and how many looks
+local MAX_FAILURES = 3                  -- unanswered requests before a quest is "unavailable"
 
 local seams = {
   HaveData = function(questID) return HaveQuestData(questID) end,
@@ -39,9 +49,15 @@ local seams = {
   NumChoices = function(questID) return GetNumQuestLogChoices(questID, true) end,
   ChoiceInfo = function(index, questID) return GetQuestLogChoiceInfo(index, questID) end,
   Now = function() return GetTime() end,
+  Tag = function(questID) return C_QuestLog.GetQuestTagInfo(questID) end,
+  After = function(delay, fn) C_Timer.After(delay, fn) end,
 }
 
 local asked = {}   -- [questID] = time of the last request
+local wanted = {}    -- [questID] = true while a read found it not loaded
+local failures = {}  -- [questID] = answers that gave no data
+local unavailable = {}   -- [questID] = true once the server's answer left it without data
+local checking = false   -- a re-check of the wanted quests is queued
 
 local notify = CobySuite_Recollect.Utilities.Coalesce(0.3, function()
   Recollect.EventBus:Fire(Recollect.Events.InventoryChanged, "quests")
@@ -72,6 +88,40 @@ local function Items(questID, count, info)
   return list
 end
 
+-- The profession skill line the quest's tag names, or nil
+local function TradeskillLine(questID)
+  local tag = Value(seams.Tag, questID)
+  local line = type(tag) == "table" and tag.tradeskillLineID or nil
+  return IsPositiveID(line) and line or nil
+end
+
+-- Want(questID): a read found the quest not loaded; its arrival, by any
+-- route, brings a redraw. The re-check runs a few times and stops.
+local Recheck
+function QuestInfo.Want(questID)
+  wanted[questID] = true
+  if checking then return end
+  checking = true
+  local looks = 0
+  Recheck = function()
+    looks = looks + 1
+    local arrived = false
+    for id in pairs(wanted) do
+      if Value(seams.HaveData, id) == true then
+        wanted[id], unavailable[id], failures[id] = nil, nil, nil
+        arrived = true
+      end
+    end
+    if arrived then notify:Call() end
+    if next(wanted) and looks < RECHECKS then
+      seams.After(RECHECK_EVERY, Recheck)
+    else
+      checking = false
+    end
+  end
+  seams.After(RECHECK_EVERY, Recheck)
+end
+
 -- Get(questID, budget): the quest's facts, or nil and why ("loading", "no
 -- quest ID", "waiting"). budget (optional, BA-13/14) is { left = n }: a
 -- quest not loaded yet is asked for only while left is above 0, each request
@@ -81,10 +131,13 @@ end
 function QuestInfo.Get(questID, budget)
   if not IsPositiveID(questID) then return nil, "no quest ID" end
   if Value(seams.HaveData, questID) ~= true then
+    if unavailable[questID] then return nil, "unavailable" end
     if budget and budget.left <= 0 then return nil, "waiting" end
     if Request(questID) and budget then budget.left = budget.left - 1 end
+    QuestInfo.Want(questID)
     return nil, "loading"
   end
+  wanted[questID], unavailable[questID], failures[questID] = nil, nil, nil
   local numRewards, numChoices = Value(seams.NumRewards, questID), Value(seams.NumChoices, questID)
   local title = Value(seams.Title, questID)
   -- completion and repeatability answer false before quest history has
@@ -103,6 +156,7 @@ function QuestInfo.Get(questID, budget)
     isAccount = Value(seams.IsAccount, questID),
     onQuest = Value(seams.OnQuest, questID),
     repeatable = repeatable,
+    tradeskillLineID = TradeskillLine(questID),
     rewards = Items(questID, type(numRewards) == "number" and numRewards or 0, seams.RewardInfo),
     choices = Items(questID, type(numChoices) == "number" and numChoices or 0, seams.ChoiceInfo),
   }
@@ -132,8 +186,19 @@ end
 
 -- QUEST_DATA_LOAD_RESULT: an answer to a quest asked for; a loaded one may be read now
 local function OnLoaded(questID, success)
-  if questID and not Recollect.Utilities.IsSecret(questID) and asked[questID] then
-    if success then asked[questID] = nil end
+  if questID and not Recollect.Utilities.IsSecret(questID) and (asked[questID] or wanted[questID]) then
+    if success then
+      asked[questID] = nil
+      -- answered later than the read that waited for it, yet the client still
+      -- has no data for it: it will not come (an answer inside the request
+      -- call itself, before the read is marked waiting, is the cached case)
+      if wanted[questID] then
+        if Value(seams.HaveData, questID) ~= true then unavailable[questID] = true else wanted[questID] = nil end
+      end
+    else
+      failures[questID] = (failures[questID] or 0) + 1
+      if failures[questID] >= MAX_FAILURES then unavailable[questID] = true end
+    end
     notify:Call()
   end
 end
@@ -146,6 +211,10 @@ QuestInfo._test = {
   seams = seams,
   Reset = function()
     wipe(asked)
+    wipe(wanted)
+    wipe(failures)
+    wipe(unavailable)
+    checking = false
     frameBudget.at, frameBudget.left = nil, FRAME_REQUESTS
   end,
   OnEvent = OnLoaded,

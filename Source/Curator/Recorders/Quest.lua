@@ -133,6 +133,7 @@ end
 local handlers = { QUEST_DETAIL = Quest.OnDetail, QUEST_PROGRESS = Quest.OnProgress, QUEST_COMPLETE = Quest.OnComplete }
 
 local frame = CreateFrame("Frame")
+Quest.frame = frame   -- its events, for a development timing probe (Task #294)
 for event in pairs(handlers) do pcall(frame.RegisterEvent, frame, event) end
 frame:SetScript("OnEvent", function(_, event, ...)
   if Curator.Main.IsScripted() then return end

@@ -127,6 +127,7 @@ local function BuildAuditPanel(panel)
     key = Opt.TOOLTIP_KEY, columns = 2, options = KEY_TILES,
     enabledWhen = function(get) return get(Opt.SHOW_TOOLTIP) ~= false end,
   }
+  CobySuite_Recollect.VersionCheck.AddSettingsRows(panel, Opt.VERSION_CHECK)
 end
 
 -------------------------------------------------------------------------------
@@ -207,7 +208,7 @@ local function BuildKeys(panel)
   panel:Keybind{
     key = Opt.PIN_KEY, label = "Key", mouse = true, indent = KEY_INDENT,
     tooltip = "Click, then press the key with its modifiers (Alt+D by default), or hold Alt, Ctrl or Shift and click this button. Clear goes back to Alt+D.",
-    description = "You can also assign a modified mouse click, which works on any item, even in combat. Shift+click, Ctrl+click and Shift+right-click stay the game's own.",
+    description = "You can also assign a modified mouse click, which works on any item, even in combat. Shift-click, Ctrl-click and Shift-right-click stay the game's own.",
     enabledWhen = function(get) return TooltipOn(get) and get(Opt.PIN_ENABLED) ~= false end,
   }
   panel:Section("Waypoint", { icon = ICONS .. "UI_GreenFlag" })
@@ -307,7 +308,7 @@ local function BuildCurator(panel)
     visibleWhen = function() return HasCurator() and not CuratorAvailable() end,
   }
   panel:Button{
-    text = "Join the curator community", width = 210,
+    text = "Join the Curator Community", width = 210,
     description = "Prints the community's invite link in chat; click it there to open the game's join window.",
     visibleWhen = function()
       return HasCurator() and CuratorAvailable() and Ask("IsEnabled") == true and Ask("IsMember") == false
@@ -318,7 +319,7 @@ local function BuildCurator(panel)
     end,
   }
   panel:Button{
-    text = "Open curator dashboard", width = 210,
+    text = "Open Curator Dashboard", width = 210,
     description = "Opens it now. It changes nothing here and applies nothing.",
     visibleWhen = function()
       local provider = CuratorProvider()

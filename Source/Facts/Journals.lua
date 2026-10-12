@@ -94,7 +94,10 @@ local function Retry(built, failed)
   Finish(built, unread)
 end
 
-local function StepPets(built, from, failed)
+-- One frame's step of the index build, pets then mounts; each step and the
+-- next are called through the module, so a development timing probe reaches
+-- them (Task #294)
+function Journals.StepPets(built, from, failed)
   for speciesID = from, math.min(from + SPECIES_PER_STEP - 1, MAX_SPECIES) do
     if not ReadTarget(built, "pet", speciesID) then failed[#failed + 1] = { "pet", speciesID } end
   end
@@ -105,18 +108,18 @@ local function StepPets(built, from, failed)
       Finish(built, 0)
     end
   else
-    seams.After(0, function() StepPets(built, from + SPECIES_PER_STEP, failed) end)
+    seams.After(0, function() Journals.StepPets(built, from + SPECIES_PER_STEP, failed) end)
   end
 end
 
-local function StepMounts(built, ids, from, failed)
+function Journals.StepMounts(built, ids, from, failed)
   for i = from, math.min(from + MOUNTS_PER_STEP - 1, #ids) do
     if not ReadTarget(built, "mount", ids[i]) then failed[#failed + 1] = { "mount", ids[i] } end
   end
   if from + MOUNTS_PER_STEP > #ids then
-    seams.After(0, function() StepPets(built, 1, failed) end)
+    seams.After(0, function() Journals.StepPets(built, 1, failed) end)
   else
-    seams.After(0, function() StepMounts(built, ids, from + MOUNTS_PER_STEP, failed) end)
+    seams.After(0, function() Journals.StepMounts(built, ids, from + MOUNTS_PER_STEP, failed) end)
   end
 end
 
@@ -124,7 +127,7 @@ local function Start()
   local ok, ids = Try(seams.MountIDs)
   if not ok or type(ids) ~= "table" then return end
   building = true
-  StepMounts({}, ids, 1, {})
+  Journals.StepMounts({}, ids, 1, {})
 end
 
 -- Get(): the index, or nil while it is not built yet (starts the build when

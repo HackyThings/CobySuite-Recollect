@@ -80,8 +80,9 @@ Protocol.KIND_WORDS = { H = "a presence check", R = "a presence answer", O = "an
   Q = "a collection request", S = "a collection start", D = "a data part", N = "a request to send parts again",
   K = "an acknowledgement", V = "a saved report", X = "a cancel" }
 
--- How many fields each type has after the header (a D's payload is last)
-Protocol.FIELDS = { H = 6, R = 12, O = 5, Q = 5, S = 5, D = 3, N = 2, K = 3, V = 5, X = 2, L = 1 }
+-- How many fields each type has after the header (a D's payload is last);
+-- an R from a curator before Task #299 has 12 (SHAPES.R.older)
+Protocol.FIELDS = { H = 6, R = 14, O = 5, Q = 5, S = 5, D = 3, N = 2, K = 3, V = 5, X = 2, L = 1 }
 
 Protocol.seams = {
   Serialize = function(value) return C_EncodingUtil.SerializeCBOR(value) end,
@@ -161,18 +162,81 @@ local function Base64(value)
   return #value <= Protocol.MAX_MESSAGE and value:find("^[%w+/=]*$") ~= nil
 end
 
+-- Where a curator is when it answers (Task #299; Cobanyte, 2026-10-06): an
+-- R's last two fields. The kind of instance, from IsInInstance's type, a
+-- delve told apart by C_PartyInfo.IsDelveInProgress: "none" outside one,
+-- "home" a house or neighborhood, "other" a type this list doesn't know,
+-- "?" when the client couldn't read it (counted as inside one)
+Protocol.INSTANCE_KINDS = { "none", "party", "raid", "delve", "scenario", "pvp", "arena", "home", "other", "?" }
+local INSTANCE = OneOf(unpack(Protocol.INSTANCE_KINDS))
+
+-- The zone's name as the game gives it (GetZoneText), sent only while
+-- Curator.Const.SEND_ZONE is on, else "". A claim and data, never an
+-- instruction: at most ZONE_MAX bytes of ASCII letters, digits, spaces and
+-- ' - . , : ( ) !, and the accented letters of Latin-1 and Latin Extended-A
+-- (two-byte UTF-8, lead bytes 195 to 197: the Americas' Spanish, Portuguese
+-- and French clients), single spaces, none at either end. CleanZone keeps
+-- only those, so whatever it gives passes IsZone
+Protocol.ZONE_MAX = 48
+
+-- ZonePieces(text): the allowed characters of text, in order
+local function ZonePieces(text)
+  local pieces, i, n = {}, 1, #text
+  while i <= n do
+    local c = text:sub(i, i)
+    local byte, after = c:byte(), text:byte(i + 1) or 0
+    if byte >= 195 and byte <= 197 and after >= 128 and after <= 191 then
+      pieces[#pieces + 1] = text:sub(i, i + 1)
+      i = i + 2
+    elseif c:find("^[A-Za-z0-9 '%-%.,:()!]$") then
+      -- spelled out, never %w: a C library's locale can count a high byte as a letter
+      pieces[#pieces + 1] = c
+      i = i + 1
+    else
+      i = i + 1   -- anything else goes, a longer UTF-8 character's other bytes too
+    end
+  end
+  return pieces
+end
+
+-- CleanZone(text): text with anything else left out, spaces single and
+-- trimmed, cut on a character to ZONE_MAX bytes; "" for anything not a string
+function Protocol.CleanZone(text)
+  if type(text) ~= "string" then return "" end
+  local out, used = {}, 0
+  for _, piece in ipairs(ZonePieces(text)) do
+    local space = piece == " "
+    if not (space and (#out == 0 or out[#out] == " ")) then
+      if used + #piece > Protocol.ZONE_MAX then break end
+      out[#out + 1] = piece
+      used = used + #piece
+    end
+  end
+  while out[#out] == " " do out[#out] = nil end
+  return table.concat(out)
+end
+
+function Protocol.IsZone(value)
+  return type(value) == "string" and #value <= Protocol.ZONE_MAX and Protocol.CleanZone(value) == value
+end
+
 -- The addressees a type may carry: the author ("a"), a curator ID, or everyone
 local TO_AUTHOR = function(to) return to == Protocol.AUTHOR end
 local TO_CURATOR = Protocol.IsCuratorID
 local function ToAny(to) return to == Protocol.AUTHOR or Protocol.IsCuratorID(to) end
 
--- SHAPES[kind] = { to = check, fields }: every protocol 2 message, exactly
+-- SHAPES[kind] = { to = check, fields }: every protocol 2 message, exactly.
+-- A shape with older = n is also read with only its first n fields, the
+-- shape a curator sent before the fields after them were added
 Protocol.SHAPES = {
   H = { to = function(to) return to == Protocol.ALL or Protocol.IsCuratorID(to) end,
     NONCE, Digits(3), Optional(Digits(6)), Optional(Digits(9)), Optional(Digits(4)), Optional(NONCE) },
+  -- nonce, curator, addon, data, format, protocol, checksum, state,
+  -- activity, pending, bytes, awaiting, then (Task #299) the instance kind
+  -- and the zone: an older curator's R stops after awaiting
   R = { to = TO_AUTHOR, NONCE, Protocol.IsCuratorID, VERSION_TEXT, VERSION_TEXT, FORMAT, Digits(3), Optional(CHECKSUM),
     OneOf("on", "ask", "off", "nodata"), OneOf("idle", "resting", "moving", "combat", "lockdown"), Digits(9), Digits(10),
-    REQUESTS },
+    REQUESTS, INSTANCE, Protocol.IsZone, older = 12 },
   O = { to = TO_AUTHOR, Protocol.IsCuratorID, VERSION_TEXT, VERSION_TEXT, FORMAT, Digits(3) },
   L = { to = TO_AUTHOR, Protocol.IsCuratorID },
   Q = { to = TO_CURATOR, Protocol.IsRequest, FLAG, Protocol.IsStore, FLAG, FLAG },
@@ -244,10 +308,17 @@ function Protocol.Decode(text)
     mode, legacyShape = mode == Protocol.LEGACY_LIVE and Protocol.LIVE or Protocol.TEST, true
   end
   if not shape.to(to) then return nil end
-  local fields = Split(rest, #shape)
+  local count = #shape
+  local fields = Split(rest, count)
+  -- fewer separators than the whole shape: an older sender's, read exactly
+  -- with its own count (its last field never takes another's)
+  if not fields and shape.older then
+    count = shape.older
+    fields = Split(rest, count)
+  end
   if not fields then return nil end
-  for i, check in ipairs(shape) do
-    if not check(fields[i]) then return nil end
+  for i = 1, count do
+    if not shape[i](fields[i]) then return nil end
   end
   return { kind = kind, mode = mode, to = to, fields = fields, legacyShape = legacyShape or nil }
 end

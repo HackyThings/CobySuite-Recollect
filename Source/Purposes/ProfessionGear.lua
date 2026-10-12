@@ -57,17 +57,8 @@ local LINE_ON_PROC = LineType.ItemSpellTriggerOnProc or 46
 local function HasProfession(client, profession)
   local okLine, skillLine = Try(client.GetProfessionSkillLineID, profession)
   if not okLine or not IsFiniteNumber(skillLine) or skillLine <= 0 then return nil end
-  local okList, a, b, c, d, e = Try(client.GetProfessions)
-  if not okList then return nil end
-  local unread = false
-  for _, index in pairs({ a, b, c, d, e }) do
-    local okInfo, _, _, _, _, _, _, line = Try(client.GetProfessionInfo, index)
-    if okInfo and line == skillLine then return true end
-    -- a profession that can't be read may be this one: never "doesn't have"
-    if not okInfo then unread = true end
-  end
-  if unread then return nil end
-  return false
+  -- a profession that can't be read may be this one: never "doesn't have"
+  return Recollect.Facts.Recipes.OwnsSkillLine(skillLine)
 end
 
 -- What is worn in the profession's slots of this kind: { lowest (the lowest

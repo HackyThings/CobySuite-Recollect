@@ -106,6 +106,7 @@ local lastWhisper = nil   -- the clock at the last whisper
 local routes = {}         -- [addressee] = "Name-Realm", the character a message to it is whispered to
 local community = nil     -- { clubId, streamId, channelName }, found once per change
 local handlers = {}       -- [kind] = { fn(msg), ... }
+local handing = {}        -- tagged local hand-overs not delivered yet, { tag, dropped }; Drop cancels them
 -- What went out and came back this session, by kind (the channel suites and
 -- the console say it when a message never arrives)
 local tally = { sent = {}, results = {}, got = {}, own = {}, raw = {}, echo = {}, handed = {}, unreachable = 0, lockdowns = 0,
@@ -345,8 +346,9 @@ function Transport.Wait()
 end
 
 -- Sends the oldest message; returns the delay before the next one, or nil
--- to stop (empty or paused)
-local function SendOne()
+-- to stop (empty or paused). Pump calls it through the module, so a
+-- development timing probe reaches it (Task #294)
+function Transport.SendOne()
   local item = queue[1]
   if not item then return nil end
   local target = WhisperTo(item)
@@ -406,7 +408,7 @@ end
 
 Pump = function()
   if paused then return end
-  local delay = SendOne()
+  local delay = Transport.SendOne()
   if delay then Schedule(delay) end
 end
 
@@ -473,14 +475,24 @@ function Transport.Send(kind, mode, to, ...)
   return Transport.Enqueue(text, nil, nil, kind ~= "D")
 end
 
--- EnqueueLocal(text, onSent): hands a message to this client's own
--- receiver a frame later, never through the server; onSent(0) first
-function Transport.EnqueueLocal(text, onSent)
+-- EnqueueLocal(text, onSent, tag): hands a message to this client's own
+-- receiver a frame later, never through the server; onSent(0) first. A
+-- tagged one that Drop(tag) reaches before that frame is never handed over
+-- and its onSent never runs (a stopped collection's request)
+function Transport.EnqueueLocal(text, onSent, tag)
   if type(text) ~= "string" or not Curator.Main.Available() then return false end
   local kind = text:sub(1, 1)
   tally.handed[kind] = (tally.handed[kind] or 0) + 1
   if Transport.OnSent then pcall(Transport.OnSent, text, RESULT.SUCCESS, true) end
+  local item = tag ~= nil and { tag = tag } or nil
+  if item then handing[#handing + 1] = item end
   Transport.seams.After(0, function()
+    if item then
+      if item.dropped then return end
+      for i = #handing, 1, -1 do
+        if handing[i] == item then table.remove(handing, i) end
+      end
+    end
     if onSent then pcall(onSent, RESULT.SUCCESS) end
     Transport.Echo(text)
   end)
@@ -513,10 +525,33 @@ function Transport.SendTo(target, onSent, kind, mode, to, ...)
   return Transport.Enqueue(text, nil, onSent, kind ~= "D", target)
 end
 
+-- SendTagged(tag, target, onSent, kind, mode, to, ...): SendTo with a tag,
+-- so Drop(tag) takes it out of the queue while it waits (the author's
+-- Stop and keep takes back a collection's queued requests, leaving every
+-- other message alone)
+function Transport.SendTagged(tag, target, onSent, kind, mode, to, ...)
+  local text = Protocol.Encode(kind, mode, to, ...)
+  return Transport.Enqueue(text, tag, onSent, kind ~= "D", target)
+end
+
+-- Drop(tag): the queued messages with that tag, and the tagged local
+-- hand-overs not delivered yet, never go; how many were taken back
 function Transport.Drop(tag)
+  local n = 0
   for i = #queue, 1, -1 do
-    if queue[i].tag == tag then table.remove(queue, i) end
+    if queue[i].tag == tag then
+      table.remove(queue, i)
+      n = n + 1
+    end
   end
+  for i = #handing, 1, -1 do
+    if handing[i].tag == tag then
+      handing[i].dropped = true
+      table.remove(handing, i)
+      n = n + 1
+    end
+  end
+  return n
 end
 
 function Transport.Queued(tag)
@@ -675,12 +710,13 @@ end)
 Transport._test = {}
 function Transport._test.Swap(state)
   local old = { queue = queue, pumping = pumping, paused = paused, scale = scale, recoverAt = recoverAt,
-    lastWhisper = lastWhisper, routes = routes, community = community, tally = tally }
+    lastWhisper = lastWhisper, routes = routes, community = community, tally = tally, handing = handing }
   state = state or { queue = {}, pumping = false, paused = false, scale = 1, recoverAt = 0, routes = {},
     tally = { sent = {}, results = {}, got = {}, own = {}, raw = {}, echo = {}, handed = {}, unreachable = 0, lockdowns = 0,
       whispered = 0, retried = 0 } }
   queue, pumping, paused, scale, recoverAt = state.queue, state.pumping, state.paused, state.scale, state.recoverAt
   lastWhisper, routes = state.lastWhisper, state.routes or {}
   community, tally = state.community, state.tally
+  handing = state.handing or {}
   return old
 end

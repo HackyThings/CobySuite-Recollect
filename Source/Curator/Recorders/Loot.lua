@@ -216,6 +216,7 @@ end
 local handlers = { LOOT_READY = Loot.Read, LOOT_CLOSED = Loot.OnClosed }
 
 local frame = CreateFrame("Frame")
+Loot.frame = frame   -- its events, for a development timing probe (Task #294)
 for event in pairs(handlers) do pcall(frame.RegisterEvent, frame, event) end
 frame:SetScript("OnEvent", function(_, event)
   if Curator.Main.IsScripted() then return end

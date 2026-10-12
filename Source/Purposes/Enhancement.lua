@@ -12,10 +12,10 @@
 -- permanent ("Use: Permanently enchants ..."), read on English clients
 -- only. Older means both the game's expansionID and AllTheThings' added
 -- patch (Facts.Item.Age, as Consumable); when the game says older and the
--- added patch current, a permanent one is Unknown naming both. Temporary ones (Illusory Adornment) are not replaced that way and
--- stay Unknown with the expansion named, as does any enhancement whose Use
--- line hasn't loaded (tooltip text can arrive late, contract rule 14). A
--- current-expansion one this character can use is Useful.
+-- added patch current, a permanent one is Unknown naming both. Temporary
+-- ones (Illusory Adornment) are not replaced that way and only inform with
+-- the expansion named. One whose Use line hasn't loaded is Unknown (tooltip
+-- text can arrive late, contract rule 14). A current-expansion one this character can use is Useful.
 -------------------------------------------------------------------------------
 local R = Recollect.Purposes.Registry
 local V = R.Verdict

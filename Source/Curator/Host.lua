@@ -477,8 +477,9 @@ end
 -- at all about an item, as { known, why }. Known: relation codes of any
 -- letter (routes no longer available included), a removal patch, a
 -- description, a guide note, a confirmed known use naming it, a leftover
--- note, or a quality sibling that has one of those (Relations.Family, once
--- the data ships a family table). An added patch alone is not information.
+-- note, or another quality of the same thing that has one of those
+-- (Relations.OtherQualities, the data's F table since format 12: Fused Vitality
+-- 274267 is its sibling 245345's). An added patch alone is not information.
 -- The data off counts as known ("data off"), and so does anything that
 -- can't be read: nothing is recorded then.
 function Host.Knows(itemID)
@@ -487,8 +488,8 @@ function Host.Knows(itemID)
   local why = OwnInformation(itemID)
   if why then return { known = true, why = why } end
   local Relations = Recollect.Facts and Recollect.Facts.Relations
-  if Relations and type(Relations.Family) == "function" then
-    local ok, family = pcall(Relations.Family, itemID)
+  if Relations and type(Relations.OtherQualities) == "function" then
+    local ok, family = pcall(Relations.OtherQualities, itemID)
     for _, sibling in ipairs(ok and type(family) == "table" and family or {}) do
       if type(sibling) == "number" and sibling ~= itemID and OwnInformation(sibling) then
         return { known = true, why = "sibling" }

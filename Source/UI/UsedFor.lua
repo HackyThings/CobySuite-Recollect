@@ -29,7 +29,7 @@
 --   Found at a spot in Naigtal (22.9, 61.3)
 --   Drops from enemies in Zul'Aman
 --   Crafted by Blacksmithing: Spellbreaker's Blade
---   Renown 12 with Council of Dornogal (you're at 7)
+--   Listed in the Renown 12 rewards for Council of Dornogal (you're at 7)
 --   Sometimes offered on the Black Market Auction House
 --   Offered at the Trading Post (March 2025)
 --   Drops from Sylvanas Windrunner in Sanctum of Domination, per the Encounter Journal
@@ -175,8 +175,9 @@ local MAX_SELLERS = 2   -- vendors named in one "Buys at" heading
 local DETAIL_CHARS = 160
 local TIER_OPEN, TIER_INFO, TIER_CLOSED = 1, 2, 3   -- still to get or do; no such state; done or out of reach
 -- A quest state's tier, by QuestState's rank: on it, repeatable or not done
--- are open, done is closed, loading or unknown says nothing
-local QUEST_TIER = { [5] = TIER_OPEN, [3] = TIER_OPEN, [2] = TIER_OPEN, [4] = TIER_CLOSED }
+-- are open, done (a recurring quest done for now too) is closed, loading or
+-- unknown says nothing
+local QUEST_TIER = { [5] = TIER_OPEN, [3] = TIER_OPEN, [2] = TIER_OPEN, [4] = TIER_CLOSED, [0] = TIER_CLOSED }
 local QUEST_KIND = { objective = true, questItem = true, starts = true, reward = true, choice = true }
 local MAX_FOLLOW = 20   -- plain purchases followed to what they lead to (Facts.Chains), as Purposes.Buys does
 
@@ -200,6 +201,8 @@ local seams = {
   StandingLabel = function(standing) return _G["FACTION_STANDING_LABEL" .. standing] end,
   QuestTitle = function(questID) return C_QuestLog.GetTitleForQuestID(questID) end,
   SpellName = function(spellID) return C_Spell.GetSpellName(spellID) end,
+  -- An instance difficulty's name ("Mythic Keystone"): GetDifficultyInfo's first return
+  DifficultyName = function(difficultyID) return (GetDifficultyInfo(difficultyID)) end,
   -- An item's quality (nil until its data is cached) and a quality's color
   ItemQuality = function(itemID) return C_Item.GetItemQualityByID(itemID) end,
   QualityColor = function(quality) return C_Item.GetItemQualityColor(quality) end,
@@ -303,21 +306,59 @@ local function Recurs(questID)
   return nil
 end
 
--- A quest's state: title, rank (a merged line keeps the highest), words,
+-- A quest's state: title, rank (5 on it, 3 repeatable, 2 not done, 4 done,
+-- 1 unread, 0 needs a profession the character doesn't have: out of reach,
+-- the grayed cross, never "not done"; a merged line keeps the highest), words,
 -- color, quest; nil while it loads. stateless (another character's copy, or
 -- another faction's route) reads the title alone.
+-- The skill line of the player profession a quest needs, or nil (Task #338):
+-- the profession its tag names (QuestTagInfo.tradeskillLineID), else, on an
+-- English client, the profession named in the title of the weekly services
+-- quests ("Tailoring Services Requested"), the name read live
+local function QuestProfession(quest)
+  local Recipes = Recollect.Facts.Recipes
+  if quest.tradeskillLineID then
+    local line = Recipes.ParentProfession(quest.tradeskillLineID)
+    if line then return line end
+  end
+  if quest.title and Recollect.Purposes.Registry.EnglishClient() then
+    local name = quest.title:match("^(.+) Services Requested$")
+    if name then return Recipes.ProfessionByName(name) end
+  end
+  return nil
+end
+
+-- The name of the profession a quest needs when the logged-in character is
+-- read not to have it (never while its professions aren't known yet: the
+-- readiness gate of Recipes.OwnsSkillLine), else nil
+local function QuestNeeds(quest)
+  local Recipes = Recollect.Facts.Recipes
+  local line = QuestProfession(quest)
+  if not line or Recipes.OwnsSkillLine(line) ~= false then return nil end
+  return Recipes.SkillLineName(line)
+end
+
 local function QuestState(questID, budget, stateless)
-  local quest = Recollect.Facts.QuestInfo.Get(questID, budget)
-  if not quest then return nil end
+  local quest, why = Recollect.Facts.QuestInfo.Get(questID, budget)
   local V, colors = Verdict(), Colors()
+  -- the server answered with nothing for it: never "still checking"
+  if not quest and why == "unavailable" then
+    return "quest " .. questID, 1, "can't be read", U.Colors.LABEL_GRAY, nil
+  end
+  if not quest then return nil end
   if quest.title then Named("quest", questID, quest.title) end
   local title = quest.title and ("\"" .. quest.title .. "\"") or ("quest " .. questID)
   if stateless then return title, 1, nil, U.Colors.LIGHT_GRAY, quest end
   if quest.onQuest then return title, 5, "you're on it", colors[V.NEEDED], quest end
-  if quest.repeatable then return title, 3, "repeatable", colors[V.USEFUL], quest end
   local done = Recollect.Facts.QuestInfo.Done(quest)
+  local needs = done ~= true and QuestNeeds(quest) or nil
+  if needs then return title, 0, "needs " .. needs, U.Colors.LABEL_GRAY, quest end
+  if quest.repeatable then return title, 3, "repeatable", colors[V.USEFUL], quest end
   local recurs = done and Recurs(questID)
-  if recurs then return title, 3, recurs .. ", done for now", colors[V.USEFUL], quest end
+  -- a recurring quest done this time is done (the check and the done color,
+  -- Task #334; the game's own flag clears at the weekly or daily reset, so the
+  -- next read after it says not done); the words keep that it comes back
+  if recurs then return title, 4, recurs .. ", done for now", colors[V.DONE], quest end
   if done then return title, 4, "done", colors[V.DONE], quest end
   if done == false then return title, 2, "not done", colors[V.USEFUL], quest end
   return title, 1, "can't be read", U.Colors.LABEL_GRAY, quest
@@ -407,19 +448,7 @@ end
 -- achievement "Void Response Team" (3 of 5 done)', several joined: 'Requires
 -- the achievements "X" (earned) and "Y" (not earned)'), with names and
 -- states read live (Facts.Achievements.Progress and ProgressWords)
-local function ProfessionLines(client)
-  local ok, a, b, c, d, e = Try(client.GetProfessions)
-  if not ok then return nil end
-  local lines = {}
-  for _, index in pairs({ a, b, c, d, e }) do
-    local okInfo, _, _, _, _, _, _, line = Try(client.GetProfessionInfo, index)
-    if not okInfo then return nil end
-    if line then lines[line] = true end
-  end
-  return lines
-end
-
-local Renown   -- the owner's renown with a major faction, defined with the renown lines below
+local Renown  -- the owner's renown with a major faction, defined with the renown lines below
 
 -- Whether one achievement counts as earned for the owner: true, false, or
 -- nil when it can't be told (a read that fails; another character's copy of
@@ -448,8 +477,7 @@ local function ShownMet(tag, owner)
   if not (owner and owner.isViewer) then return nil end
   local client = Recollect.Purposes.client
   if tag.kind == "profession" then
-    local lines = ProfessionLines(client)
-    return lines and lines[ids[1]] == true or nil
+    return Recollect.Facts.Recipes.OwnsSkillLine(ids[1])
   elseif tag.kind == "standing" then
     local ok, data = Try(seams.FactionData, ids[1])
     if not ok or type(data) ~= "table" or type(data.reaction) ~= "number" then return nil end
@@ -489,12 +517,18 @@ local function Joined(list)
   return table.concat(list, ", ", 1, #list - 1) .. " and " .. list[#list]
 end
 
-local function ShownWords(tag, owner, met)
+local function ShownWords(tag, owner, met, missed)
   local ids = tag.ids or {}
   local words
   if tag.kind == "profession" then
     local name = SeamName(seams.SkillLineName, ids[1])
-    words = name and ("%s only"):format(name) or "For one profession only"
+    -- the logged-in character is read not to have it: say so (Task #334);
+    -- another character's copy, or a read that fails, keeps the plain words
+    if missed and name then
+      words = ("You don't have %s"):format(name)
+    else
+      words = name and ("%s only"):format(name) or "For one profession only"
+    end
   elseif tag.kind == "standing" then
     local label = SeamName(seams.StandingLabel, ids[2] or 0)
     words = label and ("Requires %s with %s"):format(label, FactionName(ids[1])) or "Requires a reputation standing"
@@ -514,7 +548,7 @@ local function ShownWords(tag, owner, met)
   end
   -- a name keeps its capitals after another tag; only the leading word lowers
   local after = words:match("^(For one profession only)$") and "for one profession only"
-    or words:gsub("^Requires ", "requires "):gsub("^After ", "after ")
+    or words:gsub("^Requires ", "requires "):gsub("^After ", "after "):gsub("^You don't have ", "you don't have ")
   return words, after
 end
 
@@ -537,6 +571,22 @@ end
 -- is kept undimmed. An event route adds "During a holiday or event" for
 -- every character, including one it serves. Empty when there is nothing to
 -- say.
+-- The instance difficulties a route drops on (M, data format 11), worded
+-- for every character like an event ("On Mythic Keystone or Mythic
+-- difficulty", the names read live with GetDifficultyInfo; "On some
+-- difficulties only" when a name can't be read). Returns words, after
+function UsedFor.DifficultyWords(ids)
+  local names = {}
+  for _, difficultyID in ipairs(ids or {}) do
+    local ok, name = Try(seams.DifficultyName, difficultyID)
+    if not ok or type(name) ~= "string" or name == "" then names = nil break end
+    names[#names + 1] = name
+  end
+  if not names or #names == 0 then return "On some difficulties only", "on some difficulties only" end
+  local words = ("on %s difficulty"):format(table.concat(names, " or "))
+  return (words:gsub("^o", "O")), words
+end
+
 local OTHER_WORDS = "not for this character"
 local SHOWN_CONDITIONS = { profession = true, standing = true, renown = true, quest = true, achievement = true }
 -- worded even when met, with their state: they say what buying takes
@@ -567,12 +617,21 @@ local function Tags(relation, applies, owner)
   if applies ~= "unavailable" then
     for _, tag in ipairs(conditions) do
       if SHOWN_CONDITIONS[tag.kind] then
-        local met = ShownMet(tag, owner) == true
+        local state = ShownMet(tag, owner)
+        local met = state == true
         if not met or ALWAYS_SHOWN[tag.kind] then
-          tag.words, tag.after = ShownWords(tag, owner, met)
+          tag.words, tag.after = ShownWords(tag, owner, met, tag.kind == "profession" and state == false)
           tag.shown = not met or nil
           out[#out + 1] = tag
         end
+      end
+    end
+  end
+  if applies ~= "unavailable" then
+    for _, tag in ipairs(conditions) do
+      if tag.kind == "difficulty" then
+        tag.words, tag.after = UsedFor.DifficultyWords(tag.ids)
+        out[#out + 1] = tag
       end
     end
   end
@@ -598,6 +657,32 @@ local function TagText(tags, inline)
   local words = { inline and tags[1].after or tags[1].words }
   for i = 2, #tags do words[i] = tags[i].after end
   return table.concat(words, ", ")
+end
+
+-- What makes two seller routes one seller (Task #338): the creature's name,
+-- the price and the tags the line carries. One vendor listed under several
+-- creature IDs (the data keeps each ID's route) is one line, the one with a
+-- place kept over one without. nil when the creature's name isn't read, or
+-- the relation isn't a seller's
+local function SellerKey(relation, line)
+  if relation.kind ~= "soldBy" then return nil end
+  local ok, name = Try(Recollect.Facts.Vendors.NpcName, relation.id)
+  if not ok or type(name) ~= "string" or name == "" then return nil end
+  return table.concat({ name, UsedFor.PriceWords(relation), TagText(line.tags) or "" }, "")
+end
+UsedFor.SellerKey = SellerKey
+
+-- Adds line to list unless a seller line of the same key is there: a line
+-- with a place replaces one without
+local function AddSeller(list, byKey, key, line)
+  local kept = key and byKey[key]
+  if not kept then
+    list[#list + 1] = line
+    if key then byKey[key] = line end
+  elseif not kept.place and line.place then
+    for k in pairs(kept) do kept[k] = nil end
+    for k, v in pairs(line) do kept[k] = v end
+  end
 end
 
 -- A line with its route's tags: a route that doesn't serve the owner reads
@@ -1062,10 +1147,16 @@ local MAX_HELD = 2   -- items an opened object's line names
 
 -- An achievement's line: the game's criterion ("4 of 30") or AllTheThings'
 -- requirement ("needs 250")
-local function AchievementLine(a, id, needs)
+local function AchievementLine(a, id, needs, stateless)
   local V, colors = Verdict(), Colors()
   if not a then return { text = ("Counts toward achievement %d"):format(id), color = U.Colors.LABEL_GRAY } end
   Named("achievement", id, a.name)
+  -- another character's copy (stateless): a part done and how many are the
+  -- logged-in character's unless the achievement is account-wide; earned is
+  -- the account's (Task #315 ACH-01)
+  if stateless and not a.earned and Recollect.Facts.Achievements.AccountWide(id) ~= true then
+    return { text = ("Counts toward \"%s\""):format(a.name), color = U.Colors.LIGHT_GRAY, tier = TIER_INFO }
+  end
   local state, color, tier
   if a.earned then
     state, color, tier = "earned", colors[V.DONE], TIER_CLOSED
@@ -1328,6 +1419,17 @@ local function SkillName(skillLine)
   return ok and type(name) == "string" and name ~= "" and name or nil
 end
 
+-- LacksWords(skillLine, stateless): "you don't have Tailoring" when the
+-- logged-in character (not another's copy, stateless) is read not to have
+-- the player profession a recipe belongs to (Task #334); nil for a profession
+-- it has, one that can't be read, and a skill line of another system
+local function LacksWords(skillLine, stateless)
+  local Recipes = Recollect.Facts.Recipes
+  if stateless or not Recipes.IsProfession(skillLine) or Recipes.OwnsSkillLine(skillLine) ~= false then return nil end
+  local name = SkillName(Recipes.ProfessionOf(skillLine))
+  return name and ("you don't have " .. name) or nil
+end
+
 local function CraftedLine(relation, stateless)
   local recipe = Relations().Recipe(relation.id)
   local profession = recipe and recipe.skillLine and recipe.skillLine > 0 and SkillName(recipe.skillLine) or nil
@@ -1336,7 +1438,12 @@ local function CraftedLine(relation, stateless)
   local text = profession and ("Crafted by %s: %s"):format(profession, name) or ("Crafted with the recipe " .. name)
   if not stateless then
     local known = Recollect.Facts.Buys.RecipeKnown(relation.id)
-    if known == true then text = text .. " (you know it)" end
+    local lacks = known ~= true and recipe and LacksWords(recipe.skillLine, stateless) or nil
+    if known == true then
+      text = text .. " (you know it)"
+    elseif lacks then
+      text = ("%s (%s)"):format(text, lacks)
+    end
   end
   return { text = text, color = U.Colors.LIGHT_GRAY }
 end
@@ -1350,7 +1457,9 @@ local function TeachesLine(relation, stateless)
     if known == true then
       text, color, tier = text .. " (you know it)", Colors()[Verdict().DONE], TIER_CLOSED
     elseif known == false then
-      text, color, tier = text .. " (you don't know it)", Colors()[Verdict().USEFUL], TIER_OPEN
+      local recipe = Relations().Recipe(relation.id)
+      local lacks = recipe and LacksWords(recipe.skillLine, stateless) or nil
+      text, color, tier = ("%s (%s)"):format(text, lacks or "you don't know it"), Colors()[Verdict().USEFUL], TIER_OPEN
     end
   end
   return { text = text, color = color, tier = tier }
@@ -1398,11 +1507,19 @@ function Renown(factionID, level, readState)
   return now >= level and "reached" or "short", name, now, data
 end
 
--- "Renown 12 with Council of Dornogal (you're at 7)"
+-- RenownWords(level, name): "Listed in the Renown 12 rewards for Council of
+-- Dornogal" (Task #341). The game's reward type is a display type only, with
+-- no quantity, one-time or purchase field, so the words promise no grant, no
+-- amount and no unlock; the item is only named among that level's rewards
+function UsedFor.RenownWords(level, name)
+  return ("Listed in the Renown %d rewards for %s"):format(level or 0, name)
+end
+
+-- "Listed in the Renown 12 rewards for Council of Dornogal (you're at 7)"
 local function RenownLine(relation, stateless)
   local level = relation.level or 0
   local state, name, now = Renown(relation.id, level, not stateless)
-  local text = ("Renown %d with %s"):format(level, name)
+  local text = UsedFor.RenownWords(level, name)
   local V, colors = Verdict(), Colors()
   if state == "reached" then return { text = text .. " (reached)", color = colors[V.DONE], tier = TIER_CLOSED } end
   if state == "short" then
@@ -1426,16 +1543,66 @@ local function JournalLine(relation)
   return { text = text, color = U.Colors.LIGHT_GRAY }
 end
 
+-- Sources of data format 11: a profession's gathering or extracting spell
+-- ("Comes from Disenchant", its name read live; no line while it can't be
+-- read), a creature skinned (its place like a drop's), and a seasonal drop
+local SEASON_DROP_TEXT = "A seasonal drop: it comes from many of the season's activities, dungeon and raid bosses "
+  .. "among them, not from one boss"
+local function GatheredLine(relation)
+  local ok, name = Try(seams.SpellName, relation.id)
+  if not ok or type(name) ~= "string" or name == "" then return nil end
+  return { text = "Comes from " .. name, color = U.Colors.LIGHT_GRAY }
+end
+
+local function SkinnedLine(relation, _, places, itemID)
+  local who, npc = Recollect.Facts.Vendors.Describe(relation.id, "a creature")
+  if not who then return nil end
+  if npc then
+    npc.what, npc.role, npc.itemID = "the creature", "skinnedFrom", itemID
+    places[#places + 1] = npc
+  end
+  return { text = "Skinned from " .. who, color = U.Colors.LIGHT_GRAY, place = npc }
+end
+
+-- Data format 12: a Delve's completion reward (the words only; no number is read)
+local DELVE_REWARD_TEXT = "Completing a Delve gives it"
+
+-- Data format 13: the in-game shop, a promotion, a Trading Card Game loot card and a Recruit-A-Friend reward
+local STORE_PROMOTION_TEXT = {
+  [1] = "From the in-game shop",
+  [2] = "From a promotion",
+  [3] = "From a Trading Card Game loot card",
+  [4] = "A Recruit-A-Friend reward",
+}
+local STORE_PROMOTION_SUMMARY = {
+  [1] = "comes from the in-game shop",
+  [2] = "comes from a promotion",
+  [3] = "comes from a Trading Card Game loot card",
+  [4] = "is a Recruit-A-Friend reward",
+}
+
+local function StorePromotionLine(relation)
+  local text = STORE_PROMOTION_TEXT[relation.id]
+  if not text then return nil end
+  return { text = text, color = U.Colors.LIGHT_GRAY }
+end
+
 local NEW_SOURCES = {
   journalDrop = JournalLine,
   renownReward = RenownLine,
   blackMarket = function() return { text = BLACK_MARKET_TEXT, color = U.Colors.LIGHT_GRAY } end,
   tradingPost = function(relation) return { text = TradingPostText(relation.id), color = U.Colors.LIGHT_GRAY } end,
+  gatheredBy = GatheredLine,
+  skinnedFrom = SkinnedLine,
+  seasonDrop = function() return { text = SEASON_DROP_TEXT, color = U.Colors.LIGHT_GRAY } end,
+  delveReward = function() return { text = DELVE_REWARD_TEXT, color = U.Colors.LIGHT_GRAY } end,
+  storePromotion = StorePromotionLine,
 }
+UsedFor.SEASON_DROP_TEXT = SEASON_DROP_TEXT
 
 local function Line(relation, places, budget, stateless, itemID, owner, tip)
   local kind = relation.kind
-  if NEW_SOURCES[kind] then return NEW_SOURCES[kind](relation, stateless) end
+  if NEW_SOURCES[kind] then return NEW_SOURCES[kind](relation, stateless, places, itemID) end
   if QUEST_LEADS[kind] then
     local line = QuestLine(QUEST_LEADS[kind], relation.id, WITH_REWARDS[kind], budget, stateless, owner)
     -- a reward at the end of a quest chain says how the chain starts (Task #106)
@@ -1502,7 +1669,7 @@ local function Line(relation, places, budget, stateless, itemID, owner, tip)
       color = U.Colors.LIGHT_GRAY, place = place }
   end
   if kind == "criterion" then
-    return AchievementLine(Recollect.Facts.Achievements.Get(relation.id, relation.criteria), relation.id)
+    return AchievementLine(Recollect.Facts.Achievements.Get(relation.id, relation.criteria), relation.id, nil, stateless)
   end
   if kind == "linked" then return LinkedLine(relation) end
   -- The count after the other item's name is of that item, never of this one
@@ -1585,8 +1752,10 @@ end
 
 local SkillLineName = SkillName
 
--- The recipes the Lab read that take it (g codes): one line per profession
-local function ReagentLines(relations)
+-- The recipes the Lab read that take it (g codes): one line per profession,
+-- closing "(you don't have Tailoring)" on the logged-in character's copy of
+-- a profession it is read not to have (Task #334)
+local function ReagentLines(relations, stateless)
   local byProfession, order, lines = {}, {}, {}
   for _, relation in ipairs(relations) do
     local recipe = Relations().Recipe(relation.id)
@@ -1604,8 +1773,11 @@ local function ReagentLines(relations)
     local profession = skill > 0 and SkillLineName(skill) or nil
     -- reagentTotal: every profession's count together, which a headline
     -- names instead of one profession's (item 11)
-    lines[#lines + 1] = { text = ("Reagent in %d %s%s"):format(#list, profession and (profession .. " ") or "",
-      #list == 1 and "recipe" or "recipes"), color = U.Colors.LIGHT_GRAY, reagentTotal = #relations }
+    local text = ("Reagent in %d %s%s"):format(#list, profession and (profession .. " ") or "",
+      #list == 1 and "recipe" or "recipes")
+    local lacks = LacksWords(skill, stateless)
+    if lacks then text = ("%s (%s)"):format(text, lacks) end
+    lines[#lines + 1] = { text = text, color = U.Colors.LIGHT_GRAY, reagentTotal = #relations }
   end
   return lines
 end
@@ -1869,6 +2041,7 @@ function UsedFor.Lines(itemID, stack, owner, opts)
   -- currency's vendor (in the relations' order), then one that takes it, one
   -- it buys from, and last a source (a seller, a creature or a spot)
   local places, takingPlaces, sourcePlaces = {}, {}, {}
+  local sellerLines = {}   -- [SellerKey] = the seller line kept (one vendor listed under several creature IDs)
   local pending, pendingSources = 0, 0   -- quests still being read: uses, and where it comes from
   local relations = R.For(itemID)
   ReadQuestsFirst(relations, budget)
@@ -1921,8 +2094,7 @@ function UsedFor.Lines(itemID, stack, owner, opts)
         if isSource then pendingSources = pendingSources + 1 else pending = pending + 1 end
       elseif line then
         Tagged(line, relation, applies, owner)
-        local into = isSource and sources or lines
-        into[#into + 1] = line
+        AddSeller(isSource and sources or lines, sellerLines, SellerKey(relation, line), line)
       end
     end
   end
@@ -1935,7 +2107,7 @@ function UsedFor.Lines(itemID, stack, owner, opts)
     Append(lines, EndeavorLines(itemID))   -- the neighborhood's endeavor is the logged-in character's
   end
   Append(lines, RecordedLines(itemID))
-  Append(lines, ReagentLines(reagents))
+  Append(lines, ReagentLines(reagents, stateless))
   -- Vendors recorded in game that take the item itself, or sell it
   local Vendors = Recollect.Facts.Vendors
   local taking, selling = Vendors.ForCostItem(itemID)[1], Vendors.Selling(itemID)[1]
@@ -2047,6 +2219,8 @@ function UsedFor.SourceWords(itemID, owner)
     end
     return out
   end
+  -- a seasonal drop first: the season's activities give it, never one boss
+  if #Live("seasonDrop") > 0 then return "a seasonal drop" end
   for _, relation in ipairs(Live("dropsFrom")) do
     local who = Vendors.Describe(relation.id, "a creature")
     if who then return "drops from " .. who end
@@ -2064,6 +2238,18 @@ function UsedFor.SourceWords(itemID, owner)
     local zone = Vendors.ZoneName(relation.id)
     if zone then return "drops from enemies in " .. zone end
   end
+  for _, relation in ipairs(Live("skinnedFrom")) do
+    local who = Vendors.Describe(relation.id, "a creature")
+    if who then return "skinned from " .. who end
+  end
+  for _, relation in ipairs(Live("gatheredBy")) do
+    local ok, name = Try(seams.SpellName, relation.id)
+    if ok and type(name) == "string" and name ~= "" then return "comes from " .. name end
+  end
+  if #Live("delveReward") > 0 then return "comes from completing a Delve" end
+  for _, relation in ipairs(Live("storePromotion")) do
+    if STORE_PROMOTION_SUMMARY[relation.id] then return STORE_PROMOTION_SUMMARY[relation.id] end
+  end
   return nil
 end
 
@@ -2078,8 +2264,8 @@ end
 
 -- One step's words: its title and state, then what starts it or what it takes
 local function StepLine(index, step, owner, budget, last)
-  local title, _, state, color = QuestState(step.questID, budget, not owner or owner.isViewer == false)
-  local head = ("%d. %s"):format(index, title and (state and ("%s (%s)"):format(title, state) or title) or "A quest still loading")
+  local title, rank, state, color = QuestState(step.questID, budget, not owner or owner.isViewer == false)
+  local head =("%d. %s"):format(index, title and (state and ("%s (%s)"):format(title, state) or title) or "A quest still loading")
   local parts, chain = {}, step.chain
   if index == 1 and chain and chain.any and #chain.before > 0 then
     parts[#parts + 1] = ("after any of %d earlier quests"):format(#chain.before)
@@ -2091,8 +2277,12 @@ local function StepLine(index, step, owner, budget, last)
     parts[#parts + 1] = "takes " .. ItemWithSource(cost.itemID, owner, cost.count)
   end
   if last and #parts == 0 then parts[1] = "rewards it" end
+  -- a quest done carries the check, one not done (or on, or repeatable) the
+  -- cross; one that can't be read or is still loading none (Task #334)
+  local tier = title and QUEST_TIER[rank] or nil
+  local icon = (rank == 4 and "done") or (rank == 0 and "na") or (tier == TIER_OPEN and "no") or nil
   return { text = #parts > 0 and ("%s: %s"):format(head, table.concat(parts, "; ")) or head,
-    color = color or U.Colors.LIGHT_GRAY }
+    color = color or U.Colors.LIGHT_GRAY, icon = icon }
 end
 
 -- ChainLines(questID, owner): the lines under a quest reward that say how to
@@ -2147,6 +2337,7 @@ UsedFor.parts = {
   SourceSellers = SourceSellers, Owned = Owned, SkillLineName = SkillLineName, QUEST_KIND = QUEST_KIND,
   MAX_FOLLOW = MAX_FOLLOW,
   Renown = Renown, MonthWords = MonthWords, TradingPostText = TradingPostText, BLACK_MARKET_TEXT = BLACK_MARKET_TEXT,
+  STORE_PROMOTION_TEXT = STORE_PROMOTION_TEXT,
   TIER_OPEN = TIER_OPEN, TIER_INFO = TIER_INFO, TIER_CLOSED = TIER_CLOSED,
   SpellName = function(spellID)
     local ok, name = Try(seams.SpellName, spellID)

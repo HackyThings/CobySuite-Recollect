@@ -151,6 +151,7 @@ end
 local EVENTS = { "GOSSIP_SHOW", "QUEST_GREETING", "QUEST_PROGRESS", "TRAINER_SHOW" }
 
 local frame = CreateFrame("Frame")
+NpcPosition.frame = frame   -- its events, for a development timing probe (Task #294)
 for _, event in ipairs(EVENTS) do pcall(frame.RegisterEvent, frame, event) end
 frame:SetScript("OnEvent", function(_, event)
   if Curator.Main.IsScripted() then return end

@@ -2,8 +2,9 @@
 -- Purpose: a recipe item (item class 9)
 --
 -- This check reads whether this character knows a recipe from its tooltip
--- ("Already known"), which only a live read keeps current, so recipes are
--- checked in the bags. A red line means a requirement this
+-- ("Already known"), which only a read made now keeps current: a copy in the
+-- bags reads its slot, and a copy in the bank or the warband bank, kept from
+-- a snapshot, reads its item link's tooltip now (Task #339). A red line means a requirement this
 -- character does not meet (profession, skill, reputation): Unknown. Known is
 -- done only for a copy no other character could use.
 -------------------------------------------------------------------------------
@@ -16,8 +17,21 @@ R.Register({
   order = 70,
   Evaluate = function(ctx)
     if ctx.facts.classID ~= R.CLASS_RECIPE then return nil end
-    if not ctx.live or ctx.kind ~= "bags" then return R.Unknown("Recipe; recipes are checked in your bags only") end
-    local tip = ctx.Tooltip()
+    local tip
+    if ctx.live then
+      tip = ctx.Tooltip()
+    elseif ctx.otherCharacter then
+      return R.Unknown("Recipe; whether it's known is checked only on the character logged in", nil, "character")
+    else
+      -- a link tooltip read before the recipe's spell loads has no Use line,
+      -- and may lack "Already known" too (contract rule 14)
+      if ctx.facts.spellLoading then return R.Unknown("Recipe; its tooltip is still loading", nil, "loading") end
+      if ctx.facts.spellFailed then return R.Unknown("Recipe; its tooltip can't be loaded", nil, "unreadable") end
+      tip = Recollect.Facts.Tooltip.FromLink(ctx.stack.link)
+      if tip and ctx.facts.hasSpell ~= false and type(tip.useText) ~= "string" then
+        return R.Unknown("Recipe; its tooltip read shows no Use line yet", nil, "loading")
+      end
+    end
     if not tip then return R.Unknown("Recipe; its tooltip can't be read") end
     if tip.known then
       if R.CharacterOnlyCopy(ctx) then return R.Result(V.DONE, "Duplicate: this character already knows this recipe") end

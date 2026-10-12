@@ -18,6 +18,7 @@ local base = CobySuite_Recollect.Config.New({
     LIST_OTHERS      = "list_other_characters",  -- the list shows other characters' stored items, a tab each (on by default)
     SHOW_MINIMAP     = "show_minimap_button",    -- the minimap button (UI/Minimap.lua)
     WAYPOINT_PROVIDER = "waypoint_provider",     -- "auto" (TomTom when loaded, else the game's pin) | "game" (UI/Waypoint.lua)
+    VERSION_CHECK    = "version_check",          -- share the version with guild and group, a chat line when a newer one is out
   },
   defaults = {
     ["show_bank"]    = true,
@@ -31,6 +32,7 @@ local base = CobySuite_Recollect.Config.New({
     ["list_other_characters"] = true,
     ["show_minimap_button"]   = true,
     ["waypoint_provider"]     = "auto",
+    ["version_check"]         = true,
   },
   validate = {
     ["show_bank"]    = { type = "boolean" },
@@ -44,6 +46,7 @@ local base = CobySuite_Recollect.Config.New({
     ["list_other_characters"] = { type = "boolean" },
     ["show_minimap_button"]   = { type = "boolean" },
     ["waypoint_provider"]     = { type = "string", values = { "auto", "game" } },
+    ["version_check"]         = { type = "boolean" },
   },
   debug = Recollect.Debug,
   onSet = function(name, old, value)

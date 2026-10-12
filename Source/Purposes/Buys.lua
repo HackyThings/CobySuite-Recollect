@@ -23,6 +23,14 @@
 --                                                      from M vendors": a
 --                                                      plain item it buys may
 --                                                      still be wanted
+-- When every thing it buys is a plain item sold to this character, each read
+-- (nothing loading, failing or left to another character's record), that
+-- Unknown carries optional = "buys" and the brief "Buys N things you can still buy": the
+-- details window's band reads Your call, since whether those things are
+-- wanted is the player's (Task #343; the verdict stays Can't tell). An older
+-- expansion's token reads the same (Task #341: Gunk-Covered Thingy buys one
+-- plain item from one vendor): every purchase listed is still in the game,
+-- and a route no longer in it is never counted.
 -- Only the first MAX_FOLLOW plain items are followed (Mark of Honor buys
 -- thousands); the reason says how many more weren't, and how many chains
 -- can't be read yet, never that none leads anywhere. The looks of the first
@@ -344,7 +352,11 @@ local function Answer(relations, owner, itemID)
     .. (otherWords and ("; " .. otherWords) or "") .. (untoldWords and ("; " .. untoldWords) or "")
   local category = ((t.unread > 0 or chainUnread > 0 or (looks and looks.waiting > 0)) and "loading")
     or (t.failed > 0 and "unreadable") or (t.unassessed > 0 and "character") or nil
-  return R.Unknown(reason, headline, category)
+  local result = R.Unknown(reason, headline, category)
+  -- only plain things, all for this character and read: a token whose
+  -- purchases are the player's to want (Evaluate marks it optional)
+  if not category and t.plain == t.total and u.total == 0 then result.plainOnly = t.total end
+  return result
 end
 
 -- Answers kept while every thing's state is (Facts.Buys.Stamp: until data
@@ -379,7 +391,12 @@ R.Register({
   order = 8,
   Evaluate = function(ctx)
     local owner = ctx.owner or { faction = ctx.playerFaction, isViewer = not ctx.otherCharacter, name = ctx.otherCharacter }
-    return Kept(Recollect.Facts.Relations.For(ctx.stack.itemID), owner, ctx.stack.itemID)
+    local result = Kept(Recollect.Facts.Relations.For(ctx.stack.itemID), owner, ctx.stack.itemID)
+    if result and result.plainOnly then
+      result.optional = "buys"
+      result.brief = ("Buys %d %s you can still buy"):format(result.plainOnly, result.plainOnly == 1 and "thing" or "things")
+    end
+    return result
   end,
 })
 

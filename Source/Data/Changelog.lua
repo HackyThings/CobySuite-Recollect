@@ -14,6 +14,29 @@
 -------------------------------------------------------------------------------
 Recollect.Data.Changelog = {
   {
+    version = "1.0.3",
+    title = "Where mounts, pets and toys come from",
+    date = "2026-10-11",
+    new = {
+      "Mounts, pets and toys: far more say where they come from, shop and promotions included",
+      "Comes from: disenchanting, skinning, gathering, Delve rewards and other qualities",
+      "{/rec} addons: every addon by Cobanyte, with CurseForge links",
+      "{/rec} reset windows: every window back to its default place and size",
+      "Newer version notice: a chat line when someone in your guild or group has a newer version",
+    },
+    changed = {
+      "Still needed?: Just for fun, Your call or Replaced for far more items",
+      "A bigger database and about 400 more item descriptions",
+      "Curator mode: online checks also say your zone and instance",
+    },
+    fixed = {
+      "Done quests show the green check, dailies and weeklies included",
+      "Alts' achievement items: checked fully only on that character",
+      "Item details: looks, filters and late-loading links read right",
+      "Several smaller fixes",
+    },
+  },
+  {
     version = "1.0.2",
     title = "A bigger database and a clearer answer",
     date = "2026-10-06",

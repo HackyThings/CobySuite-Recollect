@@ -4,6 +4,35 @@ All notable changes to Recollect are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-10-11
+
+### Added
+
+- **Other addons by the same author.** `/rec addons` lists every addon Cobanyte has released, the same list in each of them: what it does, pictures you can click to see bigger, and its CurseForge link to copy into your browser. Addons you already have are marked. It only opens when you ask, and the guide's last section points to it. The list remembers its size and where you left it.
+- **Reset windows.** `/rec reset windows` puts every window back to its default place and size after you confirm; your settings are not touched.
+- **Where more things come from.** Disenchanting results, skins and scales, herbs, ores and other gathering yields now name the profession action that gives them, and skins name the creatures they were skinned from. Spark of Tides reads as a seasonal drop from the season's dungeons and raids instead of one boss's loot, and the Concealed Catalogue says it drops only on Mythic or Mythic Keystone. Every Timewalking vendor now lists its goods with their badge prices, guild vendors and the Siege of Orgrimmar raid vendors show what they sell, pet supply bags list what's inside, and many holiday quests show what they give. Two quests the game calls daily no longer read as weekly, and about 30 more items say what they're for.
+- **Delve rewards and other qualities.** Items a Delve gives when you complete it now say so in Comes from (a "Delve reward" row), such as Star-in-a-Jar and the gear Delves hand out. An item that comes in several qualities, or has a twin of the same name (Fused Vitality is bought with two different currencies), now lists its other qualities in Comes from, each with its own tooltip and link.
+- **How mounts, pets and toys are obtained.** Far more mounts, pets and toys now say where they come from: the in-game shop, a promotion, a Trading Card Game loot card or a Recruit-A-Friend reward each get their own row in Comes from, and more of them name the Trading Post, the achievement that rewards them, the creature that drops them, the container they come out of or the zone where they're fished. The Comes from tab of any mount or pet also shows the mount or pet journal's own words for where it comes from.
+- **Newer version notice.** When someone in your guild or group has a newer version of Recollect, one line in chat says which version is out and which one you have. Your copy shares its version with them quietly, so they hear about a newer one from you too. On by default; turn it off with "Tell me when a newer version is out" in `/rec settings` (Audit panel).
+
+### Changed
+
+- **Still needed? answers far more items.** Novelties such as pet treats that change a pet's size, fireworks and disguises now read "Just for fun". Items for pet battles, older items with a use, and tokens that only buy things you can still buy read "Your call". Older stat scrolls and stat boosts read "Replaced". The Hearthstone reads "Keep it". Recipes in your bank and warband bank are checked too. None of these answers ever says an item is safe to delete.
+- **A bigger database.** Brewfest brew and food prices, Delve mount prices in Silvermoon, the Hearty Food recipes and what they make, the flawless battle-stones in pet supply bags, about 20 more recipes, the Darkmoon Faire's draughts and tinctures, Ride Ticket Books and what they hold, the Timewalking coin from Scholomance's last boss, the Coiled Isle's daily fishing quests, where fish are caught in Silvermoon City, Fused Vitality from more professions' weekly quests, the Fortify the Runestones quests that use Latent Arcana, and a few more quest turn-ins, choice rewards, drops and NPC places.
+- **Item descriptions.** About 400 more items, many of them consumables, now say in a sentence or two what they are and how you use them.
+- **Curator mode.** While it is on, when the author checks who is online, your game also says which zone you are in and whether you are in a dungeon, raid, delve, battleground, arena or other instance, so a collection never starts by itself while you are in one (a house or neighborhood does not hold it back). With curator mode off, none of this is sent. The settings page says so.
+
+### Fixed
+
+- **Quests for a profession you don't have.** In Comes from and How to get more, the "Needs Alchemy" style quests now come after the ones you can do or have done.
+- **Done quests look done.** A quest you have done now shows the green check, a weekly or daily you finished this week or today included, and only a quest you haven't done shows the red cross.
+- **Your professions.** Recipe, crafted-by and reagent lines say "you don't have Tailoring" when your character doesn't have that profession.
+- **Achievement items on your other characters.** An alt's item that counts toward an achievement no longer reads Needed, or done, from the character you're logged in on. Unless the achievement is account-wide, its progress is per character, so Recollect says it can be checked fully only on that alt. An earned achievement still counts for every character.
+- **Past-season sparks and other crafting materials.** "You have every appearance of the gear it makes" now needs each crafted piece's own tooltip to agree that its look is collected; when one can't be confirmed, the item reads Can't tell instead of Outdated.
+- **Item details.** A gear purchase says "Look collected" or "Look not collected" only when the item's own tooltip agrees. A recipe whose product is still loading no longer lands under the "Already have or done" or "Still to get or do" filter. New uses found while the window is open (a profession scan, the mount and pet journals finishing their read, a new endeavor task) now show up without reopening it. A quest link that loads late no longer replaces a tooltip you opened after clicking it. What it's for no longer says what an item is twice ("A consumable from Classic" on two lines).
+- **Audit panel.** Hovering two rows of the same item in the item list one right after the other shows the second row's own answer and location, not the first one's.
+- **Curator mode.** When the author stops a collection before you answer the review prompt, the prompt now goes away instead of waiting for an answer.
+
 ## [1.0.2] - 2026-10-06
 
 ### Changed
@@ -99,7 +128,8 @@ The first release of Recollect: what every item in your bags, bank and warband b
 
 - **Settings, a guide and a changelog.** `/rec settings` (also a right-click on the minimap button or Options > AddOns), `/rec guide`, which opens by itself on your first login, and `/rec changelog`.
 
-[Unreleased]: https://github.com/HackyThings/CobySuite-Recollect/compare/v1.0.2...HEAD
+[Unreleased]: https://github.com/HackyThings/CobySuite-Recollect/compare/v1.0.3...HEAD
+[1.0.3]: https://github.com/HackyThings/CobySuite-Recollect/releases/tag/v1.0.3
 [1.0.2]: https://github.com/HackyThings/CobySuite-Recollect/releases/tag/v1.0.2
 [1.0.1]: https://github.com/HackyThings/CobySuite-Recollect/releases/tag/v1.0.1
 [1.0.0]: https://github.com/HackyThings/CobySuite-Recollect/releases/tag/v1.0.0

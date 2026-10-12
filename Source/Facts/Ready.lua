@@ -19,6 +19,8 @@
 --           records its answer)
 --   Quests  QUEST_SETTLE seconds after the first PLAYER_ENTERING_WORLD, and
 --           the completed-quest list is not empty
+--   Transmog, Equipment  QUEST_SETTLE seconds after the first
+--           PLAYER_ENTERING_WORLD (no call says when either has loaded)
 -- Once open, each of these gates stays open for the session: the Lab found
 -- every source full at its first check and unchanged afterwards, and the
 -- quest and mount gates build the whole list on each read, once per row per

@@ -486,6 +486,7 @@ Bags.Subscribe(function(before, after) NoInfo.OnBags(before, after) end)
 Host.OnSnapshotCaptured(function() storedSoon:Call() end)
 
 local frame = CreateFrame("Frame")
+NoInfo.frame = frame   -- its events, for a development timing probe (Task #294)
 for _, event in ipairs({ "ITEM_DATA_LOAD_RESULT", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED" }) do
   pcall(frame.RegisterEvent, frame, event)
 end

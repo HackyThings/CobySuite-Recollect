@@ -92,6 +92,7 @@ local ROLE_WORDS = {
   usedAt = "use %s here",
   soldBy = "sells %s",
   dropsFrom = "drops %s",
+  skinnedFrom = "skin it for %s",
   payment = "takes %s as payment",
   spend = "spend %s here",
   opens = "open it with %s",

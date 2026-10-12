@@ -62,7 +62,9 @@ end
 -------------------------------------------------------------------------------
 -- What a player agrees to before opting in, in four blocks (the settings
 -- redesign, Task #51; Cobanyte chose the structure and approved these words
--- 2026-10-01, with the heading "What automatic collection leaves out").
+-- 2026-10-01, with the heading "What automatic collection leaves out"), plus
+-- one sentence in the third block about the zone and instance kind (Task #299,
+-- 2026-10-06, its words approved for Cobanyte).
 -- They replace the five paragraphs the settings showed before and
 -- keep every fact and qualification of them (CuratorBoundary suite).
 Provider.CONSENT_BLOCKS = {
@@ -79,6 +81,7 @@ Provider.CONSENT_BLOCKS = {
   { title = "How it's collected, and who can see it", icon = "Interface\\Icons\\UI_Chat", lines = {
     "Recollect's author collects your findings in the background through the \"Recollect Curators\" community to improve the database. You'll see a chat message when a collection starts and ends; /rec curator shows what's waiting, what was sent, and a running collection you can cancel.",
     "Findings are sent only from characters in the community, whose members can see your character's name and zone.",
+    "While curator mode is on, the author's online checks also report your current zone and the kind of instance you're in, even when there are no findings to collect.",
     "Your characters share one random curator ID made by Recollect (not your Blizzard account). Only Recollect's author sees it, so he can tell your characters belong to the same player.",
   } },
   { title = "Your findings", icon = "Interface\\Icons\\INV_Misc_PocketWatch_01", lines = {
@@ -275,9 +278,9 @@ end
 -- running collection and a request waiting for an answer), or the status
 -- line when the window can't open (in combat before it was built); status
 -- prints that line, and join, ping or transport, pong, diag, cancel and
--- console (development) do what they always did. channel, which joined the
--- old hidden channel, only says there is none now (0.0.1c told curators to
--- type it).
+-- console (development) each run their own tool. channel only says there is
+-- no curator channel now (messages go by whisper); it stays because older
+-- builds told curators to type it.
 function Provider.Slash(rest)
   if not Curator.Main.Available() then
     Host.Print(Provider.REGION_TEXT)

@@ -19,6 +19,8 @@
 --                  -- the same place, shown instead when the column's
 --                  -- button.alt(row) is true; it handles its own clicks
 --                  -- (the details window's secure achievement button)
+--     selected = function(row) -> true,   -- optional: that row painted
+--                  -- selected (a gold wash; the curator console's detail)
 --   })
 --   t:AddView(key, columns, { minStretch, sortKey, ascending })
 --     columns = { { key, label, width, stretch, justify, tooltip, sortable,
@@ -28,6 +30,8 @@
 --       bar = function(row) -> 0 to 1 or nil,   (a progress bar behind the
 --         cell's text, as wide as that share of the column)
 --       barColor = { r, g, b, a },
+--       padRight = pixels,   (room kept right of the text, default 4: a
+--         right-justified number that sits against the next column's text)
 --       fill = function(row) -> { r, g, b, a } or nil,   (the whole cell's
 --         background, behind any bar: a muted tint that keeps the text readable)
 --       aside = { width, text = function(row) -> string },   (a second text
@@ -40,6 +44,10 @@
 --         onAltEnter = function(altButton, row) } } }   (the row's button,
 --         centered; alt true shows the alternate button there)
 --   t:ShowView(key)   t:SetRows(key, rows)   t:Refresh()   t:GetSort(key)
+--   t:SetEmptyText(text)   what the table says while the active view has no
+--                    rows ("" says nothing): a centered gray note in place of
+--                    bare headers, as the shared sort table's
+--   t:RowFrame(data)  the row frame showing data now, or nil
 -- Double-clicking a column's divider fits it to its title and its cells'
 -- text (the header's measureColumn: Table:MeasureColumn, the first
 -- MEASURE_ROWS rows in their order), as a spreadsheet does.
@@ -116,6 +124,13 @@ local function MakeRow(t, list, i)
   row:SetPoint("RIGHT", list, "RIGHT", 0, 0)
   row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
   CobySuite_Recollect.UI.AddHoverHighlight(row)
+  if t.opts.selected then
+    row.Selected = row:CreateTexture(nil, "BACKGROUND", nil, 1)
+    row.Selected:SetAllPoints()
+    local gold = U.Colors.STATUS_GOLD
+    row.Selected:SetColorTexture(gold[1], gold[2], gold[3], 0.15)
+    row.Selected:Hide()
+  end
   row.Icon = row:CreateTexture(nil, "ARTWORK")
   row.Icon:SetSize(ICON, ICON)
   row.cells, row.asides, row.bars, row.barRoom, row.fills = {}, {}, {}, {}, {}
@@ -209,6 +224,14 @@ function DataTable.Create(parent, opts)
   -- measures cell text for auto-fit, in the cells' own font; never shown
   t.measure = frame:CreateFontString(nil, "OVERLAY", U.Fonts.DATA)
   t.measure:Hide()
+  t.Empty = frame:CreateFontString(nil, "OVERLAY", U.Fonts.BODY)
+  t.Empty:SetPoint("TOP", list, "TOP", 0, -24)
+  t.Empty:SetWidth(460)
+  t.Empty:SetWordWrap(true)
+  t.Empty:SetJustifyH("CENTER")
+  local gray = U.Colors.LABEL_GRAY
+  t.Empty:SetTextColor(gray[1], gray[2], gray[3])
+  t.Empty:Hide()
   frame:SetScript("OnSizeChanged", function() t:Layout() t:Refresh() end)
   return t
 end
@@ -308,7 +331,7 @@ function Table:Layout()
       else
         text:Show()
         text:SetJustifyH(col.justify or "LEFT")
-        local inset = 4
+        local inset, gap = 4, view.columns[c] and view.columns[c].padRight or 4
         if c == 1 then
           row.Icon:ClearAllPoints()
           row.Icon:SetPoint("LEFT", row, "LEFT", b.left + 4, 0)
@@ -317,7 +340,7 @@ function Table:Layout()
         -- every cell has its column's width, so a long text ends in "..."
         -- inside its own column
         text:SetPoint("LEFT", row, "LEFT", b.left + inset, 0)
-        local room = b.width - inset - 4
+        local room = b.width - inset - gap
         if asideSpec then
           local asideW = math.min(asideSpec.width or 0, math.max(room - 10, 0))
           aside:SetPoint("LEFT", row, "LEFT", b.left + b.width - 4 - asideW, 0)
@@ -359,7 +382,7 @@ function Table:MeasureColumn(key, c, limit)
   if widest <= 0 then return nil end
   local inset = c == 1 and (ICON + 8) or 4
   local aside = col.aside and (col.aside.width or 0) + ASIDE_GAP or 0
-  return math.ceil(widest + aside + inset + 4 + 2)   -- Layout's inset and right gap, and a pixel each side
+  return math.ceil(widest + aside + inset + (col.padRight or 4) + 2)   -- Layout's inset and right gap, and a pixel each side
 end
 
 -- The columns of a view the user sized ({ [colKey] = true }), kept in the
@@ -394,12 +417,29 @@ function Table:FitView(key)
   if self.active == key then self:Layout() end
 end
 
+-- SetEmptyText(text): the note shown while the active view has no rows
+function Table:SetEmptyText(text)
+  self.emptyText = text or ""
+  self.Empty:SetText(self.emptyText)
+  local view = self.views[self.active]
+  self.Empty:SetShown(self.emptyText ~= "" and view ~= nil and #view.rows == 0)
+end
+
 -- SetRows(key, rows): the rows the view shows, in order
 function Table:SetRows(key, rows)
   local view = self.views[key]
   if not view then return end
   view.rows = rows or {}
   if self.active == key then self:Refresh() end
+end
+
+-- RowFrame(data): the row frame showing data now, or nil when it isn't on
+-- screen (the curator console's Verify shot anchors a hover to it)
+function Table:RowFrame(data)
+  for _, frame in ipairs(self.pool) do
+    if frame.data == data and frame:IsShown() then return frame end
+  end
+  return nil
 end
 
 -- How many rows fit now (never more than the pool)
@@ -419,6 +459,7 @@ end
 function Table:Paint()
   local view = self.views[self.active]
   if not view then return end
+  self.Empty:SetShown((self.emptyText or "") ~= "" and #view.rows == 0)
   local offset = FauxScrollFrame_GetOffset(self.scroll)
   local visible = self:Visible()
   local columns = view.columns
@@ -433,6 +474,7 @@ function Table:Paint()
     else
       frame:Show()
       U.AddAlternatingRowBg(frame, index)
+      if frame.Selected then frame.Selected:SetShown(self.opts.selected(data) == true) end
       local first = columns[1]
       local icon, isAtlas
       if first and first.icon then icon, isAtlas = first.icon(data) end

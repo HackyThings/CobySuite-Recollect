@@ -273,6 +273,88 @@ function UseEffect.Info(reason, described, tail)
   return result
 end
 
+-------------------------------------------------------------------------------
+-- An optional use (Task #339; Cobanyte, 2026-10-10: a novelty such as the
+-- Magical Pet Biscuit "is optional", never Can't tell): what an informing
+-- result of an item no expansion replaces says about keeping it, read from
+-- its Use line on English clients. The details window's Still needed? band
+-- reads result.optional; the verdict stays Can't tell (it only informs).
+--   "novelty"    only for fun: a companion pet's size or snack, a firework,
+--                a mount's color, or turning into something, each with
+--                nothing else to it (no number but a duration or a
+--                cooldown, no word of play: damage, healing, breathing
+--                underwater, a summons and the like)
+--   "petBattle"  for pet battles: it heals, revives, levels or upgrades
+--                battle pets (never one that teaches or gives a pet)
+--   "older"      an item of an older expansion whose Use line was read;
+--                whether what it does still works, or still matters, is
+--                read nowhere, so the band says only that it's older
+--   nil          anything else (no Use line read, another language, an item
+--                of this expansion, or one the game and the added patch
+--                place apart and that is none of the kinds above)
+-------------------------------------------------------------------------------
+local NOVELTY = {
+  "companion pet's size", "companion pet a snack", "firework", "color variant when summoned",
+}
+local TRANSFORM = { "transforms you into", "transform into", "transforms into", "disguise yourself as", "turns you into" }
+-- Words that give a novelty a use beyond fun
+local GAMEPLAY = { "damage", "heal", "health", "mana", "detect", "chance", "grant", "kill", "increase", "reduce", "speed",
+  "stealth", "threat", "resist", "absorb", "honor", "coin", "reputation", "experience", "attack power", "loot", "quest",
+  "allow", "abilit", "fly", "swim", "breath", "underwater", "water walk", "walk on", "mount", "summons", "enter", "access",
+  "root", "stun", "slow", "invisib", "enem", "allies", "currency", " xp" }
+-- A duration or a cooldown, which says nothing of what it does
+local function WithoutTimes(text)
+  return (text:gsub("%(%d+ [^%)]*cooldown%)", ""):gsub("for %d+ %a+", ""):gsub("lasts %d+ %a+", ""))
+end
+
+local function Named(plain, list)
+  for _, words in ipairs(list) do
+    if plain:find(words, 1, true) then return true end
+  end
+  return false
+end
+
+local function Novelty(plain)
+  if not (Named(plain, NOVELTY) or Named(plain, TRANSFORM)) then return false end
+  local rest = WithoutTimes(plain)
+  if rest:find("%d") then return false end
+  for _, word in ipairs(GAMEPLAY) do
+    if rest:find(word, 1, true) then return false end
+  end
+  return true
+end
+
+-- What a pet-battle item does to battle pets; one that teaches, gives or
+-- holds a pet is no pet-battle item
+local PET_BATTLE = { "heal", "resurrect", "revive", " xp ", "experience", "upgrade", "level" }
+local NOT_PET_BATTLE = { "teach", "random", "receive", "contain", "learn" }
+local function PetBattle(plain)
+  if not plain:find("battle pet", 1, true) then return false end
+  return Named(plain, PET_BATTLE) and not Named(plain, NOT_PET_BATTLE)
+end
+
+-- Optional(ctx, age): the kind of optional use, or nil; age is
+-- Facts.Item.Age's answer for the item
+function UseEffect.Optional(ctx, age)
+  if not R.EnglishClient() then return nil end
+  local tip = ctx.Tooltip()
+  local plain = tip and Plain(tip.useText)
+  if not plain then return nil end
+  plain = plain:lower()
+  if Novelty(plain) then return "novelty" end
+  if PetBattle(plain) then return "petBattle" end
+  if age == "older" then return "older" end
+  return nil
+end
+
+-- Items every character keeps whatever their age (Task #343): the
+-- Hearthstone is each character's way home, so it is Useful, never left to
+-- the player's call with the older items
+local EVERY_CHARACTER = {
+  [6948] = { "Every character's way home: it takes you back to the inn you've made your home", "Every character's way home" },
+}
+UseEffect.EVERY_CHARACTER = EVERY_CHARACTER
+
 -- Enum.ItemMiscellaneousSubclass (12.1): Junk 0, Holiday 3, Other 4
 local Sub = Enum and Enum.ItemMiscellaneousSubclass or {}
 local SUBCLASSES = { [Sub.Junk or 0] = true, [Sub.Holiday or 3] = true, [Sub.Other or 4] = true }
@@ -284,6 +366,8 @@ R.Register({
   Evaluate = function(ctx)
     local facts = ctx.facts
     if facts.classID ~= R.CLASS_MISC or not SUBCLASSES[facts.subclassID] then return nil end
+    local keep = EVERY_CHARACTER[ctx.stack.itemID]
+    if keep then return R.Result(V.USEFUL, keep[1], keep[2]) end
     if facts.hasSpell == false then return nil end   -- nothing to use
     local collection = R.CollectionItem(ctx)
     if collection == true then return nil end
@@ -300,13 +384,14 @@ R.Register({
     if not age then
       return R.Unknown("An item with a Use effect; its expansion can't be read")
     end
-    if age == "older" then
-      return UseEffect.Info(("An item with a Use effect, %s, an older expansion"):format(UseEffect.From(expansion, source, patch)),
-        UseEffect.Describe(ctx))
-    end
-    if age == "disagree" then
-      return UseEffect.Info("An item with a Use effect; " .. UseEffect.Disagree(facts, expansion, patch)
-        .. ", so whether it's of the current expansion can't be told", UseEffect.Describe(ctx))
+    if age == "older" or age == "disagree" then
+      local result = age == "older"
+        and UseEffect.Info(("An item with a Use effect, %s, an older expansion"):format(UseEffect.From(expansion, source, patch)),
+          UseEffect.Describe(ctx))
+        or UseEffect.Info("An item with a Use effect; " .. UseEffect.Disagree(facts, expansion, patch)
+          .. ", so whether it's of the current expansion can't be told", UseEffect.Describe(ctx))
+      result.optional = UseEffect.Optional(ctx, age)
+      return result
     end
     local tip = ctx.Tooltip()
     if not tip then return R.Unknown("A current-expansion item with a Use effect; its tooltip can't be read", nil, "unreadable") end

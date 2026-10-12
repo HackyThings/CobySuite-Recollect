@@ -33,7 +33,7 @@ A short summary beside the tooltip: the verdict and why, the uses that matter mo
 
 ## The item details window
 
-Everything Recollect knows about one item, so you don't need a website. Open it with Alt+D, or click a row in the Recollect Audit. A setting can make the key a click instead (Alt+click, for example), which works on any item, even in combat.
+Everything Recollect knows about one item, so you don't need a website. Open it with Alt+D, or click a row in the Recollect Audit. A setting can make the key a click instead (Alt-click, for example), which works on any item, even in combat.
 
 - **Still needed?** Recollect's suggestion (Keep it, Sell it, Likely safe to delete, Probably done, Just for fun, Replaced, Lower level or Can't tell yet) with a short reason; hover for the rest.
 - **What it's for:** what the item is, its Use line, and a tile for each kind of use with how many there are and how many are still open.
@@ -70,7 +70,7 @@ Optional and off by default, and available only in the Americas and Oceania regi
 
 - Turn it on under `/rec settings` > **Curator**, which lists exactly what is recorded. It records game IDs and positions, never names, chat, gold, currencies or how many of anything you have.
 - Join **Recollect Curators** with `/rec curator join`; the author collects findings through that community.
-- **Curator Flag** (or **Request info**) in item details and `/rec feedback` send your own notes.
+- **Curator Flag** (or **Request Info**) in item details and `/rec feedback` send your own notes.
 - `/rec curator` shows what waits to be sent and the collection history. Turn on **Ask me before each collection** to approve each one.
 - Turning curator mode off stops recording and offers to delete saved findings.
 
@@ -81,7 +81,9 @@ Optional and off by default, and available only in the Americas and Oceania regi
 /rec settings     Open or close the settings window (also /rec config, /rec options)
 /rec guide        Open or close the feature guide (also /rec tutorial)
 /rec changelog    Open or close the changelog: what changed in each version (also /rec whatsnew, /rec news, /rec change)
+/rec addons       Every addon by Cobanyte, with CurseForge links and pictures (also /rec other, /rec more)
 /rec debug        Open or close the debug log window
+/rec reset windows  Put every window back to its default place and size
 /rec curator      Open the curator dashboard (also status, join, cancel, diag, ping)
 /rec feedback     Write feedback for Recollect's author, sent with your next curator collection (also /rec bug)
 /rec version      Print the addon version
@@ -90,7 +92,7 @@ Optional and off by default, and available only in the Americas and Oceania regi
 
 The Addon Compartment also opens the Recollect Audit; right-click it for settings.
 
-## Issues / Feedback
+## Issues / feedback
 
 Found a bug? Run `/rec debug`, press **Copy Last 250** and send the text with a line about what you were doing. The log holds the addon version, your WoW build and your settings.
 

@@ -106,6 +106,7 @@ local seams = {
   After = function(delay, fn) C_Timer.After(delay, fn) end,
   Now = function() return GetTime() end,   -- the same all through one frame
   SkillLineName = function(skillLine) return C_TradeSkillUI.GetTradeSkillDisplayName(skillLine) end,
+  ProfessionInfoByLine = function(skillLine) return C_TradeSkillUI.GetProfessionInfoBySkillLineID(skillLine) end,
 }
 
 local scan = nil   -- { skillLine, name, ids, index, learned, uses }
@@ -287,6 +288,71 @@ function Recipes.IsProfession(skillLine)
   return PROFESSIONS[Recipes.ProfessionOf(skillLine)] == true
 end
 
+-- OwnsSkillLine(skillLine): whether this character has that profession
+-- (Task #334): true, false, or nil when it can't be told (a bad skill line,
+-- or a slot of GetProfessions that can't be read, which may be this one, so
+-- it is never "doesn't have"). Every one of GetProfessions' five slots counts
+-- (two primary professions, archaeology, fishing, cooking), a specialization
+-- being its profession's, and the read goes through the Purposes client the
+-- profession-gear check reads through. The one place a profession line asks.
+--
+-- Not before they are known (Task #337): from login until PROFESSIONS_WAIT
+-- seconds after the first PLAYER_ENTERING_WORLD (the delay RecordProfessions
+-- waits for), an answer with no profession in any slot may only be the list
+-- not loaded yet, and reads nil (unknown), never "doesn't have". A list with
+-- any profession in it is taken as loaded at once; when the wait ends the
+-- open windows read again (InventoryChanged "professions").
+local PROFESSIONS_WAIT = 2
+-- True from login (the client says it is not logged in while the addon loads)
+-- until the wait ends; an addon loaded into a running session, and a client
+-- that can't say, never wait
+local waitingForProfessions = false
+do
+  local ok, loggedIn = pcall(function() return IsLoggedIn() end)
+  waitingForProfessions = ok and loggedIn == false
+end
+
+function Recipes.OwnsSkillLine(skillLine)
+  if not Recollect.Utilities.IsPositiveID(skillLine) then return nil end
+  local want = Recipes.ProfessionOf(skillLine)
+  local client = Recollect.Purposes.client
+  local okList, a, b, c, d, e = Try(client.GetProfessions)
+  if not okList then return nil end
+  local unread, any = false, false
+  for _, index in pairs({ a, b, c, d, e }) do
+    any = true
+    local okInfo, _, _, _, _, _, _, line = Try(client.GetProfessionInfo, index)
+    if okInfo and line == want then return true end
+    if not okInfo then unread = true end
+  end
+  if unread then return nil end
+  if not any and waitingForProfessions then return nil end
+  return false
+end
+
+-- The player profession a skill line belongs to (Task #338): the line
+-- itself or its specialization's parent when it is one, else the parent the
+-- game gives an expansion's own line ("Khaz Algar Tailoring" is Tailoring's),
+-- else nil
+function Recipes.ParentProfession(skillLine)
+  if not Recollect.Utilities.IsPositiveID(skillLine) then return nil end
+  if Recipes.IsProfession(skillLine) then return Recipes.ProfessionOf(skillLine) end
+  local ok, info = Try(seams.ProfessionInfoByLine, skillLine)
+  local parent = ok and type(info) == "table" and info.parentProfessionID or nil
+  if Recollect.Utilities.IsPositiveID(parent) and Recipes.IsProfession(parent) then return Recipes.ProfessionOf(parent) end
+  return nil
+end
+
+-- The player profession's skill line a display name names ("Tailoring"), or
+-- nil: the names are read live in the client's language
+function Recipes.ProfessionByName(name)
+  if type(name) ~= "string" or name == "" then return nil end
+  for skillLine in pairs(PROFESSIONS) do
+    if Recipes.SkillLineName(skillLine) == name then return skillLine end
+  end
+  return nil
+end
+
 -- A skill line's name in the client's language ("Protoform Synthesis"), or nil
 function Recipes.SkillLineName(skillLine)
   if not Recollect.Utilities.IsPositiveID(skillLine) then return nil end
@@ -427,7 +493,14 @@ local function OnEvent(_, event)
     generation = generation + 1   -- a profession learned or dropped
     seams.After(0.5, Recipes.RecordProfessions)
   elseif event == "PLAYER_ENTERING_WORLD" then
-    seams.After(2, Recipes.RecordProfessions)   -- the professions are readable once in the world
+    -- the professions are readable once in the world; then the lines that
+    -- waited for them read again (Task #337)
+    seams.After(PROFESSIONS_WAIT, function()
+      local wasWaiting = waitingForProfessions
+      waitingForProfessions = false
+      Recipes.RecordProfessions()
+      if wasWaiting then Recollect.EventBus:Fire(Recollect.Events.InventoryChanged, "professions") end
+    end)
   else
     if event == "TRADE_SKILL_DATA_SOURCE_CHANGED" then scan, scanned = nil, {} end
     seams.After(0.5, Recipes.Scan)   -- let the list settle first
@@ -445,4 +518,7 @@ Recipes._test = {
   -- the skill lines scanned since their window opened, set aside for a test and put back
   GetScanned = function() return scanned end,
   SetScanned = function(set) scanned = set end,
+  -- whether professions are still being waited for (login), set aside for a test and put back
+  IsWaitingForProfessions = function() return waitingForProfessions end,
+  SetWaitingForProfessions = function(value) waitingForProfessions = value end,
 }

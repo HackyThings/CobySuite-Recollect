@@ -13,7 +13,9 @@
 --   H  presence or challenge: answered with R whether or not curator mode is
 --      on (state "off" when opted out, "nodata" when the data files failed
 --      their check); a challenge's checksum is Protocol.Challenge over this
---      character's own name
+--      character's own name. While curator mode is on, R ends with the kind
+--      of instance this character is in and, while Const.SEND_ZONE is on,
+--      its zone; with it off, R stops after the waiting list (Task #299)
 --   Q  a pull: refused with S (busy, off, nodata, empty, declined, pack, large)
 --      or started: one block of the pending records, stamps and notes (at
 --      most Protocol.OBSERVATIONS, fewer until it packs within BLOCK_RAW
@@ -36,7 +38,9 @@
 --      (Store.Saved / Lost / Quarantined / RejectedRequest, and the notes a
 --      pull carried), only for requests waiting for it; X  cancel, or
 --      "rejected:<why>": the collection's revisions are never sent again
---      until they change.
+--      until they change. An X for a pull not started yet takes back its
+--      ask-first prompt, or keeps a start still waiting its frame from
+--      beginning (the author's Stop and keep).
 -- A pull carries the curator's notes not sent yet (flags, feedback, errors)
 -- beside the findings, so a store holding only notes is not "empty".
 -- The curator also sends O once a session when it is a member with curator
@@ -59,6 +63,8 @@ Sharing.LINK = "addon:RecollectCurator:review"
 
 local transfer = nil   -- { request, mode, sender, pending, payload, chunks, checksum, sent, waitingK }
 local prompt = nil     -- { request, mode, sender, at, localOnly, opts }
+local cancelled = {}   -- { { request, sender } }: X for a pull not started yet (a deferred start never begins)
+local CANCELLED_KEPT = 20
 
 local function CuratorID()
   return Curator.Main.CuratorID()
@@ -127,6 +133,45 @@ end
 -------------------------------------------------------------------------------
 -- H and R
 -------------------------------------------------------------------------------
+-- Where this character is, for R's last two fields (Task #299; Cobanyte,
+-- 2026-10-06: the author's side pulls nobody inside an instance by itself).
+-- The calls are Blizzard's generated docs' (12.1.0, 69933): IsInInstance
+-- (InstanceDocumentation), C_PartyInfo.IsDelveInProgress (PartyInfo),
+-- GetZoneText (ZoneScript); which type a delve reports is unmeasured, so a
+-- delve in progress wins over any type
+Sharing.seams = {
+  Instance = function() return IsInInstance() end,
+  DelveInProgress = function() return C_PartyInfo.IsDelveInProgress() end,
+  Zone = function() return GetZoneText() end,
+}
+
+-- IsInInstance's types to the wire's kinds (Protocol.INSTANCE_KINDS); the
+-- housing ones are a house or neighborhood
+local INSTANCE_KINDS = { party = "party", raid = "raid", scenario = "scenario", pvp = "pvp", arena = "arena",
+  neighborhood = "home", interior = "home" }
+
+-- Instance(): the kind of instance this character is in, "none" outside one,
+-- "?" when it can't be read (the author's side counts that as inside one)
+function Sharing.Instance()
+  local ok, inside, kind = pcall(Sharing.seams.Instance)
+  if not ok or Host.IsSecret(inside) or Host.IsSecret(kind) then return "?" end
+  if inside == false then return "none" end
+  if inside ~= true then return "?" end
+  local okDelve, delve = pcall(Sharing.seams.DelveInProgress)
+  if okDelve and not Host.IsSecret(delve) and delve == true then return "delve" end
+  return INSTANCE_KINDS[kind] or "other"
+end
+
+-- Zone(): the zone's name, cleaned to what R may carry, while
+-- Const.SEND_ZONE is on; "" when it is off or the name can't be read (OnHello
+-- asks only while curator mode is on)
+function Sharing.Zone()
+  if Curator.Const.SEND_ZONE ~= true then return "" end
+  local ok, text = pcall(Sharing.seams.Zone)
+  if not ok or Host.IsSecret(text) then return "" end
+  return Protocol.CleanZone(text)
+end
+
 function Sharing.OnHello(msg)
   if not Curator.Main.Available() or not FromAuthor(msg) then return end
   local f = msg.fields
@@ -141,18 +186,41 @@ function Sharing.OnHello(msg)
     state, counts.pending, Curator.Notes.Counts().pending, f[3] ~= "" and "with the installation check" or "presence only")
   local fields = { CuratorID(), versions.addon, versions.data, versions.format, Protocol.VERSION, checksum, state,
     Transport.Activity(), counts.pending + Curator.Notes.Counts().pending, counts.pendingBytes }
+  -- where this character is, only while curator mode is on (Task #299; the
+  -- consent text says so): an answer with curator mode off stays the basic
+  -- one, which stops after the waiting list, sending neither field
+  local where = Curator.Main.IsEnabled()
+  local instance, zone = where and Sharing.Instance() or nil, where and Sharing.Zone() or ""
   -- the requests waiting for V, as many as fit the message (a dozen made
   -- the R too long to send), in ID order; the rest ride the next R, once V
-  -- has settled these; measured as Send builds it, addressee included
-  local base = Protocol.Encode("R", msg.mode, Protocol.AUTHOR, f[1], unpack(fields, 1, 10))
-  local room = Protocol.MAX_MESSAGE - (base and #base or Protocol.MAX_MESSAGE) - #Protocol.SEP
+  -- has settled these; measured as Send builds it, addressee, the instance
+  -- and the zone included (an empty list keeps its separator). A zone that
+  -- leaves no room at all is left out
+  local function Base(withZone)
+    if not where then
+      return Protocol.Encode("R", msg.mode, Protocol.AUTHOR, f[1], fields[1], fields[2], fields[3], fields[4], fields[5],
+        fields[6], fields[7], fields[8], fields[9], fields[10], "")
+    end
+    return Protocol.Encode("R", msg.mode, Protocol.AUTHOR, f[1], fields[1], fields[2], fields[3], fields[4], fields[5],
+      fields[6], fields[7], fields[8], fields[9], fields[10], "", instance, withZone)
+  end
+  local base = Base(zone)
+  if not base and zone ~= "" then
+    zone = ""
+    base = Base(zone)
+  end
+  local room = Protocol.MAX_MESSAGE - (base and #base or Protocol.MAX_MESSAGE)
   local awaiting = Sharing.AwaitingIDs()
   local list, n = Protocol.ListWithin(awaiting, math.max(0, room), Protocol.LIST_MAX)
   if n < #awaiting then
     Host.Log("Curator presence answer names %d of %d requests waiting for V; the rest go in the next one", n, #awaiting)
   end
   fields[#fields + 1] = list
-  SendTo(msg.sender, false, "R", msg.mode, f[1], unpack(fields, 1, 11))
+  if where then
+    fields[#fields + 1] = instance
+    fields[#fields + 1] = zone
+  end
+  SendTo(msg.sender, false, "R", msg.mode, f[1], unpack(fields, 1, #fields))
 end
 
 -- The requests waiting for V: the store's and the notes' (which keep their
@@ -349,8 +417,10 @@ end
 
 -- PackBlock(opts): the snapshot, what it holds, how many are left and its
 -- payload, halving the observations until it packs within the block's
--- bytes (LARGE_RAW for a large pull); nil and the refusal's word otherwise
-local function PackBlock(opts)
+-- bytes (LARGE_RAW for a large pull); nil and the refusal's word otherwise.
+-- Start calls it through the module, so a development timing probe reaches
+-- it (Task #294)
+function Sharing.PackBlock(opts)
   local maxRaw = opts.large and Protocol.LARGE_RAW or Protocol.BLOCK_RAW
   local limit = Protocol.OBSERVATIONS
   while true do
@@ -369,8 +439,27 @@ end
 -- Starts sending a pull's collection (in a later frame: packing a big
 -- store is the costliest step); localOnly: the author is this very
 -- character, so nothing is whispered; opts = { store, large } from Q
+-- TakeCancelled(request, sender): whether the author cancelled that pull
+-- before it started (its X came while the start waited its frame); the
+-- mark is used up
+local function TakeCancelled(request, sender)
+  for i = #cancelled, 1, -1 do
+    local entry = cancelled[i]
+    if entry.request == request and entry.sender == sender then
+      table.remove(cancelled, i)
+      return true
+    end
+  end
+  return false
+end
+
 function Sharing.Start(request, mode, sender, localOnly, opts)
-  local snapshot, pending, left, payload = PackBlock(opts or {})
+  if TakeCancelled(request, sender) then
+    Host.Log("Curator collection %s not started: the author cancelled it first", tostring(request))
+    Remember("Cancelled", request, "author")
+    return false
+  end
+  local snapshot, pending, left, payload = Sharing.PackBlock(opts or {})
   if not snapshot then
     Refuse(request, mode, pending, localOnly, sender)
     return false
@@ -523,7 +612,22 @@ local function Stop(printed, by, rejected)
 end
 
 function Sharing.OnCancel(msg)
-  if not FromAuthor(msg) or not transfer or msg.fields[1] ~= transfer.request then return end
+  if not FromAuthor(msg) then return end
+  local request = msg.fields[1]
+  if not transfer or request ~= transfer.request then
+    -- a pull not started yet: an ask-first prompt is taken back, and a
+    -- start still waiting its frame never begins (the author's Stop and keep)
+    if prompt and prompt.request == request and prompt.sender == msg.sender then
+      prompt = nil
+      Host.Log("Curator collection %s cancelled by the author before it was answered", tostring(request))
+      Remember("Cancelled", request, "author")
+      if Sharing.OnChanged then pcall(Sharing.OnChanged) end
+    else
+      cancelled[#cancelled + 1] = { request = request, sender = msg.sender }
+      while #cancelled > CANCELLED_KEPT do table.remove(cancelled, 1) end
+    end
+    return
+  end
   -- refused for good: those revisions (or that frozen block) aren't sent again until they change
   local rejected = msg.fields[2]:find("^rejected:") ~= nil
   if rejected then
@@ -628,8 +732,8 @@ end)
 -------------------------------------------------------------------------------
 Sharing._test = {}
 function Sharing._test.Swap(state)
-  local old = { transfer = transfer, prompt = prompt }
+  local old = { transfer = transfer, prompt = prompt, cancelled = cancelled }
   state = state or {}
-  transfer, prompt = state.transfer, state.prompt
+  transfer, prompt, cancelled = state.transfer, state.prompt, state.cancelled or {}
   return old
 end

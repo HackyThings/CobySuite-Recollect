@@ -3,7 +3,9 @@
 --
 -- Get(achievementID, criteriaID, itemID) returns { name, earned,
 -- criterionDone, quantity, required } or nil when the achievement can't be
--- read (itemID: see criterion ID 0 below).
+-- read (itemID: see criterion ID 0 below). earned is the account's; the
+-- criterion's state is the logged-in character's (AccountWide says when it
+-- stands for another character's copy too).
 -- GetAchievementInfo(id) gives the name and whether it is earned (4th
 -- return); the criterion is found by its ID (GetAchievementCriteriaInfo's
 -- 10th return) among the achievement's own criteria, the order Blizzard's
@@ -203,6 +205,17 @@ function Achievements.Progress(achievementID)
     memo[achievementID] = kept
   end
   return kept or nil
+end
+
+-- AccountWide(achievementID): Progress's accountWide (true: its progress is
+-- the account's; false: each character's), or nil when that can't be read.
+-- Get's criterionDone, quantity and required are the logged-in character's
+-- progress, so another character's copy uses them only when this is true;
+-- earned is the account's either way (Task #315 ACH-01)
+function Achievements.AccountWide(achievementID)
+  local progress = Achievements.Progress(achievementID)
+  if not progress then return nil end
+  return progress.accountWide
 end
 
 -- "3 of 5 done", "120 of 250", "not earned", "earned by Tanklite": a

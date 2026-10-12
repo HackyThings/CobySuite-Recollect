@@ -70,7 +70,7 @@ local function Body(achievementID)
   local what = (ok and type(name) == "string" and name ~= "") and U.WrapColor(U.Colors.STATUS_GOLD, name) or "the achievement"
   -- the action and what it shows first (Task #239); why the game must open
   -- it itself is in the guide's Item details section
-  return "Open achievements to see " .. what .. " in the game's achievement window."
+  return "Open Achievements to see " .. what .. " in the game's achievement window."
 end
 
 -- The window is up: select the waiting achievement and close ours
@@ -99,11 +99,11 @@ local function Build()
   -- button runs the macro on the secure path, once, on release, never with
   -- a modifier
   dialog = CobySuite_Recollect.UI.CreateClickPrompt({
-    name = "RecollectAchievementPrompt", title = "Show Achievement", icon = Recollect.ICON,
-    macro = Prompt.MACRO, buttonText = "Open achievements",
+    name = "RecollectAchievementPrompt", title = "Show achievement", icon = Recollect.ICON,
+    macro = Prompt.MACRO, buttonText = "Open Achievements",
     onPostClick = function()
       if Prompt.seams.InCombat() then
-        Prompt.seams.Message("The achievement window can't be opened from here in combat; click Open achievements again once combat ends.")
+        Prompt.seams.Message("The achievement window can't be opened from here in combat; click Open Achievements again once combat ends.")
         return
       end
       Prompt.seams.After(0, function() Check(1) end)

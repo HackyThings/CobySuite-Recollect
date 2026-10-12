@@ -64,7 +64,7 @@ local function Build()
     width = 420, extraHeight = CHECK_ROOM,
     buttons = {
       { key = "Stop", text = "Done", onClick = function() Finish(dialog.Delete:GetChecked() == true) end },
-      { key = "Keep", text = "Turn it back on", side = "right", onClick = function()
+      { key = "Keep", text = "Turn It Back On", side = "right", onClick = function()
         dialog:Hide()
         Curator.Config.Set("curator_enabled", true)
       end },

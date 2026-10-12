@@ -108,7 +108,7 @@ function EncounterLoot.Compare(encounterID, items, ctx)
     local known, shipped = EncounterLoot.Known(itemID, encounterID)
     if known then
       matched[#matched + 1] = itemID
-    elseif known == false and not Curator.Compare.WorldDrop(itemID) then
+    elseif known == false and not Curator.Compare.WorldDrop(itemID) and not Curator.Compare.SeasonDrop(itemID) then
       Store.Record("addition", ("e:%d:i:%d"):format(encounterID, itemID), "1", shipped, ctx)
     end
   end
@@ -183,5 +183,6 @@ function EncounterLoot.OnEvent(event, ...)
 end
 
 local frame = CreateFrame("Frame")
+EncounterLoot.frame = frame   -- its events, for a development timing probe (Task #294)
 for event in pairs(handlers) do pcall(frame.RegisterEvent, frame, event) end
 frame:SetScript("OnEvent", function(_, event, ...) EncounterLoot.OnEvent(event, ...) end)

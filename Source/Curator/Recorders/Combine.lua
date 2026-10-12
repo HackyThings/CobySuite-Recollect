@@ -1,7 +1,7 @@
 -------------------------------------------------------------------------------
 -- Curator recorder: combines (curator spec, "v1 recorders")
 --
--- The Lab's evidence rule (Tests/Lab/Combines.lua), written again for
+-- The Lab's evidence rule (its combine recorder), written again for
 -- release builds, which carry no Lab, on the shared bag observer
 -- (Recorders/Bags.lua). A combine seen in game is exactly one item gone up
 -- (the product) and, among the items gone down, one that went down by a

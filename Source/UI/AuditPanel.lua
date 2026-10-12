@@ -463,7 +463,7 @@ local function PaintNote(note, y, contentWidth)
   y = y - GAP
   Divider(y)
   y = y - GAP
-  y = y - Block(U.Fonts.SMALL, U.Colors.STATUS_GOLD, "GUIDE NOTES", PAD, y, contentWidth) - LINE_GAP
+  y = y - Block(U.Fonts.SMALL, U.Colors.STATUS_GOLD, "Guide notes", PAD, y, contentWidth) - LINE_GAP
   local x, w = PAD + BULLET_INDENT, contentWidth - BULLET_INDENT
   local dot = Texture(note.color or U.Colors.LABEL_GRAY)
   dot:SetSize(BULLET, BULLET)
@@ -505,8 +505,8 @@ local function Paint(model, keyLive, afterCombat, pinLive, pinAfterCombat)
   local y = PaintHeader(model, -PAD)
   y = PaintVerdict(model, compact, y, contentWidth)
   if model.tip then y = PaintTip(model, y, contentWidth) end
-  if #compact.uses > 0 then y = PaintLines("USED FOR", compact.uses, y, contentWidth) end
-  if #compact.sources > 0 then y = PaintLines("COMES FROM", compact.sources, y, contentWidth) end
+  if #compact.uses > 0 then y = PaintLines("Used for", compact.uses, y, contentWidth) end
+  if #compact.sources > 0 then y = PaintLines("Comes from", compact.sources, y, contentWidth) end
   if compact.note then y = PaintNote(compact.note, y, contentWidth) end
   -- The key is named only while it is bound, or as bound once combat ends
   local Waypoint = Recollect.UI.Waypoint

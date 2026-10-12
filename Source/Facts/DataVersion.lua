@@ -40,12 +40,18 @@ Recollect.Facts.DataVersion = DataVersion
 -- 9: Relations' E table, the quest chains that end in a collectible's
 -- reward, 2026-10-01; 10: the curator-only codes F (fished in a zone), Y
 -- (comes from opening a container item) and H (what opening it can give),
--- and Relations' Z table (who takes each quest's turn-in), 2026-10-05).
+-- and Relations' Z table (who takes each quest's turn-in), 2026-10-05; 11:
+-- the sources G (comes from a profession's gathering or extracting spell), S
+-- (skinned from a creature) and P (a seasonal drop) and the display-only
+-- route condition M (instance difficulties), 2026-10-09; 12: the source L
+-- (completing a Delve) and Relations' F table, the other qualities of an
+-- item, 2026-10-10; 13: the source R, the in-game shop or a promotion,
+-- 2026-10-11).
 -- Each adds codes or tables the one before lacks, so an older file still
 -- reads, a missing table as none (a format 6 record of one place or one
 -- giver reads as a list of one; a format 7 file has no currency V)
 DataVersion.SUPPORTED_FORMATS = { [2] = true, [3] = true, [4] = true, [5] = true, [6] = true, [7] = true, [8] = true, [9] = true,
-  [10] = true }
+  [10] = true, [11] = true, [12] = true, [13] = true }
 
 local UNSTAMPED = "unstamped"
 local FILES = { "Relations", "Vendors", "Hints" }

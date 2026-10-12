@@ -166,20 +166,20 @@ end
 local function SectionButtons(parent)
   local P = Curator.Provider
   local defs = {
-    { key = "join", text = "Join the curator community", width = 200, tip = "Prints the community's invite link in chat; click it there",
+    { key = "join", text = "Join the Curator Community", width = 200, tip = "Prints the community's invite link in chat; click it there",
       onClick = function() P.PrintJoinLink() end },
-    { key = "test", text = "Test the connection", width = 150,
+    { key = "test", text = "Test the Connection", width = 150,
       tip = "Runs the connection test with the author's character (about five minutes); the report goes to chat. It works only while the author has a test session open, so ask in the community first",
       onClick = function() Window.RunTest() end },
-    { key = "review", text = "Review the request", width = 150, tip = "Allow or decline the author's request",
+    { key = "review", text = "Review the Request", width = 150, tip = "Allow or decline the author's request",
       onClick = function() if Curator.TransferWindow then Curator.TransferWindow.Open() end end },
-    { key = "cancel", text = "Cancel the collection", width = 160, tip = "Stops sending; nothing is deleted",
+    { key = "cancel", text = "Cancel the Collection", width = 160, tip = "Stops sending; nothing is deleted",
       onClick = function() Curator.Sharing.Cancel() end },
-    { key = "history", text = "Show the history", width = 140, tip = "Every collection the author asked for",
+    { key = "history", text = "Show the History", width = 140, tip = "Every collection the author asked for",
       onClick = function() Window.SetTab("history") end },
-    { key = "findings", text = "Show the findings", width = 140, tip = "Every finding, confirmation and note, in a table",
+    { key = "findings", text = "Show the Findings", width = 140, tip = "Every finding, confirmation and note, in a table",
       onClick = function() Window.SetTab("findings") end },
-    { key = "settings", text = "Curator settings", width = 140, tip = "The Curator page of Recollect's settings",
+    { key = "settings", text = "Curator Settings", width = 140, tip = "The Curator page of Recollect's settings",
       onClick = function() Window.OpenSettings() end },
   }
   local out = {}
@@ -625,7 +625,7 @@ local function BuildFooter(window)
   W.settingsButton = CobySuite_Recollect.UI.CreateButton(window, { text = "Settings", size = size,
     point = { "BOTTOMLEFT", window, "BOTTOMLEFT", L.PAD, 12 }, tooltip = "The Curator page of Recollect's settings",
     onClick = function() Window.OpenSettings() end })
-  W.feedbackButton = CobySuite_Recollect.UI.CreateButton(window, { text = "Send feedback", size = size,
+  W.feedbackButton = CobySuite_Recollect.UI.CreateButton(window, { text = "Send Feedback", size = size,
     point = { "LEFT", W.settingsButton, "RIGHT", 6, 0 },
     tooltip = "Write to Recollect's author (/rec feedback); it goes with your next collection",
     onClick = function() Curator.Provider.OpenFeedback() end })
@@ -636,7 +636,7 @@ local function BuildFooter(window)
       Curator.Config.Set("curator_ask", checked == true)
       Window.Refresh(false)
     end })
-  W.modeButton = CobySuite_Recollect.UI.CreateButton(window, { text = "Turn curator mode off", size = { 170, L.BUTTON_H },
+  W.modeButton = CobySuite_Recollect.UI.CreateButton(window, { text = "Turn Curator Mode Off", size = { 170, L.BUTTON_H },
     point = { "BOTTOMRIGHT", window, "BOTTOMRIGHT", -L.PAD - 16, 12 },
     tooltip = "Stops recording; a window then asks whether to delete your findings",
     onClick = function()
@@ -650,7 +650,7 @@ local function PaintFooter()
   W.askBox:SetShown(enabled)
   W.askBox:SetChecked(Curator.Config.Get("curator_ask") == true)
   W.feedbackButton:SetEnabled(enabled)
-  W.modeButton:SetText(enabled and "Turn curator mode off" or "Turn it on in settings")
+  W.modeButton:SetText(enabled and "Turn Curator Mode Off" or "Turn It On in Settings")
 end
 
 -------------------------------------------------------------------------------

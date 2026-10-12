@@ -72,6 +72,7 @@ Gear.SLOTS = {
 -- Kinds that never have an appearance, and kinds that are only a look
 local NO_APPEARANCE = { INVTYPE_NECK = true, INVTYPE_FINGER = true, INVTYPE_TRINKET = true }
 local LOOK_ONLY = { INVTYPE_BODY = true, INVTYPE_TABARD = true }
+Gear.NO_APPEARANCE = NO_APPEARANCE
 
 -- What a weapon is compared with in the off-hand: a one-hander a weapon
 -- there (anything else only while this character can dual-wield), a

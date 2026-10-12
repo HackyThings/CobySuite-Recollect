@@ -149,5 +149,6 @@ function BlackMarket.OnEvent(event, ...)
 end
 
 local frame = CreateFrame("Frame")
+BlackMarket.frame = frame   -- its events, for a development timing probe (Task #294)
 for event in pairs(handlers) do pcall(frame.RegisterEvent, frame, event) end
 frame:SetScript("OnEvent", function(_, event, ...) BlackMarket.OnEvent(event, ...) end)

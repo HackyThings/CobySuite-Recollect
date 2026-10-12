@@ -5,8 +5,9 @@
 -- item details window's "Still needed?" box (UI.DetailWindow Detail.Keep),
 -- only once every use Recollect knows for the item is done, and by curator
 -- mode's test for items the data says nothing about (Curator.Host Knows);
--- never by a check, a verdict or the Tip. Only entries our own data or an in-game check backs ship
--- (2026-09-28: five candidates wait for a check; see the research notes).
+-- never by a check, a verdict or the Tip. Only entries our own data or an
+-- in-game check backs ship (2026-09-28: five candidates wait for a check; see
+-- the research notes).
 --   [itemID] = { note = "why it lingers, our words", checked = "2026-09-28" }
 -------------------------------------------------------------------------------
 Recollect.Data = Recollect.Data or {}

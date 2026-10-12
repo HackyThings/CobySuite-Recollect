@@ -143,6 +143,8 @@ local seams = {
   end,
   AnyModifier = function() return IsModifierKeyDown() end,
   Tooltip = function() return GameTooltip end,
+  -- the tooltip a clicked link opens in (SetItemRef)
+  ItemRefTooltip = function() return ItemRefTooltip end,
   ViewerName = function() return UnitName("player") end,
   After = function(seconds, fn) C_Timer.After(seconds, fn) end,
   Dressable = function(itemID) return C_Item.IsDressableItemByID(itemID) end,
@@ -543,7 +545,7 @@ local function RowLine(row, withPlace)
   local text = ("%s: %s"):format(label, name)
   -- the sources of data format 4 read as the panel's lines do
   if row.kind == "renownReward" then
-    text = ("Renown %d with %s"):format(row.level or 0, name)
+    text = Recollect.UI.UsedFor.RenownWords(row.level, name)
   elseif row.kind == "blackMarket" then
     text = Recollect.UI.UsedFor.parts.BLACK_MARKET_TEXT
   elseif row.kind == "tradingPost" then
@@ -1440,13 +1442,13 @@ end
 -- chunk is at Lua 5.1's local limit
 Detail.BIND_WORDS = {
   [0] = "It doesn't bind, so another player can trade it to you, and it may be on the Auction House.",
-  [1] = "It binds when picked up, so it only ever comes from its source, never from another player.",
+  [1] = "It binds when picked up, so trading is restricted.",
   [2] = "It binds only once equipped, so another player can trade it to you, and it may be on the Auction House.",
   [3] = "It binds only once used, so another player can trade it to you, and it may be on the Auction House.",
-  [4] = "It's a quest item: it comes from its quest, and no one can trade it to you.",
-  [7] = "It's bound to your Warband: any of your characters can use it, but no other player can trade it to you.",
-  [8] = "It's bound to your Warband: any of your characters can use it, but no other player can trade it to you.",
-  [9] = "It's bound to your Warband until equipped: any of your characters can use it, but no other player can trade it to you.",
+  [4] = "It's a quest item and cannot normally be traded.",
+  [7] = "It's bound to your Warband: you can move it between your characters, but not trade it to other players.",
+  [8] = "It's bound to your Warband: you can move it between your characters, but not trade it to other players.",
+  [9] = "Until equipped, you can move it between your Warband's characters, but not trade it to other players.",
 }
 function Detail.NoSourceLines(itemID)
   local lines = { Plain("No way to get it is recorded yet: Recollect's database doesn't say where it drops, who sells it or what gives it.") }
@@ -1457,7 +1459,7 @@ function Detail.NoSourceLines(itemID)
   if provider and type(provider.FlagState) == "function" then
     local okState, state = pcall(provider.FlagState, itemID)
     if okState and type(state) == "table" and state.noInfo then
-      lines[#lines + 1] = Plain("As a curator, press Request info (top right) to ask Recollect's author to find out where it comes from.",
+      lines[#lines + 1] = Plain("As a curator, press Request Info (top right) to ask Recollect's author to find out where it comes from.",
         U.Colors.STATUS_GOLD)
     end
   end
@@ -1485,6 +1487,11 @@ local function GetLines(j, model, itemID)
     if (a.restricted or false) ~= (b.restricted or false) then return not a.restricted end
     local oa, ob = SOURCE_ORDER[a.kindLabel] or 20, SOURCE_ORDER[b.kindLabel] or 20
     if oa ~= ob then return oa < ob end
+    -- a quest that needs a profession this character lacks (Task #338) sits
+    -- below the ones it can do or has done, each in the same order as before
+    -- (Task #341)
+    local fa, fb = a.filterState == "other", b.filterState == "other"
+    if fa ~= fb then return not fa end
     return (a.id or 0) < (b.id or 0)
   end)
   local tiles = GetTiles(rows)
@@ -1806,7 +1813,9 @@ function Detail.Content(model, j)
     local whole = Detail.WholeReason(model, true)
     if #uses == 0 and okKeep and type(keep) == "table" and keep.why == Detail.Brief(model)
       and type(whole) == "string" and whole ~= "" and not tostring(keep.why):find(whole, 1, true) then
-      local line = Plain(whole)
+      -- said once (Cobanyte, 2026-10-10: "A consumable from Classic" twice):
+      -- a lead the explanation above already says is left off
+      local line = Plain(explained and Detail.DropShownLead(whole, explained) or whole)
       line.lead, line.why = true, true
       line.done = Recollect.UI.Icons.DoneWords(type(model.result) == "table" and model.result.purposes or nil)
       reasons[#reasons + 1] = line
@@ -1857,7 +1866,14 @@ function Detail.Content(model, j)
       -- the band's why is short (Task #262): a reason the verdict's whole
       -- reason holds is the one WHAT IT'S FOR spells out, said above too
       if banded and purpose.reason and (banded:find(reason, 1, true) or wholeReason:find(reason, 1, true)) then
-        reason = ("%s (the reason above)"):format(VerdictLabel[purpose.verdict] or tostring(purpose.verdict))
+        -- the word the band gives an optional use (Just for fun, Your call), not
+        -- the check's Can't tell (Task #339)
+        local word = VerdictLabel[purpose.verdict] or tostring(purpose.verdict)
+        if purpose.verdict == Recollect.Purposes.Registry.Verdict.UNKNOWN and (purpose.optional or purpose.flavor)
+          and (keep.word == "Just for fun" or keep.word == "Your call") then
+          word = keep.word
+        end
+        reason = ("%s (the reason above)"):format(word)
       elseif reason:sub(1, #label + 1) == label .. " " then
         reason = reason:sub(#label + 2)
       end
@@ -2909,7 +2925,7 @@ function Detail.FlagButton(model, provider)
     return { text = "Flagged", tooltip = FLAG_TIPS[state.state] or FLAG_TIPS.delivered, itemID = itemID }
   end
   if state.noInfo then
-    return { text = "Request info", itemID = itemID,
+    return { text = "Request Info", itemID = itemID,
       tooltip = "Recollect's database knows nothing about this item yet. Ask the author to look into it; your own words are optional." }
   end
   return { text = "Curator Flag", itemID = itemID,
@@ -3096,6 +3112,7 @@ KEEP_ICONS = {
   unknown = { file = "Interface\\Icons\\INV_Misc_QuestionMark" },
   info = { file = "Interface\\Icons\\INV_Misc_Bag_08" },
   fun = { file = "Interface\\Icons\\INV_Drink_05" },   -- a mug, for a drink kept for fun
+  gift = { file = "Interface\\Icons\\INV_Misc_Gift_02" },   -- a gift box, for a novelty
 }
 
 -- Just for fun (Cobanyte, 2026-10-01: an earned drink is "basically roleplay
@@ -3104,27 +3121,84 @@ KEEP_ICONS = {
 Detail.FOR_FUN = "Just for fun: nothing Recollect checks still needs it. It's a drink for roleplay "
   .. "or a toast with friends, so keep it only if you'd like to."
 
--- ForFun(result): whether the band says Just for fun, and whether any use
--- was done. A Can't tell with no sign of an unchecked use, at least one
--- check marking the item a drink only for fun (Purposes.Consumable's
--- result.flavor), and every other check done or settled (a use finished,
--- Verdicts.Combine's settled); none is needed. The verdict stays Can't tell:
--- this is the band's suggestion only.
+-- The optional uses a check reads (Task #339; Cobanyte, 2026-10-10: a
+-- novelty such as the Magical Pet Biscuit "is optional", and Can't tell yet
+-- should be far rarer): the answer the band gives for each kind
+-- (Purposes.UseEffect.Optional, Consumable's drink), its short why, the
+-- hover's meaning and its icon. Each reads as the player's call, never as
+-- safe to delete; the verdict stays Can't tell.
+Detail.OPTIONAL = {
+  drink = { word = "Just for fun", icon = "fun", why = "A drink for roleplay; nothing Recollect checks still needs it",
+    beyond = "beyond that it's a drink for roleplay", detail = Detail.FOR_FUN },
+  novelty = { word = "Just for fun", icon = "gift", why = "A novelty; nothing Recollect checks still needs it",
+    beyond = "beyond that it's a novelty",
+    detail = "Just for fun: nothing Recollect checks still needs it. It's a novelty, such as a treat that changes a "
+      .. "pet's size, a firework or a disguise, so keep it only if you'd like to." },
+  petBattle = { word = "Your call", icon = "info", neutral = true,
+    why = "For pet battles; nothing else Recollect checks needs it", beyond = "beyond that it's for pet battles",
+    detail = "Your call: it heals, revives, levels or upgrades battle pets. Recollect doesn't follow your pet battles, so "
+      .. "keep it if you still battle pets." },
+  buys = { word = "Your call", icon = "info", neutral = true, beyond = "beyond that it buys things you can still buy",
+    detail = "Your call: everything it buys is a plain item you can still buy, nothing Recollect checks needs any of them, "
+      .. "so keep it if you'd like something it buys." },
+  older = { word = "Your call", icon = "info", neutral = true,
+    why = "An older item; nothing Recollect checks needs it", beyond = "beyond that it's an older item",
+    detail = "Your call: it's from an older expansion. Its tooltip says what it does, but whether that still matters "
+      .. "to you is yours to judge, and nothing Recollect checks needs it." },
+}
+-- Which kind speaks when several checks mark one
+Detail.OPTIONAL_ORDER = { "drink", "novelty", "petBattle", "buys", "older" }
+
+-- ForFun(result): the kind of optional use the band answers for (a key of
+-- Detail.OPTIONAL), or false, and whether any use was done. A Can't tell
+-- with no sign of an unchecked use, at least one check marking an optional
+-- use (result.optional; a drink only for fun is also result.flavor), and
+-- every other check done or settled (a use finished, Verdicts.Combine's
+-- settled); none is needed. The verdict stays Can't tell: this is the band's
+-- suggestion only.
 function Detail.ForFun(result)
   local V = Recollect.Purposes.Registry.Verdict
   if type(result) ~= "table" or result.verdict ~= V.UNKNOWN then return false end
   if type(result.unchecked) == "table" and #result.unchecked > 0 then return false end
-  local done, fun = false, false
+  local done, kinds = false, {}
   for _, purpose in ipairs(type(result.purposes) == "table" and result.purposes or {}) do
-    if purpose.flavor then
-      fun = true
+    local kind = purpose.optional or (purpose.flavor and "drink") or nil
+    if kind and Detail.OPTIONAL[kind] then
+      kinds[kind] = true
     elseif purpose.settled or purpose.verdict == V.DONE then
       done = true
     else
       return false
     end
   end
-  return fun, done
+  for _, kind in ipairs(Detail.OPTIONAL_ORDER) do
+    if kinds[kind] then return kind, done end
+  end
+  return false, done
+end
+
+-- DropShownLead(text, shown): text without the words it opens with when
+-- they are the first sentence of shown, the line above it, read without
+-- case, commas or full stops ("A consumable, from Classic." above, "A
+-- consumable from Classic, an older expansion; ..." gives "An older
+-- expansion; ..."; Task #339). Two words at least, and something must be
+-- left; otherwise text as it is
+function Detail.DropShownLead(text, shown)
+  if type(text) ~= "string" or type(shown) ~= "string" then return text end
+  local first = shown:match("^(.-)%.%s") or shown:match("^(.-)%.?$") or shown
+  local lead = {}
+  for word in first:gmatch("%S+") do lead[#lead + 1] = word:lower():gsub("[,%.;:]", "") end
+  if #lead < 2 then return text end
+  local n, cut = 0, nil
+  for word, after in text:gmatch("(%S+)()") do
+    n = n + 1
+    if word:lower():gsub("[,%.;:]", "") ~= lead[n] then return text end
+    if n == #lead then cut = after break end
+  end
+  if not cut then return text end
+  local rest = text:sub(cut):gsub("^[%s,;:%.]+", "")
+  if rest == "" then return text end
+  return (rest:gsub("^%l", string.upper))
 end
 
 -- WholeReason(model): the verdict's reason with its headline. The panel
@@ -3178,6 +3252,18 @@ function Detail.Brief(model)
   if type(model) ~= "table" then return nil end
   local result = type(model.result) == "table" and model.result or {}
   if type(result.brief) == "string" and result.brief ~= "" then return result.brief end
+  -- a result rebuilt from a list row carries its checks but not Combine's
+  -- brief (Task #341: the Your call band read the whole reason): the
+  -- deciding check's own, as Combine takes it, unless a note (a row made
+  -- Unknown after its checks ran) says why instead
+  if not result.note then
+    for _, purpose in ipairs(type(result.purposes) == "table" and result.purposes or {}) do
+      if not purpose.soft and purpose.verdict == result.verdict then
+        if type(purpose.brief) == "string" and purpose.brief ~= "" then return purpose.brief end
+        break
+      end
+    end
+  end
   return Detail.Shorten((Detail.WholeReason(model)))
 end
 
@@ -3211,13 +3297,16 @@ function Detail.Keep(model)
     return { word = "Probably done", color = colors[V.DONE], icon = KEEP_ICONS.done,
       why = "Every use Recollect found is done, but a quest may come back for it." }
   end
-  local fun, anyDone = Detail.ForFun(result)
-  if fun then
+  local kind, anyDone = Detail.ForFun(result)
+  local optional = kind and Detail.OPTIONAL[kind]
+  if optional then
     -- with a use done, that use's reason (an achievement earned) leads
-    return { word = "Just for fun", color = colors[V.DONE], icon = KEEP_ICONS.fun,
-      why = anyDone and brief and (brief .. "; beyond that it's a drink for roleplay")
-        or "A drink for roleplay; nothing Recollect checks still needs it",
-      detail = Detail.FOR_FUN }
+    -- Your call in plain white: a use left to you, never a use that's done
+    return { word = optional.word, color = optional.neutral and U.Colors.HIGHLIGHT_WHITE or colors[V.DONE],
+      icon = KEEP_ICONS[optional.icon],
+      -- (a kind with no why of its own, buys, says the check's brief: "Buys 5
+      -- things you can still buy")
+      why = anyDone and brief and (brief .. "; " .. optional.beyond) or optional.why or brief, detail = optional.detail }
   end
   if verdict == V.OUTDATED or verdict == V.LOWER then
     return { word = verdict == V.OUTDATED and "Replaced" or "Lower level", color = colors[verdict], icon = KEEP_ICONS.check,
@@ -3407,8 +3496,8 @@ function Detail.MenuEntries(row)
   local function Add(section, label, run, sub)
     entries[#entries + 1] = { section = section, label = label, run = run, sub = sub }
   end
-  if data.ItemOf(row) then Add("open", "Open its details here", function() OpenRowItem(row) end) end
-  if data.Link(row) or row.itemID then Add("open", "Link in chat", function() LinkRow(row) end) end
+  if data.ItemOf(row) then Add("open", "Open Its Details Here", function() OpenRowItem(row) end) end
+  if data.Link(row) or row.itemID then Add("open", "Link in Chat", function() LinkRow(row) end) end
   if row.itemID or row.what == "mount" then Add("open", "Preview", function() Preview(row) end) end
   -- an achievement: the game's achievement window, opened at it (Cobanyte,
   -- 2026-09-28); Recollect never loads or toggles that window itself
@@ -3421,17 +3510,17 @@ function Detail.MenuEntries(row)
     local Waypoint = Recollect.UI.Waypoint
     local tomtom = Waypoint.TomTomLoaded and Waypoint.TomTomLoaded()
     if tomtom then
-      Add("map", "Set a waypoint", nil, {
-        { label = "TomTom arrow", run = function() SetWaypoint(place, "tomtom") end },
-        { label = "Map pin", run = function() SetWaypoint(place, "game") end },
+      Add("map", "Set a Waypoint", nil, {
+        { label = "TomTom Arrow", run = function() SetWaypoint(place, "tomtom") end },
+        { label = "Map Pin", run = function() SetWaypoint(place, "game") end },
       })
     else
-      Add("map", "Set a waypoint", function() SetWaypoint(place) end)
+      Add("map", "Set a Waypoint", function() SetWaypoint(place) end)
     end
   end
   local copies = {}
   local url = data.Wowhead(row)
-  if url then copies[#copies + 1] = { label = "Wowhead link", run = function() Detail.ShowCopy(url, "Wowhead link") end } end
+  if url then copies[#copies + 1] = { label = "Wowhead Link", run = function() Detail.ShowCopy(url, "Wowhead link") end } end
   local name = data.DisplayName(row)
   if type(name) == "string" and name ~= "" then
     copies[#copies + 1] = { label = "Name", run = function() Detail.ShowCopy(name, "Name") end }
@@ -3585,7 +3674,7 @@ local function OnRowEnter(frame, row, column)
     local owner = shown and shown.source and shown.source.owner
     if type(owner) == "table" and owner.isViewer == false then
       local blue = U.Colors.INFO_BLUE
-      GameTooltip:AddLine(("How many you have is %s's, not %s's"):format(seams.ViewerName() or "this character",
+      GameTooltip:AddLine(("Counts are %s's, not %s's"):format(seams.ViewerName() or "this character",
         owner.name or "its owner"), blue[1], blue[2], blue[3], true)
     end
     return GameTooltip:Show()
@@ -3675,8 +3764,15 @@ local function OnRowClick(row, column, mouseButton, frame)
     if place then return SetWaypoint(place) end
   end
   local link = Data().Link(row)
-  if link and row.what == "quest" and mouseButton == "LeftButton" and not modified then Detail.QuestLinkLoads(row.questID, link) end
-  if link then return seams.ItemRef(link, mouseButton) end
+  if link then
+    -- the link opened now is the one shown: an earlier quest's wait ends,
+    -- and this one's starts once it opened, so a hide while it opens can't
+    -- end it
+    Detail.questLinkWait = nil
+    seams.ItemRef(link, mouseButton)
+    if row.what == "quest" and mouseButton == "LeftButton" and not modified then Detail.QuestLinkLoads(row.questID, link) end
+    return
+  end
   if row.itemID then Recollect.Utilities.Message("That item is still loading; try again in a moment.") end
 end
 
@@ -3685,9 +3781,12 @@ end
 -- QuestLinkLoads(questID, link): a click on a quest whose data isn't here
 -- yet asks for it (Facts.QuestInfo.Get), and when it arrives within
 -- QUEST_LINK_WAIT seconds the link the click opened is shown again, now with
--- what the game has for it
+-- what the game has for it. Only the latest click waits: a later click, or
+-- the tooltip closing, drops the wait, so a late answer never replaces a
+-- tooltip opened after it (Task #315 UI-05)
 Detail.QUEST_LINK_WAIT = 10
 function Detail.QuestLinkLoads(questID, link)
+  Detail.questLinkWait = nil
   if not Recollect.Utilities.IsPositiveID(questID) or type(link) ~= "string" then return end
   local ok, quest = pcall(Recollect.Facts.QuestInfo.Get, questID)
   if ok and quest then return end
@@ -3700,8 +3799,13 @@ function Detail.QuestLinkLoaded(questID, success)
   if not wait or wait.questID ~= questID then return end
   Detail.questLinkWait = nil
   if not success or not wait.data or seams.Now() - wait.at > Detail.QUEST_LINK_WAIT then return end
-  local tip = ItemRefTooltip
+  local tip = seams.ItemRefTooltip()
   if tip and tip:IsShown() then pcall(tip.SetHyperlink, tip, wait.data) end
+end
+
+-- The link's tooltip closed: nothing waits to be shown again
+function Detail.QuestLinkClosed()
+  Detail.questLinkWait = nil
 end
 
 -- A link in the Overview or the header (Links in the text): hover and
@@ -4137,7 +4241,7 @@ end
 local function Build()
   window = CobySuite_Recollect.UI.CreateWindow({
     name = WINDOW_NAME,
-    title = CobySuite_Recollect.Utilities.WrapColor(Recollect.BRAND_COLOR, "Recollect") .. ": Item Details",
+    title = CobySuite_Recollect.Utilities.WrapColor(Recollect.BRAND_COLOR, "Recollect") .. ": Item details",
     icon = Recollect.ICON,
     width = WIDTH, height = HEIGHT,
     resizable = { minWidth = 620, minHeight = 380, maxWidth = 1400, maxHeight = 240 + POOL * ROW_HEIGHT },
@@ -4205,7 +4309,7 @@ function Detail.Open(model, how)
 end
 
 -- OpenItem(itemID): that item's details in reference mode (Alt-click on a
--- row or a link, or the row menu's "Open its details here")
+-- row or a link, or the row menu's "Open Its Details Here")
 function Detail.OpenItem(itemID)
   local model = Recollect.UI.Tooltip.ReferenceModel({ id = itemID }, "detail")
   if model then Detail.Open(model) end
@@ -4263,7 +4367,11 @@ local function RefreshShown()
       RefreshShown()
     end)
   end
-  if job and job.finished then
+  -- rows found since the view was built (the journals read, a recipe scan,
+  -- an endeavor task) build it again; else every row's state is read again
+  if job and job.finished and Data().SourcesChanged(job) then
+    StartJob()
+  elseif job and job.finished then
     Data().Refresh(job, function()
       if activeTab == "overview" then PaintOverview() else ApplyView(activeTab) end
     end)
@@ -4306,6 +4414,9 @@ button:Hide()
 Detail.QuestLinkFrame = CreateFrame("Frame")
 Detail.QuestLinkFrame:RegisterEvent("QUEST_DATA_LOAD_RESULT")
 Detail.QuestLinkFrame:SetScript("OnEvent", function(_, _, questID, success) pcall(Detail.QuestLinkLoaded, questID, success) end)
+if ItemRefTooltip and ItemRefTooltip.HookScript then
+  ItemRefTooltip:HookScript("OnHide", function() Detail.QuestLinkClosed() end)
+end
 button:SetScript("OnClick", OnClick)
 button:RegisterEvent("PLAYER_REGEN_ENABLED")
 button:SetScript("OnEvent", OnCombatEnded)
@@ -4373,6 +4484,7 @@ Detail._test = {
   Window = function() return window end,
   ActiveTab = function() return activeTab end,
   Job = function() return job end,
+  SetJob = function(value) job = value end,
   RowEnter = OnRowEnter,
   RefreshShown = RefreshShown,
   Throttle = function() return lastVerdict, trailing end,

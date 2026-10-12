@@ -61,6 +61,11 @@ Curator.Const = {
   CLUB_ID = 503127671,     -- the "Recollect Curators" community (a number in game; compared as text); nil: found by name
   TICKET_ID = "jKPlgr0hzZD", -- the public invite ticket: never expires, unlimited uses (made 2026-09-26)
   PREFIX = "RecollectCur",  -- at most 16 bytes
+  -- Whether a curator's presence answer (R) names its zone (Task #299): on
+  -- since 2026-10-06, with the sentence added to Provider's CONSENT_BLOCKS
+  -- that says so. Both it and the kind of instance go only while curator
+  -- mode is on (Sharing.OnHello)
+  SEND_ZONE = true,
   CAP_BYTES = 1024 * 1024, -- the recorder fields of RECOLLECT_CURATOR_DB (D17)
   AWAITING_DAYS = 30,      -- acknowledged collections not confirmed saved are dropped after this
   RECEIVED_DAYS = 30,      -- the author's received list is pruned after this

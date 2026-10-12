@@ -222,7 +222,7 @@ end
 
 local function BuildFlag()
   if flagWindow or InCombatLockdown() then return end
-  local w = BuildWindow("RecollectCuratorFlagDialog", "Curator Flag", 400, SaveFlag, RemoveFlag)
+  local w = BuildWindow("RecollectCuratorFlagDialog", "Curator flag", 400, SaveFlag, RemoveFlag)
   w.ItemIcon = w:CreateTexture(nil, "ARTWORK")
   w.ItemIcon:SetSize(24, 24)
   w.ItemIcon:SetPoint("TOPLEFT", w, "TOPLEFT", PAD, -34)
@@ -250,7 +250,7 @@ function FlagDialog.Open(itemID, reason)
   if not itemID then return false end
   BuildFlag()
   if not flagWindow then
-    Host.Print("The Curator Flag window opens when combat ends.")
+    Host.Print("The Curator flag window opens when combat ends.")
     return false
   end
   flagItem = itemID
@@ -312,7 +312,7 @@ end
 
 local function BuildFeedback()
   if feedbackWindow or InCombatLockdown() then return end
-  local w = BuildWindow("RecollectCuratorFeedbackDialog", "Recollect Feedback", 380, SaveFeedback, RemoveFeedback)
+  local w = BuildWindow("RecollectCuratorFeedbackDialog", "Recollect feedback", 380, SaveFeedback, RemoveFeedback)
   w.Intro = Label(w, U.Fonts.BODY)
   w.Intro:SetPoint("TOPLEFT", w, "TOPLEFT", PAD, -34)
   w.Intro:SetPoint("RIGHT", w, "RIGHT", -PAD, 0)

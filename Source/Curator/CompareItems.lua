@@ -16,7 +16,14 @@
 --                             of data format 10; a z code no longer counts)
 --   x:<container>:i:<item>    found in a container item (shipped: openedFrom,
 --                             the Y code of data format 10)
---   de:<item>:i:<out>         disenchanting the item gave out (none yet)
+--   de:<item>:i:<out>         disenchanting the item gave out (shipped: a
+--                             live G code of a disenchant spell on out, data
+--                             format 11)
+-- A creature looted right after a Skinning cast is a skinning, filed as
+-- c:<npc>:i:<item> as before: shipped as skinnedFrom (the S code) or a live
+-- G code of a skinning spell, and never a confirmation of a drop code. An
+-- item the data ships as a seasonal drop (a live P code) is no finding from
+-- any source: the season's activities give it, not one creature or chest.
 --   pp:<npc>:i:<item>         pickpocketed from a creature (none yet)
 --   R:<recipe>                a recipe's product and count, "<item>x<n>"
 --                             (plus "|<reagents>" when the recipe isn't
@@ -56,14 +63,51 @@ end
 -------------------------------------------------------------------------------
 -- Loot
 -------------------------------------------------------------------------------
+-- letter: the code that ships the source (c<npc>, i<object>, F<map>,
+-- Y<container>, S<npc>), read through Host.CodesOf
 local LOOT = {
-  drop = { prefix = "c", kind = "dropsFrom" },
-  object = { prefix = "ob", kind = "foundIn" },
-  fishing = { prefix = "f", kind = "fishedIn" },
-  container = { prefix = "x", kind = "openedFrom" },
-  disenchant = { prefix = "de" },
+  drop = { prefix = "c", letter = "c" },
+  object = { prefix = "ob", letter = "i" },
+  fishing = { prefix = "f", letter = "F" },
+  container = { prefix = "x", letter = "Y" },
+  disenchant = { prefix = "de", gathered = "DISENCHANT_SPELLS" },
   pickpocket = { prefix = "pp" },
+  -- a creature's corpse looted right after a Skinning cast (Compare.Skinned)
+  skinning = { prefix = "c", letter = "S", gathered = "SKINNING_SPELLS" },
 }
+
+-- The gathering spells whose G codes (data format 11) state a loot: Disenchant
+-- (13262, and 1280952, under which the data files Midnight's enchanting
+-- materials) and Skinning (8613, the cast a skinned corpse follows, and
+-- Midnight Skinning's 471014); keep them alike with curator_intake.py's
+Compare.DISENCHANT_SPELLS = { [13262] = true, [1280952] = true }
+Compare.SKINNING_SPELLS = { [8613] = true, [471014] = true }
+
+-- Whether a loot source is a skinned corpse: a creature looted right after a
+-- Skinning cast (the loot recorder keeps the cast, extra.cast)
+function Compare.Skinned(source)
+  local cast = source.kind == "drop" and type(source.extra) == "table" and source.extra.cast
+  return cast and Compare.SKINNING_SPELLS[cast] == true or false
+end
+
+-- Whether the data ships an item as coming from one of the spells given
+-- ({ [spellID] = true }) on a route still in the game (a live G code)
+function Compare.Gathered(itemID, spells)
+  for _, code in ipairs(Host.CodesOf(itemID, "G")) do
+    if not code.gone and spells[code.id] then return true end
+  end
+  return false
+end
+
+-- Whether the data ships an item as a seasonal drop still in the game (a live
+-- P, data format 11): many of the season's activities give it, so one
+-- creature's, chest's or boss's copy says nothing new (Spark of Tides)
+function Compare.SeasonDrop(itemID)
+  for _, code in ipairs(Host.CodesOf(itemID, "P")) do
+    if not code.gone then return true end
+  end
+  return false
+end
 
 -- Whether the data ships an item as a world drop still in the game (a live
 -- z0: any enemy anywhere can drop it). One creature's copy of a world drop
@@ -129,13 +173,19 @@ end
 -- found in 653064), or the loot of an encounter the source stands for: a
 -- boss's loot chest holds its boss's loot (20 findings in three chests,
 -- 2026-09-28), and a boss with several creature IDs drops what its first one
--- is coded with (the pipeline's shipped_now reads all three the same way)
+-- is coded with (the pipeline's shipped_now reads all three the same way).
+-- Only a live code counts: a source the data ships only as no longer
+-- available (|x) is back when it is looted, an addition (review CUR-01, Task #316)
 local function Known(itemID, def, source, aliases, encounters)
-  if not def.kind then return false end
-  local shipped = Shipped(itemID, def.kind)
-  if shipped[source.id] then return true end
+  if def.gathered and Compare.Gathered(itemID, Compare[def.gathered]) then return true end
+  if not def.letter then return false end
+  local live = {}
+  for _, code in ipairs(Host.CodesOf(itemID, def.letter)) do
+    if not code.gone then live[code.id] = true end
+  end
+  if live[source.id] then return true end
   for _, alias in ipairs(aliases) do
-    if shipped[alias] then return true end
+    if live[alias] then return true end
   end
   return Compare.BossLoot(itemID, encounters)
 end
@@ -145,23 +195,29 @@ end
 -- container or fishing catch. zones (optional): the maps a zone drop counts
 -- in (Loot.ZoneMaps). An item the data already has there (Known) goes in
 -- the source's stamp; a creature's world drop, or its zone drop in that
--- zone, records nothing.
+-- zone, records nothing, and neither does a seasonal drop from any source. A
+-- skinned corpse compares against what is skinned from it and stamps
+-- nothing: its loot says nothing about the creature's drops.
 function Compare.Loot(window, ctx)
   for _, source in pairs(window.sources) do
-    local def = LOOT[source.kind]
+    local skinned = Compare.Skinned(source)
+    local def = skinned and LOOT.skinning or LOOT[source.kind]
     local aliases, encounters = Stands(source)
     local matched = {}
     for itemID in pairs(source.items) do
       Compare.SawItem(itemID, def.prefix .. ":" .. source.id, ctx)
       if Known(itemID, def, source, aliases, encounters) then
         matched[#matched + 1] = itemID
-      elseif source.kind == "drop" and (Compare.WorldDrop(itemID) or Compare.ZoneDrop(itemID, window.zones)) then
+      elseif Compare.SeasonDrop(itemID) then
+        -- a seasonal drop: no one source's finding
+      elseif source.kind == "drop" and not skinned
+        and (Compare.WorldDrop(itemID) or Compare.ZoneDrop(itemID, window.zones)) then
         -- a world or zone drop: neither a finding nor a confirmation of a drop code
       else
         Record("addition", def.prefix .. ":" .. source.id .. ":i:" .. itemID, "1", nil, ctx, source.extra)
       end
     end
-    Curator.Store.Confirm(def.prefix .. ":" .. source.id, matched, 0, ctx)
+    if not skinned then Curator.Store.Confirm(def.prefix .. ":" .. source.id, matched, 0, ctx) end
   end
 end
 

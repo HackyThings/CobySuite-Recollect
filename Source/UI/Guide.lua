@@ -78,19 +78,26 @@ end
 local function PinAction()
   local key = PinKey()
   if not key then return nil end
-  if key:find("Click", 1, true) then return Key(key) .. " the item" end
+  if key:find("click", 1, true) then return Key(key) .. " the item" end
   return "press " .. Key(key)
 end
 
--- Just for fun, the details window's answer (not a verdict): its name in the
--- band's color, then what it means
-local function ForFun()
-  local text = Recollect.UI.DetailWindow and Recollect.UI.DetailWindow.FOR_FUN or ""
-  local name, meaning = text:match("^(Just for fun): (.+)$")
-  if not name then return Note(text) end
-  local color = Recollect.UI.VerdictColors and Recollect.UI.VerdictColors[V.DONE] or U.Colors.HIGHLIGHT_WHITE
+-- Just for fun and Your call, the details window's answers (not verdicts):
+-- the name in the band's color, then what it means, as the band's hover
+-- says it (DetailWindow.OPTIONAL's meanings, put together; Task #339)
+local function Answer(text, neutral)
+  local name, meaning = (text or ""):match("^([^:]+): (.+)$")
+  if not name then return Note(text or "") end
+  local color = not neutral and Recollect.UI.VerdictColors and Recollect.UI.VerdictColors[V.DONE] or U.Colors.HIGHLIGHT_WHITE
   return "In the details window, " .. U.WrapColor(color, name) .. ": " .. meaning
 end
+local JUST_FOR_FUN = "Just for fun: nothing Recollect checks still needs it. It's a drink for roleplay or a "
+  .. "novelty, such as a treat that changes a pet's size, a firework or a disguise, so keep it only if you'd like to."
+local function ForFun() return Answer(JUST_FOR_FUN) end
+local YOUR_CALL = "Your call: nothing Recollect checks needs it, and whether you still want what it does is up "
+  .. "to you: something for pet battles, or an item from an older expansion."
+local function YourCall() return Answer(YOUR_CALL, true) end
+Guide.YOUR_CALL = YOUR_CALL
 
 local SPYGLASS = ICONS .. "INV_Misc_Spyglass_02"
 local LIST = ICONS .. "INV_Misc_Note_02"
@@ -116,7 +123,7 @@ Guide.SECTIONS = {
         Key("2.") .. " " .. Icon(LIST) .. " Type " .. Key("/rec") .. ", or click the " .. Icon(Recollect.ICON) .. " minimap button\n"
           .. Note("The Recollect Audit lists everything you hold."),
         Key("3.") .. " " .. Icon(DETAILS) .. (not pin and " Click a row of the Recollect Audit\n"
-          or pin:find("Click", 1, true) and (" " .. Key(pin) .. " any item\n")
+          or pin:find("click", 1, true) and (" " .. Key(pin) .. " any item\n")
           or (" Press " .. Key(pin) .. " while the panel shows\n"))
           .. Note("Everything about that one item, in its own window."),
         Note("Open your bank once, so Recollect can remember what's in it."),
@@ -131,9 +138,9 @@ Guide.SECTIONS = {
     body = function() return {
       Bullets({
         "The verdict, in color, and the reason for it",
-        Block("USED FOR") .. ": its most important uses, and where you stand",
-        Block("COMES FROM") .. ": where to get more",
-        Block("GUIDE NOTES") .. ": a short note Recollect researched, for a few items no data explains",
+        Block("Used for") .. ": its most important uses, and where you stand",
+        Block("Comes from") .. ": where to get more",
+        Block("Guide notes") .. ": a short note Recollect researched, for a few items no data explains",
         PinAction() and ("A short summary: " .. PinAction() .. " for everything, in the item's details")
           or ("A short summary; for everything, " .. TURN_ON_PIN .. ", or click the item's row in the Recollect Audit"),
       }),
@@ -162,9 +169,11 @@ Guide.SECTIONS = {
         Verdict(V.DONE, "every use Recollect checks is finished"),
       }, "\n"),
       Note("Recollect never decides for you: the details window's Still needed? answer is a suggestion with its reason, and a Tip may say an item is most likely safe to let go. Your call."),
-      -- the band's Your call answer, in the band's own words (DetailWindow.FOR_FUN),
-      -- named as the details window's answer, in its color (Task #232)
+      -- the band's Just for fun and Your call answers, as its hover words them
+      -- (DetailWindow.OPTIONAL), named as the details window's answers, in
+      -- their color (Task #232, Task #339)
       ForFun(),
+      YourCall(),
     },
   },
   {
@@ -207,7 +216,7 @@ Guide.SECTIONS = {
         "Right-click a row for a menu: link it in chat, preview it, set a waypoint, or copy its name or Wowhead link",
         "The " .. Icon(ICONS .. "INV_Misc_Map_01") .. " Map button sets a waypoint",
         "An achievement's button shows it in the game's achievement window. With that window closed, one more "
-          .. "click on " .. Key("Open achievements") .. " lets the game open it itself, since an addon opening it "
+          .. "click on " .. Key("Open Achievements") .. " lets the game open it itself, since an addon opening it "
           .. "can get your actions blocked",
       }),
       Note("The details key can be a click instead, such as Alt-click on any item: set it in /rec settings."),
@@ -239,12 +248,13 @@ Guide.SECTIONS = {
         "The minimap button: show or hide it",
         "Waypoints: TomTom's arrow or the game's map pin",
       }),
-      Note("Changes wait until you click Apply; Undo edits drops them."),
+      Note("Changes wait until you click Apply; Undo Edits drops them."),
     },
     try = {
       { "/rec settings", "Open the settings" },
       { "/rec guide", "Open this guide" },
       { "/rec changelog", "What changed in each version" },
+      { "/rec reset windows", "Put every window back to its default place and size" },
       { "/rec help", "List every command" },
     },
   },
@@ -264,6 +274,8 @@ Guide.SECTIONS = {
     },
   },
 }
+-- The last section in every addon's guide: the list of every addon by Cobanyte
+Guide.SECTIONS[#Guide.SECTIONS + 1] = CobySuite_Recollect.UI.AddonsGuideSection(Recollect.AddonsList)
 
 local window = CobySuite_Recollect.UI.CreateGuideWindow({
   name = "RecollectGuideWindow",

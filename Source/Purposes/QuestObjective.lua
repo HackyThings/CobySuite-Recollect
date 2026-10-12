@@ -44,7 +44,7 @@ local RECURS = { { "y", "a yearly quest" }, { "m", "a monthly quest" }, { "w", "
   { "q", "a world quest" }, { "r", "a repeatable quest" } }
 
 -- The item's quests that serve this character: objectives first, then the
--- quests that use it, each once; those in the quest log ahead of the rest
+-- quests that use it, each once; those in the quest log ahead of the rest.
 -- Also the quests left out for another faction, class or race ("other",
 -- with their relations) and those whose condition the owner's record can't
 -- answer ("unknown"), each once: { other = { relation }, unknown = { relation } }

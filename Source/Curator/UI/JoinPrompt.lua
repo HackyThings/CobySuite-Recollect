@@ -79,7 +79,7 @@ local function Build()
     width = 420,
     buttons = {
       { key = "Join", text = "Join", onClick = function() Join.Answer(shownFor, true) end },
-      { key = "No", text = "No thanks", side = "right", onClick = function() Join.Answer(shownFor, false) end },
+      { key = "No", text = "No Thanks", side = "right", onClick = function() Join.Answer(shownFor, false) end },
     },
     onHide = function()
       if shownFor then Join.Answer(shownFor, false) end   -- the X or Escape

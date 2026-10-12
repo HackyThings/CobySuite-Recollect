@@ -50,7 +50,7 @@
 -- in text hover and click as rows do; Heard(fn, ...) hears the names
 -- Facts.Chains' words use.
 --
--- Round two (2026-09-25): every link AllTheThings gives to one achievement
+-- Achievements and prices (2026-09-25): every link AllTheThings gives to one achievement
 -- is one row (Black Claw of Sethe links to 72 parts of one), its state how
 -- many of those parts are still to do (Facts.Achievements.Parts, a
 -- criterion whose ID reads 0 found by the item's name), never a need; a
@@ -145,7 +145,9 @@ local function Finish(i, job)
   end
 end
 
-local function RunFrame()
+-- One frame's work; the runner's OnUpdate calls it through the module, so a
+-- development timing probe reaches it (Task #294)
+function Data.RunFrame()
   local deadline = seams.Clock() + BUDGET_MS
   local i = 1
   while jobs[i] and seams.Clock() < deadline do
@@ -163,7 +165,7 @@ local function RunFrame()
   end
   if not jobs[1] then runner:Hide() end
 end
-runner:SetScript("OnUpdate", RunFrame)
+runner:SetScript("OnUpdate", function() Data.RunFrame() end)
 
 -- Start(key, step, onDone, priority): a job; one of the same key already
 -- queued is dropped. Lower priorities run first (default 1; the background
@@ -330,6 +332,42 @@ MAKERS.openedFrom = function(relation)
   return { tab = "sources", what = "item", kindLabel = "Opened from", id = relation.id, itemID = relation.id }
 end
 
+-- Sources of data format 11: a profession's gathering or extracting spell
+-- (a spell row: its name, icon and tooltip), a creature skinned (placed like
+-- a drop) and a seasonal drop (the row's words only)
+MAKERS.gatheredBy = function(relation)
+  return { tab = "sources", what = "recipe", kindLabel = "Profession", id = relation.id, spellID = relation.id }
+end
+
+MAKERS.skinnedFrom = function(relation)
+  return { tab = "sources", what = "npc", kindLabel = "Skinned from", id = relation.id, npcID = relation.id }
+end
+
+MAKERS.seasonDrop = function(relation)
+  return { tab = "sources", what = "season", kindLabel = "Seasonal drop", id = relation.id,
+    name = "Many of the season's activities" }
+end
+
+-- Data format 12: completing a Delve can give it (the row's words only)
+MAKERS.delveReward = function(relation)
+  return { tab = "sources", what = "delve", kindLabel = "Delve reward", id = relation.id,
+    name = "Completing a Delve" }
+end
+
+-- Data format 13: the store, a promotion, a Trading Card Game card or a Recruit-A-Friend reward (the row's words only)
+local STORE_ROWS = {
+  [1] = { kindLabel = "Shop", name = "The in-game shop" },
+  [2] = { kindLabel = "Promotion", name = "A promotion" },
+  [3] = { kindLabel = "Trading Card Game", name = "A Trading Card Game loot card" },
+  [4] = { kindLabel = "Recruit-A-Friend", name = "A Recruit-A-Friend reward" },
+}
+
+MAKERS.storePromotion = function(relation)
+  local words = STORE_ROWS[relation.id]
+  if not words then return nil end
+  return { tab = "sources", what = "store", kindLabel = words.kindLabel, id = relation.id, name = words.name }
+end
+
 MAKERS.holds = function(relation)
   return { tab = "crafting", what = "item", kindLabel = "Opening it gives", id = relation.id, itemID = relation.id }
 end
@@ -368,6 +406,25 @@ local function Push(job, row)
   list[#list + 1] = row
 end
 
+-- What makes two seller routes one row (Task #338): the creature's name and the price (UsedFor.SellerKey, nil
+-- while the name isn't read) and the same conditions. One vendor the data lists under several creature IDs,
+-- each with its own route, is one row; the one with a place is kept over one without
+local function ShownSignature(shows)
+  local out = {}
+  for key, list in pairs(shows or {}) do
+    out[#out + 1] = key .. "=" .. (type(list) == "table" and table.concat(list, ".") or tostring(list))
+  end
+  table.sort(out)
+  return table.concat(out, ",")
+end
+
+local function SellerRowKey(relation)
+  if relation.kind ~= "soldBy" then return nil end
+  local key = Recollect.UI.UsedFor.SellerKey(relation, {})
+  if not key then return nil end
+  return table.concat({ key, tostring(relation.flags), ShownSignature(relation.shows) }, "")
+end
+
 -- One relation as a row (or none), resolved for the job's owner. The links
 -- of one achievement that serve alike are one row, resolved once they are
 -- all in (AddExtras)
@@ -381,6 +438,15 @@ local function AddRelation(job, relation)
     applies = Relations().Applies(relation, job.owner)
   end
   local group = relation.kind == "linked" and (tostring(relation.id) .. ":" .. tostring(applies)) or nil
+  local sellerKey = SellerRowKey(relation)
+  local sameSeller = sellerKey and job.sellers and job.sellers[sellerKey]
+  if sameSeller then
+    -- the same vendor again: the first row stays, taking this creature when only this one has a place
+    if not sameSeller.placed and Vendors().Position(relation.id) then
+      sameSeller.row.id, sameSeller.row.npcID, sameSeller.row.relation, sameSeller.placed = relation.id, relation.id, relation, true
+    end
+    return
+  end
   local kept = group and job.linked and job.linked[group]
   if kept then
     kept.criteriaList[#kept.criteriaList + 1] = relation.criteria
@@ -410,6 +476,10 @@ local function AddRelation(job, relation)
   else
     Data.Resolve(row, job.owner, job.budget)
   end
+  if sellerKey then
+    job.sellers = job.sellers or {}
+    job.sellers[sellerKey] = { row = row, placed = Vendors().Position(relation.id) ~= nil }
+  end
   Push(job, row)
 end
 
@@ -427,6 +497,90 @@ local function AddJournal(job)
     Data.Resolve(row, job.owner, job.budget)
     Push(job, row)
   end
+end
+
+-- What crafting it takes: every required reagent slot of the recipes that
+-- make it (at most MAX_CRAFTS), from the game's own schematic (read live, as
+-- the Lab's dump reads it): { spellID, items, need } each, a slot filled by
+-- any of its items (its qualities or choices), counted together (PI-05)
+local function CraftSlots(relations, owner)
+  local slots, crafts = {}, 0
+  for _, relation in ipairs(relations) do
+    if relation.kind == "craftedBy" and crafts < MAX_CRAFTS and Relations().Applies(relation, owner) == true then
+      crafts = crafts + 1
+      local ok, schematic = Try(seams.Schematic, relation.id)
+      for _, slot in ipairs(ok and type(schematic) == "table" and schematic.reagentSlotSchematics or {}) do
+        local need = tonumber(slot.quantityRequired)
+        local items = {}
+        for _, reagent in ipairs(slot.required == true and type(slot.reagents) == "table" and slot.reagents or {}) do
+          if type(reagent) == "table" and IsPositiveID(reagent.itemID) then items[#items + 1] = reagent.itemID end
+        end
+        if #items > 0 and need and need > 0 then slots[#slots + 1] = { spellID = relation.id, items = items, need = need } end
+      end
+    end
+  end
+  return slots
+end
+
+-- What the sources of rows that can change while the view is open give for
+-- the item, as strings that stay the same while they do (Task #315 UI-04): the
+-- journals' costs (JournalStamp, taken before the journal rows), and the
+-- recipe index, the running endeavor's tasks, other characters' scans and
+-- the schematics of the recipes that make it (ExtrasStamp, taken before
+-- the other rows). The relations, vendors and what a use takes come from
+-- the shipped data, which doesn't change in a session.
+-- The journal's own words for the mount or pet the item teaches (nil when it
+-- teaches none or the journal has no text yet): its kind label and the
+-- cleaned, whole text
+local function JournalSource(itemID)
+  local Tooltip = Recollect.UI.Tooltip
+  if not (Tooltip and Tooltip.ItemJournalTarget) then return nil end
+  local kind, id = Tooltip.ItemJournalTarget(itemID)
+  local text = kind and Tooltip.JournalText(kind, id)
+  if not text then return nil end
+  return kind == "mount" and "Mount Journal" or "Pet Journal", text
+end
+
+local function JournalStamp(itemID)
+  local parts = {}
+  local index = Recollect.Facts.Journals.Get()
+  parts[1] = index and "j" or "j?"
+  for _, target in ipairs((index and index[itemID]) or {}) do
+    parts[#parts + 1] = tostring(target.kind) .. ":" .. tostring(target.id) .. "x" .. tostring(target.count)
+  end
+  local label, text = JournalSource(itemID)
+  if label then parts[#parts + 1] = "t" .. text end
+  return table.concat(parts, "|")
+end
+
+local function ExtrasStamp(itemID, owner, relations)
+  local parts = {}
+  if owner.isViewer then
+    local ok, recipes = pcall(Recollect.Facts.Recipes.ForCharacter)
+    local names = {}
+    for name, n in pairs(ok and recipes and recipes.uses and recipes.uses[itemID] or {}) do
+      names[#names + 1] = tostring(name) .. "=" .. tostring(n)
+    end
+    table.sort(names)
+    parts[#parts + 1] = "r" .. table.concat(names, ",")
+    for _, use in ipairs(Data.EndeavorUses(itemID)) do parts[#parts + 1] = "e" .. tostring(use.taskID or use.taskName) end
+  end
+  local ok, recorded = pcall(Recollect.Facts.Recipes.RecordedByOthers, itemID)
+  for _, r in ipairs(ok and recorded or {}) do
+    parts[#parts + 1] = ("o%s/%s/%s/%s"):format(tostring(r.name), tostring(r.profession), tostring(r.count), tostring(r.scannedAt))
+  end
+  for _, slot in ipairs(CraftSlots(relations or {}, owner)) do
+    parts[#parts + 1] = ("c%d:%s:%d"):format(slot.spellID, table.concat(slot.items, "/"), slot.need)
+  end
+  return table.concat(parts, "|")
+end
+
+-- SourcesChanged(job): whether a finished job's row sources now give other
+-- rows than when it was built (then the view is built again)
+function Data.SourcesChanged(job)
+  if not (job and job.finished and job.journalStamp and job.extrasStamp) then return false end
+  return JournalStamp(job.itemID) ~= job.journalStamp
+    or ExtrasStamp(job.itemID, job.owner, job.relations) ~= job.extrasStamp
 end
 
 -- Rows that aren't relations: the recipe index, other characters' scans,
@@ -467,29 +621,23 @@ local function AddExtras(job)
     Push(job, { tab = "sources", kind = "sold", what = "npc", kindLabel = "Sold by", id = vendor.npcID,
       npcID = vendor.npcID, of = itemID, filterState = "none", tier = Parts().TIER_INFO })
   end
-  -- What crafting it takes: every required reagent of the recipes that make
-  -- it, from the game's own schematic (read live, as the Lab's dump reads it)
-  local crafts = 0
-  for _, relation in ipairs(job.relations) do
-    if relation.kind == "craftedBy" and crafts < MAX_CRAFTS and Relations().Applies(relation, owner) == true then
-      crafts = crafts + 1
-      local ok, schematic = Try(seams.Schematic, relation.id)
-      -- a slot is filled by any of its items (its qualities or choices), counted together (PI-05)
-      for _, slot in ipairs(ok and type(schematic) == "table" and schematic.reagentSlotSchematics or {}) do
-        local need = tonumber(slot.quantityRequired)
-        local items = {}
-        for _, reagent in ipairs(slot.required == true and type(slot.reagents) == "table" and slot.reagents or {}) do
-          if type(reagent) == "table" and IsPositiveID(reagent.itemID) then items[#items + 1] = reagent.itemID end
-        end
-        if #items > 0 and need and need > 0 then
-          local row = { tab = "takes", kind = "part", what = "item", kindLabel = "To craft", id = items[1],
-            itemID = items[1], part = Recollect.Facts.Requirements.Part(items, need),
-            record = { kind = "craft", spellID = relation.id } }
-          Data.Resolve(row, owner, job.budget)
-          Push(job, row)
-        end
-      end
-    end
+  -- the same thing in another quality (data format 12's F table): each other item, with its own way to get it
+  for _, sibling in ipairs(Relations().OtherQualities(itemID)) do
+    Push(job, { tab = "sources", kind = "quality", what = "item", kindLabel = "Another quality", id = sibling,
+      itemID = sibling, of = itemID, filterState = "none", tier = Parts().TIER_INFO })
+  end
+  -- the mount or pet journal's own words, after the data's sources (live text, informational)
+  local journalLabel, journalText = JournalSource(itemID)
+  if journalLabel then
+    Push(job, { tab = "sources", kind = "journalSource", what = "journalSource", kindLabel = journalLabel,
+      name = journalText, of = itemID, filterState = "none", tier = Parts().TIER_INFO })
+  end
+  for _, slot in ipairs(CraftSlots(job.relations, owner)) do
+    local row = { tab = "takes", kind = "part", what = "item", kindLabel = "To craft", id = slot.items[1],
+      itemID = slot.items[1], part = Recollect.Facts.Requirements.Part(slot.items, slot.need),
+      record = { kind = "craft", spellID = slot.spellID } }
+    Data.Resolve(row, owner, job.budget)
+    Push(job, row)
   end
   local okR, records = pcall(Recollect.Facts.Requirements.For, itemID, owner, job.relations)
   for _, record in ipairs(okR and records or {}) do
@@ -544,6 +692,7 @@ function Data.Build(itemID, stack, owner, onProgress)
   Data.Start("build", function(deadline)
     job.budget = Recollect.Facts.QuestInfo.FrameBudget()
     if phase == 0 then
+      job.journalStamp = JournalStamp(itemID)
       AddJournal(job)
       phase = pos and 1 or 2
     end
@@ -568,6 +717,7 @@ function Data.Build(itemID, stack, owner, onProgress)
         return false
       end
     end
+    job.extrasStamp = ExtrasStamp(itemID, owner, relations)
     AddExtras(job)
     job.done, job.finished = job.total, true
     return true
@@ -625,16 +775,21 @@ end
 
 local FILTER_OF = { missing = "missing", have = "have", unavailable = "other" }
 
--- A plain item's state: how many you have, and for gear its look
+-- A plain item's state: how many you have, and for gear its look, collected
+-- or not only when the item's own tooltip agrees (Facts.Buys.Product, rule
+-- 5; Task #315 UI-02); a look that can't be read, or that this character can't
+-- collect, says how many you have instead
 local function PlainItem(row, owner)
   if not owner.isViewer then return Set(row, nil, nil, U.Colors.LABEL_GRAY, "none") end
   local okLoc, equipLoc = Try(seams.EquipLoc, row.id)
-  if okLoc and type(equipLoc) == "string" and Recollect.Purposes.Gear.SLOTS[equipLoc] and Recollect.Facts.Ready.Transmog() then
-    local look = Recollect.Purposes.Gear.Appearance(Recollect.Purposes.client,
-      { facts = { equipLoc = equipLoc }, stack = { itemID = row.id } })
-    if look == "collected" or look == "other" then
-      return Set(row, "have", look == "other" and "Look collected (other item)" or "Look collected", Colors()[V().DONE], "have")
-    elseif look == "missing" then
+  if okLoc and type(equipLoc) == "string" and Recollect.Purposes.Gear.SLOTS[equipLoc] then
+    local look, why = Recollect.Facts.Buys.Product(row.id, owner)
+    -- not cached: asked for within Facts.Item's budget, whose answer brings
+    -- a refresh that reads it again
+    if why == "loading" then Recollect.Facts.Item.Name(row.id) end
+    if look and look.what == "appearance" and look.state == "have" then
+      return Set(row, "have", look.otherItem and "Look collected (other item)" or "Look collected", Colors()[V().DONE], "have")
+    elseif look and look.what == "appearance" and look.state == "missing" then
       return Set(row, "missing", "Look not collected", Colors()[V().USEFUL], "missing")
     end
   end
@@ -710,19 +865,25 @@ local function QuestRow(row, owner, budget)
   local title, rank, words, color = Parts().QuestState(row.questID, budget, not owner.isViewer)
   if not title then return Set(row, "loading", "Checking", U.Colors.LABEL_GRAY, "none") end
   row.name = title:gsub('^"(.*)"$', "%1")
-  local filter = (rank == 5 or rank == 3 or rank == 2) and "missing" or (rank == 4 and "have") or "none"
+  -- rank 0: it needs a profession this character doesn't have (Task #338): out of reach, closed, the grayed cross
+  local filter = (rank == 5 or rank == 3 or rank == 2) and "missing" or (rank == 4 and "have") or (rank == 0 and "other") or "none"
   Set(row, "quest", words and (words:gsub("^%l", string.upper)) or nil, color, filter)
 end
 for kind in pairs(QUEST_LABEL) do RESOLVE[kind] = QuestRow end
 
 -- A criterion's achievement: found by its ID, or, where the game reads the
 -- ID as 0, by the item's name (Facts.Achievements.Get's third argument)
-local function AchievementRow(row)
+local function AchievementRow(row, owner)
   local a = Recollect.Facts.Achievements.Get(row.achievementID, row.criteria, row.of)
   if not a then return Set(row, nil, "Can't be read", U.Colors.LABEL_GRAY, "none") end
   row.name = a.name
   local colors = Colors()
   if a.earned then return Set(row, "have", "Earned", colors[V().DONE], "have") end
+  -- a part done and how many are the logged-in character's unless the
+  -- achievement is account-wide: another character's copy shows neither (Task #315 ACH-01)
+  if not owner.isViewer and Recollect.Facts.Achievements.AccountWide(row.achievementID) ~= true then
+    return Set(row, nil, nil, U.Colors.LIGHT_GRAY, "none")
+  end
   if a.criterionDone then return Set(row, "have", "That part done", colors[V().DONE], "have") end
   if type(a.required) == "number" and a.required > 1 and type(a.quantity) == "number" then
     row.bar = { done = a.quantity, total = a.required }   -- the Overview's progress bar
@@ -824,11 +985,29 @@ end
 -- A recipe's own state for the logged-in character; a recipe of a system
 -- whose "not known" was never measured (Facts.Buys.RecipeKnown "unverified":
 -- Protoform Synthesis and the like) can't be read for it
+-- The recipe's profession ("Tailoring") when the logged-in character is read
+-- not to have it, else nil: a profession it has, one that can't be read and
+-- a recipe of another system say nothing here (Task #334). A teaches row has
+-- no skill line of its own, so the recipe table gives it
+local function LackedProfession(row)
+  local Recipes = Recollect.Facts.Recipes
+  local line = row.skillLine
+  if not IsPositiveID(line) and IsPositiveID(row.spellID) then
+    local recipe = Relations().Recipe(row.spellID)
+    line = recipe and recipe.skillLine
+  end
+  if not IsPositiveID(line) or not Recipes.IsProfession(line) or Recipes.OwnsSkillLine(line) ~= false then return nil end
+  return Parts().SkillLineName(Recipes.ProfessionOf(line))
+end
+
 local function RecipeRow(row, owner)
   if not owner.isViewer then return Set(row, "unassessed", "Known per character", U.Colors.LABEL_GRAY, "none") end
   local known, why = Recollect.Facts.Buys.RecipeKnown(row.spellID)
   if known == true then return Set(row, "have", "Known", Colors()[V().DONE], "have") end
-  if known == false then return Set(row, "missing", "Not known", Colors()[V().USEFUL], "missing") end
+  if known == false then
+    local lacked = LackedProfession(row)
+    return Set(row, "missing", lacked and ("You don't have " .. lacked) or "Not known", Colors()[V().USEFUL], "missing")
+  end
   local system = why == "unverified" and Data.Profession(row)
   Set(row, nil, system and ("Can't be read for " .. system) or "Can't be read", U.Colors.LABEL_GRAY, "none")
 end
@@ -887,6 +1066,14 @@ function Data.Product(row, owner)
   row.productThing, row.productStamp = thing or false, Recollect.Facts.Buys.Stamp()
   if not thing then
     row.productText, row.productColor = row.productLoading and "Loading" or nil, U.Colors.LABEL_GRAY
+    -- a product still loading may be a collectible: no need and nothing had
+    -- until it is read, whatever the recipe's own state (Task #315 UI-01); a product
+    -- read as nothing collectible has the recipe's again
+    if row.productLoading then
+      row.filterState, row.tier = "none", Parts().TIER_INFO
+    elseif row.recipeFilter then
+      row.filterState, row.tier = row.recipeFilter, row.recipeTier
+    end
     return nil
   end
   row.productText = Data.ProductWords(thing)
@@ -912,6 +1099,7 @@ end
 
 local function RecipeWithProduct(row, owner)
   RecipeRow(row, owner)
+  row.recipeFilter, row.recipeTier = row.filterState, row.tier   -- for a product read as nothing collectible
   row.productThing, row.productText, row.productLoading = nil, nil, nil
   Data.Product(row, owner)
 end
@@ -1089,7 +1277,8 @@ end
 -- after it (an event's, and a profession, standing or quest the owner
 -- misses: "Not done, Engineering only, during a holiday or event"), said
 -- once however often the row is read again
-local SHOWN_KINDS = { event = true, profession = true, standing = true, quest = true, achievement = true, renown = true }
+local SHOWN_KINDS = { event = true, profession = true, standing = true, quest = true, achievement = true, renown = true,
+  difficulty = true }
 local function EventState(row)
   local tags = row.tags
   if not tags or row.restricted or row.gone then return end
@@ -1219,7 +1408,7 @@ local function ObjectPlace(objectID)
 end
 
 -- A row's label as the reason its place is visited (UI.Waypoint's roles)
-local ROW_ROLES = { ["Used at"] = "usedAt", ["Sold by"] = "soldBy", ["Drops from"] = "dropsFrom",
+local ROW_ROLES = { ["Used at"] = "usedAt", ["Sold by"] = "soldBy", ["Drops from"] = "dropsFrom", ["Skinned from"] = "skinnedFrom",
   ["Takes it as payment"] = "payment", ["Found at"] = "found", Treasure = "opens", Spot = "spot" }
 
 -- Where the row's thing is, whoever it is for (kept on the row)
@@ -1416,11 +1605,14 @@ function Data.DisplayName(row)
   if name then return name end
   -- a gone route's quest may never answer with its title (Task #232)
   if row.what == "quest" then
-    return ("Quest %s (%s)"):format(tostring(row.questID), row.gone and "name unavailable" or "name not loaded")
+    local okQuest, _, why = pcall(Recollect.Facts.QuestInfo.Get, row.questID)
+    local unavailable = row.gone or (okQuest and why == "unavailable")
+    return ("Quest %s (%s)"):format(tostring(row.questID), unavailable and "name unavailable" or "name not loaded")
   end
   if row.what == "encounter" then return ("Encounter %s"):format(tostring(row.encounterID or row.id or "?")) end
   if row.what == "npc" then
-    return ("%s %s"):format(row.kind == "dropsFrom" and "Creature" or "NPC", tostring(row.npcID or row.id or "?"))
+    return ("%s %s"):format((row.kind == "dropsFrom" or row.kind == "skinnedFrom") and "Creature" or "NPC",
+      tostring(row.npcID or row.id or "?"))
   end
   return ("%s %s"):format(row.kindLabel or row.what or "?", tostring(row.id or "?"))
 end
@@ -1428,7 +1620,8 @@ end
 local ICON_ATLAS = { quest = "QuestNormal", npc = "UI-HUD-MicroMenu-Communities-Mouseover", object = "Object",
   index = "Professions-Crafting-Orders-Icon", zone = "poi-worldmap", endeavor = "UI-HUD-MicroMenu-Housing-Mouseover",
   encounter = "UI-HUD-MicroMenu-AdventureGuide-Mouseover", faction = "UI-HUD-MicroMenu-AdventureGuide-Mouseover",
-  blackMarket = "UI-HUD-MicroMenu-Shop-Mouseover", tradingPost = "UI-HUD-MicroMenu-Shop-Mouseover" }
+  blackMarket = "UI-HUD-MicroMenu-Shop-Mouseover", tradingPost = "UI-HUD-MicroMenu-Shop-Mouseover",
+  season = "UI-HUD-MicroMenu-AdventureGuide-Mouseover" }
 local FALLBACK_ICON = 134400
 
 -- Icon(row): a file ID, or an atlas name and true
@@ -1869,7 +2062,7 @@ Data._test = {
       if not finished then break end
     end
   end,
-  RunFrame = RunFrame,
+  RunFrame = function() return Data.RunFrame() end,
   Jobs = function() return jobs end,
   Reset = function()
     wipe(jobs)

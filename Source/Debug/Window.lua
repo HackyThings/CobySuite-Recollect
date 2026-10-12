@@ -4,7 +4,7 @@
 
 Recollect.DebugWindow = CobySuite_Recollect.Debug.NewWindow({
   windowName = "RecollectDebugWindow",
-  title = CobySuite_Recollect.Utilities.WrapColor(Recollect.BRAND_COLOR, "Recollect") .. " Debug Log",
+  title = CobySuite_Recollect.Utilities.WrapColor(Recollect.BRAND_COLOR, "Recollect") .. " debug log",
   icon = Recollect.ICON,
   logger = Recollect.Debug,
 })

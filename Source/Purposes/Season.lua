@@ -179,17 +179,19 @@ end
 local POWER_WORDS = { gear = "Gear from %s", reagent = "A crafting reagent from %s", upgrade = "An item-level upgrade from %s" }
 
 -- Whether anything the item makes (a recipe it is a reagent of, what it
--- combines into) is gear whose appearance you haven't collected:
--- { found = product } for the first such one; else { checked, unread,
--- loading, uncollectable, more } (gear products whose look was read as
--- collected, whose look or tooltip couldn't be read or disagreed, whose
--- look is unread while its item data loads (asked for here, so a later
--- evaluation reads it), whose look this character can't collect, and
--- products past MAX_PRODUCTS), or nil while the appearance collection isn't
--- loaded
+-- combines into) is gear whose appearance you haven't collected, each look
+-- read as the details window's Makes column reads it (Facts.Buys.Product:
+-- collected, missing or not collectable only when the product's own tooltip
+-- agrees, rule 5; Task #315 SEASON-01): { found = product } for the first such one;
+-- else { checked, unread, loading, uncollectable, more } (gear products
+-- whose look was read as collected, whose look or tooltip couldn't be read
+-- or disagreed, whose look is unread while its item data loads (asked for
+-- here, so a later evaluation reads it), whose look this character can't
+-- collect, and products past MAX_PRODUCTS), or nil while the appearance
+-- collection isn't loaded. A neck, ring or trinket has no look to collect.
 local function CraftedLook(itemID)
   if not Recollect.Facts.Ready.Transmog() then return nil end
-  local Relations, Gear = Recollect.Facts.Relations, Recollect.Purposes.Gear
+  local Relations, Gear, Buys = Recollect.Facts.Relations, Recollect.Purposes.Gear, Recollect.Facts.Buys
   local seen, looked, count, loads = {}, { checked = 0, unread = 0, loading = 0, uncollectable = 0, more = 0 }, 0, 0
   for _, relation in ipairs(Relations.For(itemID)) do
     local product
@@ -211,27 +213,29 @@ local function CraftedLook(itemID)
           -- is gear isn't known (review CORE-02); "" is a product that isn't
           -- gear, which counts nowhere
           looked.unread = looked.unread + 1
-        elseif type(equipLoc) == "string" and Gear.SLOTS[equipLoc] then
-          local look = Gear.Appearance(client, { facts = { equipLoc = equipLoc }, stack = { itemID = product } })
-          if look == "missing" then
-            -- the product's own tooltip must agree (rule 5)
-            local tip = Recollect.Facts.Tooltip.FromItemID(product)
-            if tip and tip.appearanceMissing == true then return { found = product } end
-            looked.unread = looked.unread + 1
-          elseif look == "uncollectable" then
+        elseif type(equipLoc) == "string" and Gear.SLOTS[equipLoc] and not Gear.NO_APPEARANCE[equipLoc] then
+          local look, why = Buys.Product(product)
+          local state = look and look.what == "appearance" and look.state or nil
+          if state == "missing" then
+            return { found = product }
+          elseif state == "have" then
+            looked.checked = looked.checked + 1
+          elseif state == "unavailable" then
             looked.uncollectable = looked.uncollectable + 1
-          elseif look == nil then
-            -- an item not cached yet may answer nothing: ask for it (Facts.Item
-            -- fires InventoryChanged when it arrives), a few per evaluation
+          elseif why == "loading" then
+            -- an item not cached yet: ask for it (Facts.Item fires
+            -- InventoryChanged when it arrives), a few per evaluation
             if loads < MAX_LOADS then
               loads = loads + 1
-              local _, why = Recollect.Facts.Item.Get(product)
-              if why == "item data loading" then looked.loading = looked.loading + 1 else looked.unread = looked.unread + 1 end
+              local _, loadWhy = Recollect.Facts.Item.Get(product)
+              if loadWhy == "item data loading" then looked.loading = looked.loading + 1 else looked.unread = looked.unread + 1 end
             else
               looked.loading = looked.loading + 1
             end
-          elseif look ~= "none" then   -- a ring or trinket has no look to collect
-            looked.checked = looked.checked + 1
+          else
+            -- a look or tooltip that can't be read or disagrees, or gear
+            -- with no look read at all
+            looked.unread = looked.unread + 1
           end
         end
       end

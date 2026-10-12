@@ -97,6 +97,7 @@ function Main.DB()
       history = keep.history, windows = keep.windows, confirmed = keep.confirmed, generalConfirmed = keep.generalConfirmed,
       knownMembers = keep.knownMembers,
       receipts = keep.receipts, registry = keep.registry,
+      collecting = keep.collecting, pullRun = keep.pullRun, pullRunLast = keep.pullRunLast,
       dataVersion = keep.dataVersion, formatVersion = keep.formatVersion, addonVersion = keep.addonVersion }
     if block then
       Host.Log("Curator saved data of layout %s kept as a frozen block (%s), made under data %s", tostring(keep.schema),
@@ -167,7 +168,9 @@ function Main.StillCurrent(noted)
 end
 
 local runner
-local function Run()
+-- One frame's jobs, about BUDGET_MS of them. The runner calls it through the
+-- module, so a development timing probe reaches it (Task #294)
+function Main.RunJobs()
   local started = Main.seams.Clock()
   while #queue > 0 do
     local job = table.remove(queue, 1)
@@ -181,7 +184,7 @@ local function Run()
     end
   end
 end
-runner = CobySuite_Recollect.Utilities.Coalesce(0, Run)
+runner = CobySuite_Recollect.Utilities.Coalesce(0, function() Main.RunJobs() end)
 
 -- Defer(fn): runs fn in a later frame, if the epoch is unchanged then
 function Main.Defer(fn)
@@ -192,7 +195,7 @@ end
 -- Runs every queued job now (tests; the jobs' own gates still apply)
 function Main.RunDeferred()
   runner:Cancel()
-  while #queue > 0 do Run() end
+  while #queue > 0 do Main.RunJobs() end
   runner:Cancel()
 end
 

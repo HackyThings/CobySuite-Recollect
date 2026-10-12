@@ -179,6 +179,7 @@ function Bags.SetCurrent(totals)
 end
 
 local frame = CreateFrame("Frame")
+Bags.frame = frame   -- its events, for a development timing probe (Task #294)
 pcall(frame.RegisterEvent, frame, "BAG_UPDATE_DELAYED")
 pcall(frame.RegisterUnitEvent, frame, "UNIT_SPELLCAST_SUCCEEDED", "player")
 frame:SetScript("OnEvent", function(_, event, ...)

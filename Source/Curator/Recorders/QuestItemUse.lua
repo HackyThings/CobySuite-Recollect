@@ -99,6 +99,7 @@ end
 Bags.ListenCasts(function(spellID, castGUID) QuestItemUse.OnCast(spellID, castGUID) end)
 
 local frame = CreateFrame("Frame")
+QuestItemUse.frame = frame   -- its events, for a development timing probe (Task #294)
 pcall(frame.RegisterUnitEvent, frame, "UNIT_SPELLCAST_SENT", "player")
 frame:SetScript("OnEvent", function(_, _, ...)
   if Curator.Main.IsScripted() then return end

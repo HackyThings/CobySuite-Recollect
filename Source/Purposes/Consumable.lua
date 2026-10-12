@@ -5,8 +5,10 @@
 -- item enhancements and temporary weapon enhancements (oils, sharpening
 -- stones, weightstones and weapon runes, which the game files as Other: an
 -- English Use line applying to "your ... weapon" for a set time; Cobanyte,
--- 2026-09-29, after a curator's flag on Algari Mana Oil) are made anew for
--- each expansion, so one from an older expansion is Outdated: both the item's expansionID and AllTheThings'
+-- 2026-09-29, after a curator's flag on Algari Mana Oil), and Other items
+-- whose English Use line makes them an elixir or a timed stat boost
+-- (StatKind, Task #339) are made anew for each expansion, so one from an
+-- older expansion is Outdated: both the item's expansionID and AllTheThings'
 -- added patch below GetServerExpansionLevel (Facts.Item.Age "older"; the
 -- reason names the later of the two: "from Shadowlands (added in patch
 -- 9.0.2)"). When the game says older and the added patch says current
@@ -17,7 +19,10 @@
 -- (Purposes.UseEffect.Describe, in UseItem.lua); one whose Use line says it
 -- is only a drink for fun (ForFun, English clients) is marked flavor, which
 -- the details window's Still needed? band reads (Just for fun), never a
--- verdict. Such a drink filed as Food & Drink is no replaced kind either
+-- verdict. Every such informing result carries optional, the kind of
+-- optional use the band reads (UseEffect.Optional: a novelty, for pet
+-- battles, an older item that still works, or the drink). Such a drink
+-- filed as Food & Drink is no replaced kind either
 -- (Cobanyte, 2026-10-01: about 300 older ales read Outdated before), so it
 -- only informs too; while its Use line loads it is Unknown, never Outdated.
 -- A consumable from the current expansion whose tooltip has a Use
@@ -55,6 +60,8 @@ local REPLACED = {
 }
 local OTHER = { "A consumable", "A current-expansion consumable" }
 local WEAPON = { "A temporary weapon enhancement", "A current-expansion temporary weapon enhancement" }
+local ELIXIR = REPLACED[Sub.Elixir or 2]
+local STAT = { "A temporary stat boost", "A current-expansion temporary stat boost" }
 -- Every Other consumable of the 2026-09-28 dump whose Use line reads this way
 -- (73, from Classic's Rough Sharpening Stone to Midnight's Oil of Dawn) is a
 -- weapon oil, stone or rune; a permanent coating ("lasts until canceled") and
@@ -68,6 +75,32 @@ local function IsTimedWeaponBuff(useText)
   return weapon ~= nil and timed ~= nil
 end
 
+-- An Other consumable that is an elixir by its Use line ("This effect counts
+-- as a Battle Elixir": the old stat scrolls, Oil of Olaf), or a timed boost
+-- to a stat ("Increases the target's Strength by 1 for 30 min", "grant 16
+-- primary stat to all nearby allies for 1 hour"; Task #339: 93 such older
+-- items read Can't tell in the 2026-10-10 dump), is a kind each expansion
+-- replaces like a potion or a flask; a permanent one, a chance to proc or a
+-- boost with no time stays Other
+local STATS = { "strength", "agility", "intellect", "stamina", "spirit", "versatility", "critical strike", "haste",
+  "mastery", "armor", "all stats", "primary stat", "attack power", "spell power" }
+local function StatKind(useText)
+  local plain = Recollect.Facts.Tooltip.StripColors(useText):lower()
+  if plain:find("permanent", 1, true) or plain:find("chance to", 1, true) then return nil end
+  if plain:find("counts as a battle elixir", 1, true) or plain:find("counts as a guardian elixir", 1, true)
+    or plain:find("%.%s+battle elixir%.") or plain:find("%.%s+guardian elixir%.") then
+    return ELIXIR
+  end
+  -- "for 30 min", "for 1 |4hour:hrs;" (the game's plural code, kept in the line)
+  local timed = plain:find("for %d+ min") or plain:find("for %d+ hour") or plain:find("for %d+ sec")
+    or plain:find("for %d+ |4")
+  if not timed then return nil end
+  for _, stat in ipairs(STATS) do
+    if plain:find("increases? [%a' ]-" .. stat .. " by %d") or plain:find("grants? %d+ " .. stat) then return STAT end
+  end
+  return nil
+end
+
 -- The kind's { older, current } wording, or nil for a kind no expansion
 -- replaces; and, for an Other consumable whose Use line decides it but hasn't
 -- loaded, why it can't be told yet
@@ -75,7 +108,7 @@ local function Kind(ctx)
   local words = REPLACED[ctx.facts.subclassID]
   if words or ctx.facts.subclassID ~= (Sub.Other or 8) or not R.EnglishClient() then return words end
   local tip = ctx.Tooltip()
-  if tip and tip.useText then return IsTimedWeaponBuff(tip.useText) and WEAPON or nil end
+  if tip and tip.useText then return IsTimedWeaponBuff(tip.useText) and WEAPON or StatKind(tip.useText) end
   if ctx.facts.spellLoading then return nil, "its Use line is still loading" end
   if ctx.facts.spellFailed then return nil, "its Use line can't be loaded" end
   return nil
@@ -103,12 +136,15 @@ end
 
 -- An informing result for a kind no expansion replaces; marked flavor (a
 -- drink only for fun, which the details window's Still needed? band reads)
--- when it gives nothing (no currency gain) and ForFun says so
-local function NotReplaced(ctx, text)
+-- when it gives nothing (no currency gain) and ForFun says so, and optional
+-- with the kind of optional use its Use line names (UseEffect.Optional:
+-- a novelty, for pet battles, or an older item that still works)
+local function NotReplaced(ctx, text, age)
   local UseEffect = Recollect.Purposes.UseEffect
   local described = UseEffect.Describe(ctx)
   local result = UseEffect.Info(text, described, NOT_REPLACED)
   if not (described and described.headline) and ForFun(ctx) then result.flavor = "drink" end
+  result.optional = result.flavor and "drink" or UseEffect.Optional(ctx, age)
   return result
 end
 
@@ -167,14 +203,14 @@ R.Register({
       -- Both sources place it in an older expansion (Facts.Item.Age)
       local text = ("%s %s, an older expansion"):format(lead, UseEffect.From(expansion, source, patch))
       if words and not fun then return R.Result(V.OUTDATED, text) end
-      return NotReplaced(ctx, text)
+      return NotReplaced(ctx, text, age)
     end
     if age == "disagree" then
       -- The game says older, the added patch says current: never Outdated,
       -- never "current-expansion"
       local text = ("%s; %s"):format(lead, UseEffect.Disagree(ctx.facts, expansion, patch))
       if words and not fun then return R.Unknown(text .. ", so whether a newer one replaces it can't be told") end
-      return NotReplaced(ctx, text)
+      return NotReplaced(ctx, text, age)
     end
     -- A season of this expansion that isn't the current one: Season speaks
     local Season = Recollect.Purposes.Season

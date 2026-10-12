@@ -110,16 +110,44 @@ local function ToggleList()
   if Recollect.UI.ToggleList then Recollect.UI.ToggleList() end
 end
 
+-- "/rec addons" and the guide's last section: every addon by Cobanyte
+-- (CobySuite.UI.ToggleAddonsWindow, the same list in each addon)
+Recollect.AddonsList = {
+  host = "Recollect", slash = "/rec", icon = Recollect.ICON,
+  message = function(text) Recollect.Utilities.Message(text) end,
+  state = function() return RECOLLECT_WINDOW_STATE end,   -- the list remembers its place and size
+}
+
+-- "/rec reset windows": every window back at its default place and size. The
+-- windows save into two tables: the main ones (audit list, details, settings,
+-- guide, changelog, addons list) into RECOLLECT_WINDOW_STATE, and the curator
+-- dashboard and note dialogs into RECOLLECT_CURATOR_DB.windows, which is read
+-- as it stands (never created here) and is simply absent in a build without
+-- curator mode. The debug window saves no place, so it is listed by itself.
+Recollect.WindowsReset = {
+  host = "Recollect", title = "Recollect", icon = Recollect.ICON,
+  message = function(text) Recollect.Utilities.Message(text) end,
+  states = {
+    function() return RECOLLECT_WINDOW_STATE end,
+    function()
+      local db = RECOLLECT_CURATOR_DB
+      return type(db) == "table" and db.windows or nil
+    end,
+  },
+  windows = function() return { Recollect.DebugWindow } end,
+}
+
 CobySuite_Recollect.Slash.Register({
   key = "RECOLLECT",
   slashes = { "/recollect", "/rec" },
   title = "Recollect",
   version = VERSION,
   message = function(text) Recollect.Utilities.Message(text) end,
-  -- The suite's standard commands (show, settings, guide, changelog, debug,
-  -- test), then Recollect's own before test
+  -- The suite's standard commands (show, settings, guide, changelog, addons,
+  -- debug, test), then Recollect's own before test
   commands = CobySuite_Recollect.Slash.StandardCommands({
     show = ToggleList, showHelp = "Open or close the Recollect Audit",
+    addons = Recollect.AddonsList,
     settings = function()
       if Recollect.Config.ToggleSettings then Recollect.Config.ToggleSettings() end
     end,
@@ -132,6 +160,7 @@ CobySuite_Recollect.Slash.Register({
     debug = function()
       if Recollect.DebugWindow then Recollect.DebugWindow:Toggle() end
     end,
+    resetWindows = Recollect.WindowsReset,
     tests = function() return Recollect.Tests end,
     extra = {
       {
@@ -178,5 +207,11 @@ EventUtil.RegisterOnceFrameEventAndCallback("PLAYER_LOGIN", function()
   if Recollect.UI.Minimap then Recollect.UI.Minimap.Initialize() end
   -- A fresh install opens the guide; an update, the changelog
   if Recollect.UI.WhatsNew then Recollect.UI.WhatsNew.OnLogin() end
+  -- The suite's version check: a chat line when a newer release is out
+  CobySuite_Recollect.VersionCheck.Register({
+    key = "REC", addon = ADDON_NAME, title = "Recollect", color = Recollect.BRAND_COLOR,
+    enabled = function() return Recollect.Config.Get(Recollect.Config.Options.VERSION_CHECK) end,
+    log = function(fmt, ...) Recollect.Debug.Log("INIT", fmt, ...) end,
+  })
   Recollect.Debug.Log("INIT", "PLAYER_LOGIN complete")
 end)

@@ -33,12 +33,8 @@
 -- confirmed use that decides a verdict ships). Facts.Notes reads this table;
 -- an entry without items or text is ignored.
 -- Every note is our own wording, and nothing is copied from another addon
--- or a website. A note says what the item is used for, never
--- what it doesn't do, and never restates its own tooltip (Cobanyte,
--- 2026-09-25: the Key to the City's "no longer does anything", the Resilient
--- Seed's "warbound" and the Spare Toolbox's "unique" were taken out, and the
--- Shards of Domination note, whose only page was a news post rather than a
--- forum thread, was dropped).
+-- or a website. A note says what the item is used for, never what it doesn't
+-- do, and never restates its own tooltip (Cobanyte, 2026-09-25).
 -------------------------------------------------------------------------------
 Recollect.Data = Recollect.Data or {}
 

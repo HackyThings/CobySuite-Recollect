@@ -2,9 +2,9 @@
 -- Facts.Relations: what the game's data says an item is for
 --
 -- Reads Data/Relations.lua (built by /recollect-data from the Lab's big dump
--- and AllTheThings' database; IDs only). Each bucket (item ID // BUCKET) is one string of records:
--- byte 30, the item ID, byte 31, its codes joined by ";". A code is a letter
--- and numbers:
+-- and AllTheThings' database; IDs only). Each bucket (item ID // BUCKET) is
+-- one string of records: byte 30, the item ID, byte 31, its codes joined by
+-- ";". A code is a letter and numbers:
 --   o<quest>x<n>       an objective of <quest> names this item (n needed)
 --   w<quest>           <quest> rewards this item
 --   k<quest>           <quest> offers this item as a choice
@@ -81,17 +81,34 @@
 --                      (n is always 1, reserved)
 --   U<yyyymm>          offered at the Trading Post, in the month AllTheThings
 --                      files it under (202503), 0 when not known (id = yyyymm)
--- Since data format 10, from accepted curator findings only:
+-- Since data format 10, from accepted curator findings (Y also from AllTheThings'
+-- item-typed headers since its extractor version 22, Task #303):
 --   F<map>             fished in zone <map> (a source, like z; no spot)
 --   Y<item>            comes from opening the container item <item> (a source)
 --   H<item>            opening it can give <item> (a use, informational: the
 --                      reverse of Y, which the build writes from every Y)
--- F, Y and H are number-only, like D (no "x<n>").
+-- Since data format 11:
+--   G<spell>           comes from casting a profession's gathering or extracting
+--                      spell <spell> (Disenchant, Skinning, Mining, Herb
+--                      Gathering, Milling, Prospecting...; AllTheThings files
+--                      what each gives under the spell, inside its profession; the
+--                      route carries that profession as its display-only P
+--                      condition since data format 12: "G13262|P333")
+--   S<npc>             skinned from creature <npc> (accepted curator findings:
+--                      a corpse looted right after a Skinning cast)
+--   P<quest>           a seasonal drop: it comes from many of the season's
+--                      activities (dungeons, raids, delves...), not from one boss;
+--                      <quest> is the hidden weekly quest the game counts it
+--                      with (Spark of Tides, 274476: 96447), 0 when none is known
+-- Since data format 12:
+--   L<n>               completing a Delve can give it (AllTheThings files it under
+--                      its Delve Completion header; n is always 0, reserved)
+-- F, Y, H, G, S, P and L are number-only, like D (no "x<n>").
 -- Any code may end in "|" and flags, the route's conditions (flags):
 --   x unavailable (no longer available), f0 / f1 faction (Horde / Alliance
 --   only, as PvPFaction), c<id.id> classes (class IDs), h event (only
 --   during a holiday or seasonal event), R<id.id> races (race IDs)
--- and conditions a character can still meet, shown and never deciding
+-- and conditions shown and never deciding
 -- anything (curator spec D34; relation.shows, never in flags): P<skillLine>
 -- a profession (professions = { skillLine }), E<faction>.<standing> a
 -- reputation standing (standing = { factionID, standing }, 1 Hated to 8
@@ -99,21 +116,27 @@
 -- = { factionID, level }), Q<quest> after a completed quest (quests = {
 -- questID }, one Q per quest), A<ach> an achievement earned (achievements =
 -- { achievementID }, one A per achievement: "v255503|A62562A62563", what
--- buying the Unbound Manawyrm requires). AllTheThings gives E, N, Q and A
+-- buying the Unbound Manawyrm requires), M<id.id> only on these instance
+-- difficulties (difficulties = { difficultyID }, read with GetDifficultyInfo:
+-- "D2778|M8.23", the Concealed Catalogue from a Mythic or Mythic Keystone
+-- final boss; data format 11). AllTheThings gives E, N, Q and A
 -- for purchases (b, v), accepted curator findings any of them. A route
 -- whose only conditions are these has no flags, so it serves every character
 -- exactly as one with none.
--- For(itemID) returns { { kind, id, criteria, count, level, thing, vendors, plus,
--- costs, costText, unlisted, mapID, seller, unresolved, parts, price, flags, shows } }, uses first (objective, questItem, starts, opens,
--- usedAt, criterion, linked, buysDecor, buys, partOf, makes, reagentOf, currency,
--- recipeFor, teaches, holds), then where it comes from (Relations.SOURCE: madeFrom,
--- craftedBy, taughtBy, reward, choice, achievementReward, soldBy,
--- renownReward, blackMarket, tradingPost, openedFrom, dropsFrom, journalDrop, foundIn,
--- zoneDrop, fishedIn; ORDER lists every kind, since the sort compares by it), parsed when first asked
--- for and kept while recently used (Keep: two generations, the newer one rotated out once
--- it would pass CACHE_RELATIONS relations, so both together can hold up to about twice
--- that, and one larger item's list is kept whole). Names, titles and states are read live by the
--- modules that use a relation; Applies(relation, owner) says whether a route
+-- For(itemID) returns { { kind, id, criteria, count, level, thing, vendors,
+-- plus, costs, costText, unlisted, mapID, seller, unresolved, parts, price,
+-- flags, shows } }, uses first (objective, questItem, starts, opens, usedAt,
+-- criterion, linked, buysDecor, buys, partOf, makes, reagentOf, currency,
+-- recipeFor, teaches, holds), then where it comes from (Relations.SOURCE:
+-- madeFrom, craftedBy, taughtBy, reward, choice, achievementReward, soldBy,
+-- renownReward, blackMarket, tradingPost, openedFrom, seasonDrop, dropsFrom,
+-- skinnedFrom, journalDrop, foundIn, zoneDrop, fishedIn, gatheredBy,
+-- delveReward, storePromotion; ORDER lists every kind, since the sort compares by it), parsed
+-- when first asked for and kept while recently used (Keep: two generations,
+-- the newer one rotated out once it would pass CACHE_RELATIONS relations, so
+-- both together can hold up to about twice that, and one larger item's list
+-- is kept whole). Names, titles and states are read live by the modules that
+-- use a relation; Applies(relation, owner) says whether a route
 -- serves a character (SRC-01), and Conditions(relation, owner) which of its
 -- conditions the character misses, as tags for display only (D34: an event
 -- route is tagged but served as any other). QuestGiver(questID) says where a quest
@@ -121,7 +144,8 @@
 -- giver since data format 7, the one standing at that place first), and
 -- QuestTurnIns(questID) who takes its turn-in (the Z table, data format 10,
 -- from accepted curator findings; kept apart from G, which says only where a
--- quest starts).
+-- quest starts). OtherQualities(itemID) lists the other items that are the same thing
+-- in another quality (the F table, data format 12).
 -- EncountersOfObject(objectID) lists the Encounter Journal encounters whose
 -- loot comes out of a boss loot chest (the L table, format 7), and
 -- EncounterOfObject the first.
@@ -154,7 +178,8 @@ local KIND = {
   b = "buys", u = "questItem", s = "starts", v = "soldBy", c = "dropsFrom", j = "opens", n = "usedAt",
   l = "linked", r = "teaches", i = "foundIn", z = "zoneDrop", y = "craftedBy", e = "partOf",
   A = "achievementReward", V = "soldBy", D = "journalDrop", N = "renownReward", O = "blackMarket", U = "tradingPost",
-  F = "fishedIn", Y = "openedFrom", H = "holds",
+  F = "fishedIn", Y = "openedFrom", H = "holds", G = "gatheredBy", S = "skinnedFrom", P = "seasonDrop",
+  L = "delveReward", R = "storePromotion",
 }
 -- Every kind must be here: Less compares ORDER[kind], and a kind missing
 -- from it would throw in the sort (build_data.py's KIND_RANK ships the codes
@@ -162,17 +187,23 @@ local KIND = {
 local ORDER = { objective = 1, questItem = 2, starts = 3, opens = 4, usedAt = 5, criterion = 6, linked = 7,
   buysDecor = 8, buys = 9, partOf = 10, makes = 11, reagentOf = 12, currency = 13, recipeFor = 14, teaches = 15,
   holds = 16, madeFrom = 17, craftedBy = 18, taughtBy = 19, reward = 20, choice = 21, achievementReward = 22,
-  soldBy = 23, renownReward = 24, blackMarket = 25, tradingPost = 26, openedFrom = 27, dropsFrom = 28,
-  journalDrop = 29, foundIn = 30, zoneDrop = 31, fishedIn = 32 }
+  soldBy = 23, renownReward = 24, blackMarket = 25, tradingPost = 26, openedFrom = 27, seasonDrop = 28, dropsFrom = 29,
+  skinnedFrom = 30, journalDrop = 31, foundIn = 32, zoneDrop = 33, fishedIn = 34, gatheredBy = 35,
+  delveReward = 36, storePromotion = 37 }
 
 -- Kinds that say where an item comes from, not what it is for
 Relations.SOURCE = { madeFrom = true, taughtBy = true, reward = true, choice = true, soldBy = true, dropsFrom = true,
   foundIn = true, zoneDrop = true, craftedBy = true, achievementReward = true, journalDrop = true, renownReward = true,
-  blackMarket = true, tradingPost = true, fishedIn = true, openedFrom = true }
+  blackMarket = true, tradingPost = true, fishedIn = true, openedFrom = true, gatheredBy = true, skinnedFrom = true,
+  seasonDrop = true, delveReward = true, storePromotion = true }
 
 -- Kinds whose body is a number alone (no "x<n>")
 local NUMBER_ONLY = { journalDrop = true, blackMarket = true, tradingPost = true, fishedIn = true, openedFrom = true,
-  holds = true }
+  holds = true, gatheredBy = true, skinnedFrom = true, seasonDrop = true, delveReward = true, storePromotion = true }
+
+-- Data format 13's R code: the store or promotion kinds (1 the in-game shop, 2 a promotion, 3 a Trading
+-- Card Game loot card, 4 a Recruit-A-Friend reward); any other body is not read
+Relations.STORE_KINDS = { [1] = "shop", [2] = "promotion", [3] = "tcg", [4] = "recruit" }
 
 -- "xf0c8.13h": the route's conditions, or nil for none. One table per
 -- distinct text, shared by every relation that carries it (read-only):
@@ -201,7 +232,7 @@ local function Flags(text)
   return flags
 end
 
--- The display-only conditions (P, E, N, Q, A) of a flags text, one shared table
+-- The display-only conditions (P, E, N, Q, A, M) of a flags text, one shared table
 -- per distinct text (read-only), or nil for none; and the text without them,
 -- for Flags (a text with nothing else then gives nil flags)
 local showsOf, plainOf = {}, {}
@@ -225,7 +256,13 @@ local function Shows(text)
     shows.achievements = shows.achievements or {}
     shows.achievements[#shows.achievements + 1] = tonumber(id)
   end
+  local difficulties = text:match("M([%d%.]+)")
+  if difficulties then
+    shows.difficulties = {}
+    for id in difficulties:gmatch("%d+") do shows.difficulties[#shows.difficulties + 1] = tonumber(id) end
+  end
   local plain = text:gsub("P%d+", ""):gsub("E%d+%.%d+", ""):gsub("N%d+%.%d+", ""):gsub("Q%d+", ""):gsub("A%d+", "")
+    :gsub("M[%d%.]+", "")
   if not next(shows) then shows = nil end
   showsOf[text], plainOf[text] = shows or false, plain
   return shows, plain
@@ -459,6 +496,10 @@ local function ParseBody(kind, body, itemID)
     if not faction then return nil end
     return { kind = kind, id = tonumber(faction), level = tonumber(level) }
   end
+  if kind == "storePromotion" then
+    local only = body:match("^([1-9])$")
+    return only and Relations.STORE_KINDS[tonumber(only)] and { kind = kind, id = tonumber(only) } or nil
+  end
   if NUMBER_ONLY[kind] then
     local only = body:match("^(%d+)$")
     return only and { kind = kind, id = tonumber(only) } or nil
@@ -610,7 +651,8 @@ end
 --                standing } (E), renown ids = { factionID, level } (N),
 --                quest ids = { questID } (Q, one tag per quest), achievement
 --                ids = { achievementID, ... } (every A of the route in one
---                tag): conditions a character can still meet (D34), listed
+--                tag), difficulty ids = { difficultyID, ... } (M, every one
+--                in one tag): conditions a character can still meet (D34), listed
 --                for every character, since only a live read tells whether
 --                the viewer meets them (the caller reads and words them:
 --                UI.UsedFor)
@@ -650,6 +692,11 @@ local function ShownTags(relation, tags)
     local ids = {}
     for i, achievementID in ipairs(shows.achievements) do ids[i] = achievementID end
     tags[#tags + 1] = Tag("achievement", nil, ids)
+  end
+  if shows.difficulties then
+    local ids = {}
+    for i, difficultyID in ipairs(shows.difficulties) do ids[i] = difficultyID end
+    tags[#tags + 1] = Tag("difficulty", nil, ids)
   end
   return tags
 end
@@ -770,6 +817,20 @@ function Relations.QuestTurnIns(questID)
     npc = tonumber(npc)
     if npc > 0 then list[#list + 1] = npc end
   end
+  return list
+end
+
+-- OtherQualities(itemID): the other items that are the same thing in another quality
+-- (the data's F table, since data format 12: the quality tiers of a reagent or
+-- of what a recipe crafts, and twin reagents of one name), ascending, as a
+-- new list each call; empty when there are none or the data has no such table
+-- (a file of an older format)
+function Relations.OtherQualities(itemID)
+  local list = {}
+  if not Recollect.Utilities.IsPositiveID(itemID) then return list end
+  local data = Data()
+  local text = Record(data and data.F, itemID)
+  for id in (text or ""):gmatch("%d+") do list[#list + 1] = tonumber(id) end
   return list
 end
 
