@@ -20,7 +20,22 @@
 -- combine" (never the Use line itself, which the tooltip shows). A Use line
 -- that is loading, or failed to load, may say "Combine": Unknown then. A
 -- count or usable read that fails carries readOwed, so Verdicts.Settle never
--- softens it under a season result.
+-- softens it under a season result. Its progress Unknown carries settled
+-- when what the combine leads to is settled (the "leads" check below).
+--
+-- The "leads" check (Task #438, the Diver's Key Fragment; contract rule 39
+-- through a combine): what the item's confirmed combines (m, e codes, on any
+-- client language) lead to, followed by Facts.Chains: the product's own
+-- purchases and quests, the treasure a product key opens and what it holds,
+-- what a product container can give. Only the ends reached by combining the
+-- item count here; its own quests and purchases are other checks'.
+--   an end that is a collectible still missing, every link read and serving
+--   the owner, no one-time step on the way done (a quest completed, a
+--   treasure looted)                                Useful, naming the end
+--   no end open, one that can't be read yet          Unknown, naming it
+--   no end open or unread, one done (the end had,
+--   or a step on the way done)                       Unknown, settled
+--   every end plain or for someone else, or none     nothing
 -------------------------------------------------------------------------------
 local R = Recollect.Purposes.Registry
 local V = R.Verdict
@@ -49,6 +64,45 @@ local function Headline(itemID, need)
   local name = made and Recollect.Facts.Item.Name(made.id)
   if name then return ("Combine %d into %s"):format(need, name) end
   return ("Collect %d to combine"):format(need)
+end
+
+-- What the item's combines lead to (the "leads" check), read once per
+-- evaluation and kept on ctx for the Combine check: a Facts.Chains summary of
+-- the ends reached by combining it, or nil
+local MAX_LOADS = 8   -- end items asked for per evaluation; their arrival reads it again
+local function CombineEnd(entry) return entry.via[1] ~= nil and entry.via[1].kind == "makes" end
+local function Owner(ctx)
+  return ctx.owner or { faction = ctx.playerFaction, isViewer = not ctx.otherCharacter, name = ctx.otherCharacter }
+end
+-- Whether the item has a confirmed combine the chains can follow (a cheap
+-- read of its own codes, so most items never build a chain)
+local function Combines(itemID)
+  local Relations = Recollect.Facts.Relations
+  for _, kind in ipairs({ "makes", "partOf" }) do
+    for _, relation in ipairs(Relations.Of(itemID, kind)) do
+      if not relation.unresolved and Recollect.Utilities.IsPositiveID(relation.id) then return true end
+    end
+  end
+  return false
+end
+
+local function LeadsOf(ctx)
+  local owner = Owner(ctx)
+  if ctx.combineLeads ~= nil then return ctx.combineLeads or nil, owner end
+  if not Combines(ctx.stack.itemID) then
+    ctx.combineLeads = false
+    return nil, owner
+  end
+  local summary = Recollect.Facts.Chains.Summary(ctx.stack.itemID, owner, Recollect.Facts.QuestInfo.FrameBudget(), nil,
+    CombineEnd)
+  for i = 1, math.min(summary and #summary.loading or 0, MAX_LOADS) do Recollect.Facts.Item.Get(summary.loading[i]) end
+  ctx.combineLeads = summary or false
+  return summary, owner
+end
+
+-- Whether every end the combines reach is settled: none open or unread, one done
+local function LeadsSettled(summary)
+  return summary ~= nil and summary.open == 0 and summary.unread == 0 and summary.done > 0
 end
 
 local PLACES = { "in your bags", "in your bank", "in the warband bank" }
@@ -90,6 +144,9 @@ R.Register({
     local need = CombineCount(tip.useText)
     if not need then return nil end
     local itemID = ctx.stack.itemID
+    -- the combine its Use names is gone from the game (every m code flagged x):
+    -- the removed check speaks (Task #446)
+    if R.AllGone(itemID, { "makes" }) then return nil end
     local headline = Headline(itemID, need)
     local okBags, inBags = Try(client.GetItemCount, itemID)
     local okAll, inAll = Try(client.GetItemCount, itemID, true, false, true, true)
@@ -103,7 +160,10 @@ R.Register({
     if inAll < need then
       local okBank, inBank = Try(client.GetItemCount, itemID, true, false, true, false)
       local where = Where(inBags, okBank and IsFiniteNumber(inBank) and inBank or nil, inAll)
-      return R.Unknown(("You have %d of the %d it takes%s"):format(inAll, need, where and (", " .. where) or ""), headline)
+      local result = R.Unknown(("You have %d of the %d it takes%s"):format(inAll, need, where and (", " .. where) or ""), headline)
+      -- what combining it leads to is done: the combine is only the way there
+      if LeadsSettled(LeadsOf(ctx)) then result.settled = true end
+      return result
     end
     local okUse, usable = Try(client.IsUsableItem, itemID)
     if not okUse or usable ~= true then
@@ -116,5 +176,38 @@ R.Register({
     end
     return R.Result(V.USE, ("You have %d, enough for its Use to combine %d; move %d to your bags first"):format(
       inAll, need, need - inBags))
+  end,
+})
+
+R.Register({
+  key = "leads",
+  label = "Leads to",
+  order = 62,   -- before Parts and Combine: where combining it leads says the most
+  Evaluate = function(ctx)
+    local summary, owner = LeadsOf(ctx)
+    if not summary then return nil end
+    local Chains = Recollect.Facts.Chains
+    local open = summary.first.open
+    if open then
+      local more = summary.open > 1 and ("; and %d more"):format(summary.open - 1) or ""
+      return R.Result(V.USEFUL, "Leads to " .. Chains.Words(open.entry, owner, open.thing, open.quests) .. more,
+        "Leads to " .. Chains.ThingWords(open.thing))
+    end
+    local unread = summary.first.unread
+    if unread then
+      local category = (not owner.isViewer and "character") or (#summary.loading > 0 and "loading")
+        or (not Recollect.Facts.Ready.Quests() and "loading") or "unreadable"
+      local headline = unread.thing and ("Leads to " .. Chains.ThingWords(unread.thing)) or nil
+      return R.Unknown("Leads to " .. Chains.Words(unread.entry, owner, unread.thing, unread.quests)
+        .. "; part of the way can't be read yet", headline, category)
+    end
+    if LeadsSettled(summary) then
+      local done = summary.first.done
+      local result = R.Unknown("Leads to " .. Chains.Words(done.entry, owner, done.thing, done.quests),
+        "Leads to " .. Chains.ThingWords(done.thing))
+      result.settled = true
+      return result
+    end
+    return nil
   end,
 })

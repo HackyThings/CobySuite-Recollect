@@ -26,6 +26,22 @@
 --   x:<container>:i:<item>   found in a container item, value "1"
 -- and the stamp "x:<container>" (total 0). When in doubt, nothing.
 --
+-- Transformations (Task #423): the same window, with the same rules (a craft
+-- begun or finished in it, TRADE_SKILL_CRAFT_BEGIN or
+-- TRADE_SKILL_ITEM_CRAFTED_RESULT, and gear changed, PLAYER_EQUIPMENT_CHANGED,
+-- now count as another gain too), may show
+-- a use the container and combine recorders don't take: some other item went
+-- down beside the used one (parts consumed together), or the used item went
+-- down by a count no shipped combine has. With the used item down and
+-- something up, it is recorded whole (Compare.Transform):
+--   tf:<used item>   "<consumed>|<gained>", each "<item>x<n>" comma
+--                    separated by item ID, the used item among the consumed,
+--                    with the Use spell kept as the observation's cast
+-- A use the Combine recorder takes (only the used item down, by a count the
+-- data combines, and one item up) and a plain container use stay theirs.
+-- The client never judges a transformation: the pipeline sorts each into a
+-- simple combine, a combine of several parts or one for review.
+--
 -- Only while curator mode may record, and never while a test run scripts
 -- the client. Client reads go through ContainerUse.seams.
 -------------------------------------------------------------------------------
@@ -41,7 +57,7 @@ ContainerUse.seams = {
   InCombat = function() return InCombatLockdown() end,
 }
 
-local window = nil   -- { itemID, epoch, net = { [itemID] = change }, ambiguous }
+local window = nil   -- { itemID, spell, epoch, net = { [itemID] = change }, ambiguous }
 local open = {}      -- [interaction type, or "trade"] = true while that window is open
 
 -- The interaction windows that move items into the bags and close with a
@@ -81,17 +97,55 @@ function ContainerUse.Judge(itemID, net)
   return items
 end
 
+-- Whether the Combine recorder takes this use: only the used item went down,
+-- by a count the data combines it in, and one item went up
+local function CombineRecorders(itemID, net)
+  local ups = 0
+  for id, change in pairs(net) do
+    if id ~= itemID and change < 0 then return false end
+    if change > 0 then ups = ups + 1 end
+  end
+  if ups ~= 1 then return false end
+  for _, combine in ipairs(Host.Combines(itemID)) do
+    if combine.count == -(net[itemID] or 0) then return true end
+  end
+  return false
+end
+
+-- Transformation(itemID, net): what the use consumed and gave, as two lists
+-- of { id, n } by item ID, when the used item went down and something went
+-- up and neither the container rule (Judge, not a count-1 combine) nor the
+-- Combine recorder takes it; else nil
+function ContainerUse.Transformation(itemID, net)
+  if (net[itemID] or 0) >= 0 then return nil end
+  if ContainerUse.Judge(itemID, net) and not CombinesOne(itemID) then return nil end
+  if CombineRecorders(itemID, net) then return nil end
+  local consumed, gained = {}, {}
+  for id, change in pairs(net) do
+    if change < 0 then consumed[#consumed + 1] = { id = id, n = -change } end
+    if change > 0 then gained[#gained + 1] = { id = id, n = change } end
+  end
+  if #gained == 0 then return nil end
+  local byID = function(a, b) return a.id < b.id end
+  table.sort(consumed, byID)
+  table.sort(gained, byID)
+  return consumed, gained
+end
+
 function ContainerUse.Finish(which)
   if window ~= which then return end
   window = nil
   if which.ambiguous or next(open) or InCombat() or not Curator.Main.StillCurrent(which.epoch) then return end
+  local ctx = which.ctx
   local items = ContainerUse.Judge(which.itemID, which.net)
-  if not items then return end
-  local sources = { [which.itemID] = { kind = "container", id = which.itemID, items = items } }
-  Curator.Main.Defer(function()
-    if CombinesOne(which.itemID) then return end
-    Curator.Compare.Loot({ sources = sources }, Curator.Context.Current())
-  end)
+  if items and not CombinesOne(which.itemID) then
+    local sources = { [which.itemID] = { kind = "container", id = which.itemID, items = items } }
+    Curator.Main.Defer(function() Curator.Compare.Loot({ sources = sources }, ctx) end)
+    return
+  end
+  local consumed, gained = ContainerUse.Transformation(which.itemID, which.net)
+  if not consumed then return end
+  Curator.Main.Defer(function() Curator.Compare.Transform(which.itemID, consumed, gained, which.spell, ctx) end)
 end
 
 -- A player cast (spellID): opens a window for the one item it uses; a cast
@@ -102,7 +156,9 @@ function ContainerUse.OnCast(spellID)
   if #items == 0 then return end
   if window then window.ambiguous = true end
   if #items ~= 1 or InCombat() then return end
-  local opened = { itemID = items[1], epoch = Curator.Main.Epoch(), net = {}, ambiguous = window ~= nil or next(open) ~= nil }
+  -- the context of the moment of the use, read in the cast's event (Task #421)
+  local opened = { itemID = items[1], spell = spellID, epoch = Curator.Main.Epoch(), net = {},
+    ambiguous = window ~= nil or next(open) ~= nil, ctx = Curator.Context.Current() }
   window = opened
   ContainerUse.seams.After(Bags.CAST_WINDOW, function() ContainerUse.Finish(opened) end)
 end
@@ -148,6 +204,11 @@ local handlers = {
   ENCOUNTER_LOOT_RECEIVED = function() ContainerUse.OnOtherGain() end,
   BONUS_ROLL_RESULT = function() ContainerUse.OnOtherGain() end,
   PLAYER_REGEN_DISABLED = ContainerUse.OnOtherGain,
+  -- a craft's products land in the bags too, and gear put on or taken off
+  -- moves items in and out of them (Task #423)
+  PLAYER_EQUIPMENT_CHANGED = function() ContainerUse.OnOtherGain() end,
+  TRADE_SKILL_CRAFT_BEGIN = function() ContainerUse.OnOtherGain() end,
+  TRADE_SKILL_ITEM_CRAFTED_RESULT = function() ContainerUse.OnOtherGain() end,
   PLAYER_INTERACTION_MANAGER_FRAME_SHOW = function(kind) ContainerUse.OnOpen(kind) end,
   PLAYER_INTERACTION_MANAGER_FRAME_HIDE = function(kind) ContainerUse.OnClose(kind) end,
   TRADE_SHOW = function() ContainerUse.OnOpen("trade") end,

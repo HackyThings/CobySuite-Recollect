@@ -19,7 +19,7 @@ Recollect.Curator = Curator
 local Host = {}
 Curator.Host = Host
 
-Host.HOST_VERSION = 7   -- 2: Versions fails closed, Hints is fact-keyed, PurchasesOf;
+Host.HOST_VERSION = 10  -- 2: Versions fails closed, Hints is fact-keyed, PurchasesOf;
                         -- 3: NpcName, ZoneName, OpenSettings (the curator dashboard);
                         -- 4: Knows, StoredItems, OnSnapshotCaptured (items with no information);
                         -- 5: NpcPlaces, QuestPlace, EncounterOfObject, ObjectAlias (data format 7),
@@ -27,7 +27,12 @@ Host.HOST_VERSION = 7   -- 2: Versions fails closed, Hints is fact-keyed, Purcha
                         -- 6: Sources' costs and unlisted (a V code's price in currencies, data
                         --    format 8, 2026-09-29);
                         -- 7: QuestTurnIns (who takes a quest's turn-in, the Z table, data
-                        --    format 10, 2026-10-05)
+                        --    format 10, 2026-10-05);
+                        -- 8: CodesOf's owner (serves, code), Sources' flags, ReagentsInBucket
+                        --    (Task #421); Unplaced and ObjectPlace (Task #423);
+                        -- 9: PurchasesOf entries' flags (prices judged by faction and race, Task #436)
+                        -- 10: CodesOf reads data format 22's G forms (npc, mapID, made) and gives
+                        --     every entry its flags (Task #449)
 
 -------------------------------------------------------------------------------
 -- Versions (D13)
@@ -82,18 +87,84 @@ function Host.Codes(itemID)
   return ok and type(codes) == "string" and codes or ""
 end
 
+local function Owner(context)
+  if type(context) ~= "table" then return nil end
+  return { faction = context.faction, classID = context.classID, raceID = context.raceID }
+end
+
+-- true, false or nil: whether a parsed route serves the context
+local function Serves(relation, context)
+  local Relations = Recollect.Facts.Relations
+  local ok, applies = pcall(Relations.Applies, relation, Owner(context))
+  if not ok then return nil end
+  if applies == true then return true end
+  if applies == "unavailable" or applies == "other" then return false end
+  return nil
+end
+
+-- Whether a code serves an observation's character (owner = { faction,
+-- classID, raceID, difficulty }): its faction, class and race conditions as
+-- Relations.Applies reads them, and its instance difficulties (the
+-- display-only M condition, data format 11) against the difficulty it was
+-- seen on. true, false, or nil when it can't be told (a condition the owner
+-- can't answer, or a code that doesn't parse)
+local function CodeServes(code, itemID, owner)
+  local Relations = Recollect.Facts and Recollect.Facts.Relations
+  if not (Relations and Relations.Parse and Relations.Applies) then return nil end
+  local ok, relation = pcall(Relations.Parse, code, itemID)
+  if not ok or type(relation) ~= "table" then return nil end
+  local served = Serves(relation, owner)
+  if served ~= true then return served end
+  local difficulties = type(relation.shows) == "table" and relation.shows.difficulties
+  if type(difficulties) ~= "table" or #difficulties == 0 then return true end
+  if type(owner.difficulty) ~= "number" then return nil end
+  for _, difficulty in ipairs(difficulties) do
+    if difficulty == owner.difficulty then return true end
+  end
+  return false
+end
+
 -- An item's shipped codes of one letter whose body is a number, as
 -- { { id, gone } }: CodesOf(item, "O") for the Black Market ({ { id = 1 } }),
 -- CodesOf(item, "U") for the Trading Post's months ({ { id = 202503 } }, 0
 -- for a month not known). gone is true when the code's route flags say it
 -- is no longer available ("|x"). Reads Host.Codes, so what it parses is
 -- the same string the rest of the curator sees.
-function Host.CodesOf(itemID, letter)
+-- With owner (the observation's character: { faction (0 Horde, 1 Alliance,
+-- nil unknown), classID, raceID, difficulty }), each entry also says whether
+-- the route serves it (serves: true, false, or nil when it can't be told; a
+-- code with no flags serves) and gives the code as shipped (code, "c200|f1"),
+-- so a sighting outside a route's restriction is never taken for it (Task #421).
+-- Every entry carries flags, the route's conditions as shipped ("P182", ""
+-- for none). For "G", data format 22's forms are read too (Task #449): a G on
+-- a creature (G921@<npc>: npc) or a zone's enemies (G921#<map>: mapID), and
+-- one made by casting the spell (G<spell>.1: made); id 0 is a profession on
+-- a creature whose spell isn't known (G0@<npc>)
+local function GForm(rest)
+  local spell = rest:match("^(%d+)%.1$")
+  if spell then return tonumber(spell), { made = true } end
+  local mark, target
+  spell, mark, target = rest:match("^(%d+)([@#])(%d+)$")
+  if not spell then return nil end
+  return tonumber(spell), mark == "@" and { npc = tonumber(target) } or { mapID = tonumber(target) }
+end
+
+function Host.CodesOf(itemID, letter, owner)
   local out = {}
   for code in Host.Codes(itemID):gmatch("[^;]+") do
     local body, flags = code:match("^([^|]*)|?(.*)$")
-    local id = body and body:sub(1, #letter) == letter and tonumber(body:sub(#letter + 1):match("^%d+$") or "")
-    if id then out[#out + 1] = { id = id, gone = flags:find("x", 1, true) ~= nil } end
+    local rest = body and body:sub(1, #letter) == letter and body:sub(#letter + 1)
+    local id, form = rest and tonumber(rest:match("^%d+$") or ""), nil
+    if rest and not id and letter == "G" then id, form = GForm(rest) end
+    if id then
+      local entry = { id = id, gone = flags:find("x", 1, true) ~= nil, flags = flags }
+      if form then entry.npc, entry.mapID, entry.made = form.npc, form.mapID, form.made end
+      if type(owner) == "table" then
+        entry.code = code
+        if flags == "" then entry.serves = true else entry.serves = CodeServes(code, itemID, owner) end
+      end
+      out[#out + 1] = entry
+    end
   end
   return out
 end
@@ -153,19 +224,48 @@ function Host.Bucket(index)
   return type(bucket) == "string" and bucket or nil
 end
 
-local function Owner(context)
-  if type(context) ~= "table" then return nil end
-  return { faction = context.faction, classID = context.classID, raceID = context.raceID }
+-- The reagent codes (g) one bucket of the shipped relations gives the recipes
+-- asked for (spells = { [recipe spell] = true }), as { [spell] = { { item,
+-- count, gone } } }; the bucket indexes are Host.BucketIndexes'. A curator's
+-- recipe read asks for a few buckets a frame, so a recipe's whole shipped
+-- reagent set is known before its schematic is compared (Task #421: 40,711
+-- reagent codes in 280 buckets, data 2026.10.14.30)
+function Host.ReagentsInBucket(index, spells)
+  local out = {}
+  local bucket = Host.Bucket(index)
+  if not bucket or type(spells) ~= "table" then return out end
+  for item, codes in bucket:gmatch("\30(%d+)\31([^\30]*)") do
+    if codes:find("g", 1, true) then
+      for spell, count, flags in (";" .. codes):gmatch(";g(%d+)x(%d+)([^;]*)") do
+        spell = tonumber(spell)
+        if spells[spell] then
+          out[spell] = out[spell] or {}
+          table.insert(out[spell], { item = tonumber(item), count = tonumber(count), gone = flags:find("x", 1, true) ~= nil })
+        end
+      end
+    end
+  end
+  return out
 end
 
--- true, false or nil: whether a parsed route serves the context
-local function Serves(relation, context)
-  local Relations = Recollect.Facts.Relations
-  local ok, applies = pcall(Relations.Applies, relation, Owner(context))
-  if not ok then return nil end
-  if applies == true then return true end
-  if applies == "unavailable" or applies == "other" then return false end
-  return nil
+-- A route's flags as the data writes them ("x", "f1", "c2.5", "R4", "h"), or
+-- nil for none: the conditions a sighting is set against
+local function FlagsText(flags)
+  if type(flags) ~= "table" then return nil end
+  local parts = {}
+  if flags.unavailable then parts[#parts + 1] = "x" end
+  if flags.faction ~= nil then parts[#parts + 1] = "f" .. tostring(flags.faction) end
+  for _, field in ipairs({ { "classes", "c" }, { "races", "R" } }) do
+    local set = flags[field[1]]
+    if type(set) == "table" then
+      local ids = {}
+      for id in pairs(set) do ids[#ids + 1] = id end
+      table.sort(ids)
+      parts[#parts + 1] = field[2] .. table.concat(ids, ".")
+    end
+  end
+  if flags.event then parts[#parts + 1] = "h" end
+  return #parts > 0 and table.concat(parts) or nil
 end
 
 local function CopyCosts(costs)
@@ -216,7 +316,9 @@ end
 
 -- What an item buys when it is soldItemID, as plain entries: { item, thing,
 -- id, count, costs = { { kind, id, count } } (this item's own first),
--- unlisted, vendors = { npcID }, mapID, serves (for context: true, false, nil) }
+-- unlisted, vendors = { npcID }, mapID, serves (for context: true, false, nil),
+-- flags (the route's conditions as the data writes them, "c5.8.9h", nil for
+-- none, so a listing's price can judge it by faction and race only, Task #436) }
 function Host.PurchasesOf(costItemID, soldItemID, context)
   local Relations = Recollect.Facts and Recollect.Facts.Relations
   local out = {}
@@ -226,7 +328,8 @@ function Host.PurchasesOf(costItemID, soldItemID, context)
     for i, npc in ipairs(relation.vendors or {}) do vendors[i] = npc end
     out[#out + 1] = { item = soldItemID, thing = relation.thing, id = relation.id, count = relation.count,
       costs = CopyCosts(Relations.Costs(relation, costItemID)), unlisted = relation.unlisted,
-      vendors = vendors, mapID = relation.mapID, serves = Serves(relation, context) }
+      vendors = vendors, mapID = relation.mapID, serves = Serves(relation, context),
+      flags = FlagsText(relation.flags) }
   end
   return out
 end
@@ -234,12 +337,14 @@ end
 -- The shipped relations of one kind for an item, sources or uses
 -- ("soldBy", "dropsFrom", "foundIn", "zoneDrop", "reward", "choice",
 -- "objective", "questItem", "starts", "usedAt", "teaches", "reagentOf",
--- "currency" ...): { id, count, price, costs, unlisted, serves, event }
+-- "currency" ...): { id, count, price, costs, unlisted, serves, event, flags }
 -- (price: a gold-only seller's shipped price in copper, count its stack, nil
 -- when the data gives it as "?"; costs: a priced seller's (V) every cost as
 -- copied { kind, id, count } entries, gold included, nil for any other
 -- relation; unlisted: "costs" or "gold" when part of that price isn't known;
--- event: true for a route only during a holiday or event, the "h" flag)
+-- event: true for a route only during a holiday or event, the "h" flag;
+-- flags: the route's conditions as the data writes them, "x" or "f1", nil
+-- for none, so a sighting a route doesn't serve can name it, Task #421)
 function Host.Sources(itemID, kind, context)
   local Relations = Recollect.Facts and Recollect.Facts.Relations
   local out = {}
@@ -249,7 +354,7 @@ function Host.Sources(itemID, kind, context)
   for _, relation in ipairs(list) do
     local costs = type(relation.costs) == "table" and relation.kind == "soldBy" and relation.costs or nil
     out[#out + 1] = { id = relation.id, count = relation.count, price = relation.price, serves = Serves(relation, context),
-      event = relation.flags and relation.flags.event and true or nil,
+      event = relation.flags and relation.flags.event and true or nil, flags = FlagsText(relation.flags),
       costs = costs and CopyCosts(costs) or nil, unlisted = costs and costs.unlisted or nil }
   end
   return out
@@ -279,6 +384,36 @@ function Host.NpcPlaces(npcID)
     end
   end
   return out
+end
+
+-- Whether the shipped data names an NPC or an object it has no place for
+-- (kind "npc" or "object"): Vendors.lua's optional unplacedNpcs and
+-- unplacedObjects (Task #423), bucketed by ID // 1024, each bucket
+-- ",<id>,<id>,...,". The sightings that may add a place for one (a rare's
+-- vignette, an object's loot window) read it, so an NPC or object nothing in
+-- the data names is never recorded. False with the shipped data off or a
+-- data file without the index
+local UNPLACED = { npc = "unplacedNpcs", object = "unplacedObjects" }
+function Host.Unplaced(kind, id)
+  local field = UNPLACED[kind]
+  if not field or type(id) ~= "number" or id <= 0 or Host.Versions().ok ~= true then return false end
+  local data = Recollect.Data and Recollect.Data.Vendors
+  local index = type(data) == "table" and data[field]
+  local bucket = type(index) == "table" and index[math.floor(id / 1024)]
+  return type(bucket) == "string" and bucket:find("," .. id .. ",", 1, true) ~= nil
+end
+
+-- An object's shipped place (Vendors.lua's objects): { mapID, x, y }, or nil
+-- for an object the data has none for (map 0) or doesn't have
+function Host.ObjectPlace(objectID)
+  local Vendors = Recollect.Facts and Recollect.Facts.Vendors
+  if not (Vendors and Vendors.Object) then return nil end
+  local ok, object = pcall(Vendors.Object, objectID)
+  if not ok or type(object) ~= "table" or type(object.mapID) ~= "number" or type(object.x) ~= "number"
+    or type(object.y) ~= "number" then
+    return nil
+  end
+  return { mapID = object.mapID, x = object.x, y = object.y }
 end
 
 -- The Encounter Journal encounter the shipped data maps a boss NPC to (the
@@ -449,6 +584,18 @@ local function ConfirmedUses()
   return set
 end
 
+-- Whether the item belongs to a secret (Data/Secrets.lua, any role: a step's
+-- input, tool, product or choice, or the item behind a reward), or, while that
+-- file can't be read, whether Relations' manifest names it
+local function SecretMember(itemID)
+  local Secrets = Recollect.Facts and Recollect.Facts.Secrets
+  if not Secrets then return false end
+  local status = Secrets.Status()
+  if status == "off" then return Secrets.InManifest(itemID) end
+  if status ~= "ok" then return false end
+  return #Secrets.Of("item", itemID) > 0
+end
+
 -- What the shipped data says of one item, without its quality siblings:
 -- the reason it counts as known, or nil when it says nothing. A read that
 -- fails counts as known ("unreadable"): nothing is recorded on a guess.
@@ -459,9 +606,13 @@ local function OwnInformation(itemID)
   local ok, codes = pcall(Relations and Relations.Codes or function() return nil end, itemID)
   if not ok then return "unreadable" end
   if type(codes) == "string" and codes ~= "" then return "codes" end
-  local okRemoved, removed = pcall(Relations and Relations.RemovedIn or function() return nil end, itemID)
+  -- Removed answers the patch, or 0 for an item gone with no patch known (data
+  -- format 18): either says something about the item. RemovedIn alone answers
+  -- nil for 0, so an item gone with no patch would read as having no information
+  local readRemoved = Relations and (Relations.Removed or Relations.RemovedIn) or function() return nil end
+  local okRemoved, removed = pcall(readRemoved, itemID)
   if not okRemoved then return "unreadable" end
-  if removed then return "removed" end
+  if removed ~= nil then return "removed" end
   if type(Data.Descriptions) == "table" and Data.Descriptions[itemID] then return "description" end
   local okNotes, notes = pcall(Facts.Notes and Facts.Notes.For or function() return nil end, itemID)
   if not okNotes then return "unreadable" end
@@ -469,15 +620,20 @@ local function OwnInformation(itemID)
   local okUses, uses = pcall(ConfirmedUses)
   if not okUses then return "unreadable" end
   if uses[itemID] then return "use" end
+  local okSecret, member = pcall(SecretMember, itemID)
+  if not okSecret then return "unreadable" end
+  if member then return "secret" end
   if type(Data.Residual) == "table" and Data.Residual[itemID] then return "leftover" end
   return nil
 end
 
 -- Knows(itemID): whether the shipped data this client loaded says anything
 -- at all about an item, as { known, why }. Known: relation codes of any
--- letter (routes no longer available included), a removal patch, a
--- description, a guide note, a confirmed known use naming it, a leftover
--- note, or another quality of the same thing that has one of those
+-- letter (routes no longer available included), a removal patch (or a
+-- removal with no patch known, an X record of 0), a
+-- description, a guide note, a confirmed known use naming it, a secret it
+-- belongs to (Data/Secrets.lua, or Relations' manifest N while that file can't
+-- be read), a leftover note, or another quality of the same thing that has one of those
 -- (Relations.OtherQualities, the data's F table since format 12: Fused Vitality
 -- 274267 is its sibling 245345's). An added patch alone is not information.
 -- The data off counts as known ("data off"), and so does anything that

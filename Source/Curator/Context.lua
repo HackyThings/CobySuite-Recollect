@@ -77,9 +77,7 @@ local function NextIndex(db, counter, tbl)
 end
 
 local function Read(name, ...)
-  local ok, value = pcall(Context.seams[name], ...)
-  if not ok or Host.IsSecret(value) then return nil end
-  return value
+  return CobySuite_Recollect.Utilities.SafeCall(Host.IsSecret, 1, Context.seams[name], ...)
 end
 
 -- The account's index for this character (made on first sight)
@@ -124,6 +122,19 @@ end
 function Context.Owner()
   local faction = Read("Faction")
   return { faction = faction and FACTIONS[faction] or nil, classID = Read("Class"), raceID = Read("Race") }
+end
+
+-- OwnerOf(index): the character of a stored context block, as route
+-- conditions read it: { faction (0 Horde, 1 Alliance, nil otherwise),
+-- classID, raceID, difficulty }, or nil for a block the store doesn't hold.
+-- A recorder takes its context index when it sees something (Current, in
+-- the event's handler), so this is who saw it and where, never who the
+-- player is when the comparison runs (Task #421)
+function Context.OwnerOf(index)
+  local block = index and Curator.Store.DB().contexts[index]
+  if type(block) ~= "table" then return nil end
+  local faction = (block.faction == 0 or block.faction == 1) and block.faction or nil
+  return { faction = faction, classID = block.class, raceID = block.race, difficulty = block.difficulty }
 end
 
 local function Key(block)

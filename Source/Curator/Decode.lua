@@ -13,11 +13,14 @@
 --   q:<quest>:w:<item>   q:<quest>:k:<item>   q:<quest>:i:<item>
 --   q:<quest>:o:<item>   s:<item>   G:<quest>   T:<quest>   Q:<quest>
 --   bm:i:<item>   tp:i:<item>   e:<encounter>:i:<item>
+--   sk:<npc>:i:<item>   sv:<skillLine>:<recipe>:i:<item>   qy:<recipe>:i:<item>
+--   tf:<item>   op:<object>   (Task #423)
 --   ni:<item>   (an item with no information; its value the place it was
 --               seen: bag, bank, wb, or c:<npc>, v:<npc>, q:<quest> ...)
 -- The stamps' sources: v:<npc> m:<input> p:<npc> c: ob: f: x: de: pp:
 -- R:<skillLine> r:<item> n:<item> $:<item> q:<quest> o:<quest> s:<item>
--- G:<quest> T:<quest> Q:<quest> bm tp e:<encounter>. A record's R: with two numbers is
+-- G:<quest> T:<quest> Q:<quest> bm tp e:<encounter> sv:<recipe> qy:<recipe>
+-- op:<object>. A record's R: with two numbers is
 -- a recipe a window didn't list; a stamp's R: is a profession's recipes,
 -- and a stamp's o: (a quest's turn-in items) is not the loot prefix ob:.
 --
@@ -42,7 +45,7 @@ Decode.GROUPS = {
   { key = "loot", label = "Loot and drops" },
   { key = "quest", label = "Quests" },
   { key = "crafting", label = "Crafting and combining" },
-  { key = "place", label = "NPC positions" },
+  { key = "place", label = "NPC and object positions" },
   { key = "use", label = "Using items" },
   { key = "market", label = "Black Market and Trading Post" },
   { key = "noinfo", label = "Items with no information" },
@@ -60,6 +63,7 @@ Decode.TYPES = {
   ["disenchant"] = { group = "loot", label = "Disenchanted into" },
   ["pickpocket"] = { group = "loot", label = "Pickpocketed" },
   ["encounter"] = { group = "loot", label = "Boss loot" },
+  ["skinning"] = { group = "loot", label = "Skinned" },
   ["quest-reward"] = { group = "quest", label = "Quest reward" },
   ["quest-choice"] = { group = "quest", label = "Quest reward choice" },
   ["quest-kind"] = { group = "quest", label = "Reward or choice" },
@@ -73,7 +77,11 @@ Decode.TYPES = {
   ["reagent"] = { group = "crafting", label = "Recipe reagent" },
   ["teaches"] = { group = "crafting", label = "Teaches a recipe" },
   ["combine"] = { group = "crafting", label = "Combine" },
+  ["salvage-input"] = { group = "crafting", label = "Salvage input" },
+  ["quality-item"] = { group = "crafting", label = "Crafted in a quality" },
+  ["transform"] = { group = "crafting", label = "Using it turned items into others" },
   ["position"] = { group = "place", label = "NPC position" },
+  ["object-position"] = { group = "place", label = "Object position" },
   ["used-on"] = { group = "use", label = "Quest item used on" },
   ["grant"] = { group = "use", label = "Using it gives" },
   ["black-market"] = { group = "market", label = "Black Market" },
@@ -95,6 +103,9 @@ local STAMP_TYPES = {
   ["pickpocket"] = { group = "loot", label = "Pickpocketing" },
   ["encounter"] = { group = "loot", label = "Boss loot" },
   ["recipes"] = { group = "crafting", label = "Recipes" },
+  ["salvage-input"] = { group = "crafting", label = "Salvage inputs" },
+  ["quality-item"] = { group = "crafting", label = "Crafted qualities" },
+  ["object-position"] = { group = "place", label = "Object position" },
   ["teaches"] = { group = "crafting", label = "Recipe it teaches" },
   ["used-on"] = { group = "use", label = "Quest item used on" },
   ["grant"] = { group = "use", label = "Using it gives" },
@@ -131,6 +142,7 @@ end
 local LOOT = {
   c = { "drop", "npc" }, ob = { "object", "object" }, f = { "fishing", "map" }, x = { "container", "item" },
   de = { "disenchant", "item" }, pp = { "pickpocket", "npc" }, e = { "encounter", "encounter" },
+  sk = { "skinning", "npc" },
 }
 
 -- Each pattern and how it reads, tried in order (the longer forms first)
@@ -143,6 +155,12 @@ local FACTS = {
     return out
   end },
   { "^p:(%d+)$", function(npc) return Made("position", Id("npc", npc)) end },
+  { "^op:(%d+)$", function(object) return Made("object-position", Id("object", object)) end },
+  { "^tf:(%d+)$", function(item) return Made("transform", Id("item", item)) end },
+  { "^sv:(%d+):(%d+):i:(%d+)$", function(skill, recipe, item)
+    return Made("salvage-input", Id("item", item), Id("spell", recipe), Id("skill", skill))
+  end },
+  { "^qy:(%d+):i:(%d+)$", function(recipe, item) return Made("quality-item", Id("item", item), Id("spell", recipe)) end },
   { "^n:(%d+):npc:(%d+)$", function(item, npc) return Made("used-on", Id("item", item), nil, Id("npc", npc)) end },
   { "^n:(%d+):obj:(%d+)$", function(item, obj) return Made("used-on", Id("item", item), nil, Id("object", obj)) end },
   { "^%$:(%d+):c:(%d+)$", function(item, currency) return Made("grant", Id("item", item), nil, Id("currency", currency)) end },
@@ -187,6 +205,7 @@ local STAMP_PREFIX = {
   pp = { "pickpocket", "npc" }, e = { "encounter", "encounter" }, R = { "recipes", "skill" }, r = { "teaches", "item" },
   n = { "used-on", "item" }, ["$"] = { "grant", "item" }, q = { "quest-reward", "quest" }, o = { "quest-needs", "quest" },
   s = { "starts", "item" }, G = { "giver", "quest" }, T = { "turnin", "quest" }, Q = { "frequency", "quest" },
+  sv = { "salvage-input", "spell" }, qy = { "quality-item", "spell" }, op = { "object-position", "object" },
 }
 
 -- Stamp(source): what a confirmation stamp vouches for (its source, without
@@ -266,6 +285,28 @@ local function Makes(text, name)
   return ("Makes %s %s"):format(n, Decode.Name(name, "item", tonumber(item)))
 end
 
+-- A transformation's "<consumed>|<gained>" ("70x1,71x3|72x1") in words:
+-- "Used 1 Name and 3 Name; got 1 Name"; a value that doesn't read, as it is
+local function Items(list, name)
+  local parts = {}
+  for entry in list:gmatch("[^,]+") do
+    local item, n = entry:match("^(%d+)x(%d+)$")
+    if not item then return nil end
+    parts[#parts + 1] = ("%s %s"):format(n, Decode.Name(name, "item", tonumber(item)))
+  end
+  if #parts == 0 then return nil end
+  if #parts == 1 then return parts[1] end
+  return table.concat(parts, ", ", 1, #parts - 1) .. " and " .. parts[#parts]
+end
+
+function Decode.Transform(text, name)
+  text = tostring(text or "")
+  local consumed, gained = text:match("^([^|]+)|([^|]+)$")
+  local used, got = consumed and Items(consumed, name), gained and Items(gained, name)
+  if not (used and got) then return text end
+  return ("Used %s; got %s"):format(used, got)
+end
+
 local MONTHS = { "January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
   "November", "December" }
 
@@ -284,7 +325,17 @@ local VALUES = {
   ["position"] = function(value, _, name) return Decode.Position(value, name) end,
   ["recipe"] = function(value, _, name) return Makes(value, name) end,
   ["recipe-listed"] = function() return "Not in the profession window" end,
-  ["reagent"] = function(value) return ("Takes %s"):format(tostring(value)) end,
+  ["reagent"] = function(value)
+    if value == "schematic" then return "No longer in the recipe" end
+    return ("Takes %s"):format(tostring(value))
+  end,
+  ["salvage-input"] = function(value)
+    if value == "window" then return "Not in the profession window's list" end
+    return ("Takes %s"):format(tostring(value))
+  end,
+  ["quality-item"] = function(value) return ("Quality %s"):format(tostring(value)) end,
+  ["transform"] = function(value, _, name) return Decode.Transform(value, name) end,
+  ["object-position"] = function(value, _, name) return Decode.Position(value, name) end,
   ["teaches"] = function(value, _, name) return "Teaches " .. Decode.Name(name, "spell", tonumber(value)) end,
   ["used-on"] = function(_, decoded, name) return "Used on " .. Named(name, decoded.other) end,
   ["grant"] = function(value, decoded, name) return ("Gave %s %s"):format(tostring(value), Named(name, decoded.other)) end,
@@ -325,7 +376,7 @@ end
 VALUES["no-info"] = function(value, _, name) return Decode.Place(value, name) end
 
 local LOOT_WORDS = { drop = "Dropped", object = "Found", fishing = "Fished up", container = "Found inside",
-  disenchant = "Disenchanted into", pickpocket = "Pickpocketed", encounter = "Dropped" }
+  disenchant = "Disenchanted into", pickpocket = "Pickpocketed", encounter = "Dropped", skinning = "Skinned" }
 
 -- Value(decoded, value, name): what the curator saw, in words
 function Decode.Value(decoded, value, name)
@@ -355,10 +406,13 @@ local SHIPPED = {
   end,
   ["black-market"] = function() return "Listed as no longer offered" end,
   ["trading-post"] = function(shipped)
-    -- the months the data lists it for, in words (a U code is U<yyyymm>, U0 no month named)
+    -- the months the data lists it for, in words: the recorder stores each U
+    -- code's body, <yyyymm>[|x], comma separated, 0 for no month named
+    -- (TradingPost's ShippedText; review CUR-03)
     local months = {}
-    for code in tostring(shipped):gmatch("U(%d+)") do
-      local year, month = code:match("^(%d%d%d%d)(%d%d)$")
+    for entry in tostring(shipped):gmatch("[^,]+") do
+      local code = entry:match("^%s*U?(%d+)")
+      local year, month = (code or ""):match("^(%d%d%d%d)(%d%d)$")
       local m = MONTHS[tonumber(month or 0)]
       months[#months + 1] = m and (m .. " " .. year) or "a month not named"
     end

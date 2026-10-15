@@ -49,7 +49,8 @@ R.Register({
   order = 63,   -- before Combine and the Use effect: what the parts make says the most
   Evaluate = function(ctx)
     local itemID = ctx.stack.itemID
-    local relation = Recollect.Facts.Relations.Of(itemID, "partOf")[1]
+    -- only a combine still in the game (Task #446: a gone combine's part read "still to get")
+    local relation = R.Live(itemID, "partOf")[1]
     if not relation then return nil end
     local client = Recollect.Purposes.client
     local product = Name(relation.id)
@@ -78,7 +79,7 @@ R.Register({
       return R.Result(V.USEFUL, ("You have all %d parts of %s, but it can't be used right now"):format(total, product))
     end
     if toTake > 0 then
-      return R.Result(V.USE, ("You have all %d parts of %s; take %d out of your bank first, then use it to combine them")
+      return R.Result(V.USE, ("You have all %d parts of %s; take %d out of your bank or warband bank first, then use it to combine them")
         :format(total, product, toTake))
     end
     return R.Result(V.USE, ("You have all %d parts of %s in your bags; use it to combine them"):format(total, product))

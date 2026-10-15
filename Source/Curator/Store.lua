@@ -25,7 +25,22 @@
 --
 -- A confirmation stamp is one source seen at one game build:
 --   confirms[source .. "@" .. build] = { source, build, first, last, rev,
---     total, matched = "<numbers, comma separated>", ctx = { [ctxIndex] = count } }
+--     total, matched = "<numbers, comma separated>", full, ctx = { [ctxIndex] = count },
+--     by = { [ctxIndex] = "<numbers>" or "*" } }
+--   by (Task #424) keeps which of the matched positions each context saw,
+--   merged over that context's visits, so a fact one character saw is never
+--   read as seen by another on the same stamp; matched stays their union, for
+--   readers from before. Only a stamp made since has it: one carried over
+--   from before keeps none, since its earlier visits' contexts are unknown,
+--   and every context of it is coarse (the union, as before). A context with
+--   no entry is coarse too: at most BY_CONTEXTS entries are kept, and one
+--   whose set would take the entries past BY_BYTES is "*", coarse for good
+--   (it never comes back as a set that lacks its earlier visits). Its keys
+--   are always among ctx's.
+--   full counts the visits whose own positions covered the total (Task
+--   #418): matched is merged over visits, so two partial visits can add up to
+--   the whole listing, and only a visit that saw it all is a full-source
+--   confirmation (absent until one does, as in a stamp from before).
 --   matched lists, merged over visits, the positions in a shipped index of
 --   the facts that were seen matching (vendors, a profession's recipes,
 --   combines), or for sources with no index the matched IDs themselves
@@ -36,9 +51,17 @@
 --
 -- reported["ni:<item>"] = true: an item with no information whose record a
 -- V deleted, live or in a frozen block (the author has it), so it isn't
--- recorded again, under this data version or a later one (at most
--- NOINFO_REPORTED_CAP marks; only Main.ClearFindings, or a saved-data
--- layout change (Main.DB), empties it).
+-- recorded again, under this data version or a later one.
+-- reported["<fact>=<value>@<build>"] = "<data version>": any other difference
+-- (an addition, conflict or not seen) whose live record a V deleted, so the
+-- same fact and value at that game build is recorded no more under that data
+-- version (Task #418, Cobanyte 2026-10-14: an account sends a difference
+-- once, not after every collection until a database ships it). Under a later
+-- data version a sighting records again, which happens only while the new
+-- data still disagrees. Stamps are never marked. Both kinds share the
+-- NOINFO_REPORTED_CAP marks: at the cap the marks of an older data version
+-- go first, then a new mark isn't kept; only Main.ClearFindings, or a
+-- saved-data layout change (Main.DB), empties them.
 --
 -- confirmed[source] = round: this account's confirmation of a source with a
 -- shipped listing (a stamp with a total) that a V saved, in that round (spec
@@ -67,7 +90,7 @@
 -- for what the author's K named quarantined), quarantined (deleted with no
 -- marker at all), rejected (kept, but that revision is never sent again:
 -- rejected = rev on the record or stamp, until it changes) or lost (pending
--- again); dropped after AWAITING_DAYS. An X "rejected:" for a running
+-- again); a request with no V after AWAITING_DAYS counts as lost. An X "rejected:" for a running
 -- collection rejects what it held the same way.
 --
 -- bytes estimates every recorder field: records (with their variants),
@@ -180,8 +203,18 @@ local function RecordBytes(record)
     + Count(record.variants) * 40
 end
 
+-- by's entries: their count and their texts' length together
+local function ByBytes(by)
+  local n, bytes = 0, 0
+  for _, text in pairs(by or {}) do
+    n, bytes = n + 1, bytes + #tostring(text)
+  end
+  return n, bytes
+end
+
 local function StampBytes(stamp)
-  return 48 + #stamp.source + #(stamp.matched or "") + Count(stamp.ctx) * 8
+  local n, bytes = ByBytes(stamp.by)
+  return 48 + #stamp.source + #(stamp.matched or "") + Count(stamp.ctx) * 8 + (stamp.full and 8 or 0) + n * 8 + bytes
 end
 
 local function AwaitingBytes(entry)
@@ -360,14 +393,34 @@ function Store.Quiet(fact, value)
   return type(entry) == "table" and entry[tostring(value or "")] == true
 end
 
+-- A difference's reported mark (see reported above): its key, and the data
+-- version it holds for
+local function ReportedKey(fact, value, build)
+  return tostring(fact) .. "=" .. tostring(value or "") .. "@" .. tostring(build)
+end
+
+local function ReportedVersion(db)
+  return tostring(db.dataVersion or "?")
+end
+
+-- Reported(fact, value): whether this account already handed the author
+-- this difference at this game build under the data version in use, so it
+-- is recorded no more (an item with no information is NoInfo's own rule)
+function Store.Reported(fact, value)
+  if type(fact) ~= "string" or fact:find("^ni:") then return false end
+  local db = Store.DB()
+  return db.reported[ReportedKey(fact, tostring(value or ""), GameBuild())] == ReportedVersion(db)
+end
+
 -- Record(kind, fact, value, shipped, ctxIndex, extra, info): adds one
 -- observation and returns its record, or nil when the finding is quiet
--- (Quiet). value and shipped are text; extra, when given, the observation's
--- { quests, reaction, cast } (see variants above); info, when given, what
--- the item is (see info above): kept on a new record, and on a repeat when
--- it has more parts than the record's.
+-- (Quiet) or already reported under this data version (Reported). value and
+-- shipped are text; extra, when given, the observation's { quests, reaction,
+-- cast } (see variants above); info, when given, what the item is (see info
+-- above): kept on a new record, and on a repeat when it has more parts than
+-- the record's.
 function Store.Record(kind, fact, value, shipped, ctxIndex, extra, info)
-  if Store.Quiet(fact, value) then return nil end
+  if Store.Quiet(fact, value) or Store.Reported(fact, value) then return nil end
   local db = Store.DB()
   value = tostring(value or "")
   local build = GameBuild()
@@ -400,6 +453,15 @@ function Store.Record(kind, fact, value, shipped, ctxIndex, extra, info)
   return record
 end
 
+-- How many different positions one visit saw
+local function Distinct(positions)
+  local set, n = {}, 0
+  for _, position in ipairs(positions) do
+    if not set[position] then set[position], n = true, n + 1 end
+  end
+  return n
+end
+
 local function MergePositions(current, positions)
   local set, list = {}, {}
   for number in (current or ""):gmatch("%d+") do set[tonumber(number)] = true end
@@ -407,6 +469,24 @@ local function MergePositions(current, positions)
   for position in pairs(set) do list[#list + 1] = position end
   table.sort(list)
   return table.concat(list, ",")
+end
+
+-- A stamp's per-context sets (see by above): at most this many contexts, and
+-- this many bytes of positions together
+Store.BY_CONTEXTS = 8
+Store.BY_BYTES = 2048
+
+-- MergeContext(stamp, ctxIndex, positions): this visit's positions into its
+-- context's set, when the stamp keeps sets and has room
+local function MergeContext(stamp, ctxIndex, positions)
+  local by = stamp.by
+  if type(by) ~= "table" or by[ctxIndex] == "*" then return end
+  local current = by[ctxIndex]
+  local n, bytes = ByBytes(by)
+  if current == nil and n >= Store.BY_CONTEXTS then return end   -- no room: this context stays coarse
+  local text = MergePositions(current, positions)
+  if bytes - #(current or "") + #text > Store.BY_BYTES then text = "*" end
+  by[ctxIndex] = text
 end
 
 -- Round(source): the confirmation round the data names for a source (1
@@ -439,6 +519,30 @@ function Store.SetPinned(on)
   Store.DB().pinned = on == true or nil
 end
 
+-- Covered(source, positions): whether this game build's stamp of a source
+-- (not one held from an older data version) already names every one of the
+-- positions, so a visit that saw only those would add nothing but a count
+-- and a revision to send (the Black Market's and Trading Post's matching
+-- visits, Task #423). With ctxIndex, the visit's context's own set when the
+-- stamp keeps one (by), and not covered when the stamp has room for that
+-- context's first set, so another character's visit still adds its context
+function Store.Covered(source, positions, ctxIndex)
+  local stamp = Store.DB().confirms[source .. "@" .. tostring(GameBuild())]
+  if not stamp or stamp.held then return false end
+  local text = stamp.matched
+  local by = ctxIndex ~= nil and type(stamp.by) == "table" and stamp.by
+  if by and by[ctxIndex] ~= "*" then
+    if by[ctxIndex] == nil and (ByBytes(by)) < Store.BY_CONTEXTS then return false end
+    if by[ctxIndex] ~= nil then text = by[ctxIndex] end
+  end
+  local named = {}
+  for number in tostring(text or ""):gmatch("%d+") do named[tonumber(number)] = true end
+  for _, position in ipairs(positions) do
+    if not named[position] then return false end
+  end
+  return true
+end
+
 -- Confirm(source, positions, total, ctxIndex): a visit to a source where the
 -- facts at those positions (of total) were seen matching; nil when no stamp
 -- is wanted (Wanted)
@@ -455,11 +559,13 @@ function Store.Confirm(source, positions, total, ctxIndex)
   if stamp then
     db.bytes = db.bytes - StampBytes(stamp)
   else
-    stamp = { source = source, build = build, first = now, ctx = {} }
+    stamp = { source = source, build = build, first = now, ctx = {}, by = {} }
     db.confirms[key] = stamp
   end
   stamp.matched = MergePositions(stamp.matched, positions)
+  MergeContext(stamp, ctxIndex, positions)
   stamp.total = total
+  if (tonumber(total) or 0) > 0 and Distinct(positions) >= total then stamp.full = (stamp.full or 0) + 1 end
   -- the round it confirms, so a stamp saved after a database update named a
   -- later round marks its own (MarkConfirmed)
   stamp.round = (tonumber(total) or 0) > 0 and (Store.Round(source)) or nil
@@ -520,17 +626,48 @@ local function DropAwaiting(db, requestID)
   return entry
 end
 
--- MarkReported(db, fact, marks): an item with no information the author
--- now has isn't recorded again (NoInfo), within the marks' cap; marks is
--- how many there are, and the new count is returned
-local function MarkReported(db, fact, marks)
-  if type(fact) ~= "string" or not fact:find("^ni:") or db.reported[fact]
-    or marks >= Curator.Const.NOINFO_REPORTED_CAP then
+-- DropStaleMarks(db): the reported marks of a difference made under another
+-- data version than the one in use (they hold back nothing now); returns how
+-- many went
+local function DropStaleMarks(db)
+  local version, dropped = ReportedVersion(db), 0
+  for key, mark in pairs(db.reported) do
+    if type(mark) == "string" and mark ~= version then
+      db.reported[key] = nil
+      db.bytes = db.bytes - MARK_BYTES
+      dropped = dropped + 1
+    end
+  end
+  return dropped
+end
+
+-- MarkReported(db, record, marks, live): the author now has this record, so
+-- it isn't recorded again: an item with no information for good (NoInfo), and
+-- a live difference under this data version (Reported), within the marks'
+-- cap; a frozen block's differences were made under an older data version
+-- and mark nothing. marks is how many there are; the new count is returned
+local function MarkReported(db, record, marks, live)
+  local fact = type(record) == "table" and record.fact
+  if type(fact) ~= "string" then return marks end
+  local key, mark
+  if fact:find("^ni:") then
+    key, mark = fact, true
+  elseif live then
+    key, mark = ReportedKey(fact, record.value, record.build), ReportedVersion(db)
+  else
     return marks
   end
-  db.reported[fact] = true
-  db.bytes = db.bytes + MARK_BYTES
-  return marks + 1
+  if db.reported[key] == mark then return marks end
+  if db.reported[key] == nil and marks >= Curator.Const.NOINFO_REPORTED_CAP then
+    marks = marks - DropStaleMarks(db)
+    if marks >= Curator.Const.NOINFO_REPORTED_CAP then return marks end
+  end
+  if db.reported[key] == nil then
+    db.bytes = db.bytes + MARK_BYTES
+    marks = marks + 1
+  end
+  db.reported[key] = mark
+  return marks
 end
 
 -- Saved(requestID, trusted, quiet): V says the author's copy is saved;
@@ -549,7 +686,7 @@ function Store.Saved(requestID, trusted, quiet)
     if record and record.rev == rev and (quiet or apart[tostring(id)]) then
       RemoveRecord(db, id)
     elseif record and record.rev == rev then
-      marks = MarkReported(db, record.fact, marks)
+      marks = MarkReported(db, record, marks, not record.held)
       RemoveRecord(db, id)
     end
   end
@@ -595,15 +732,35 @@ function Store.RejectedRequest(requestID)
   return true
 end
 
+-- FullVisit(stamp): whether a stamp shows one visit that matched the whole
+-- listing by itself, as /recollect-data reads it (curator_intake.full_visit):
+-- its own count of such visits, or, for a stamp from before that count, its
+-- merged positions covering the total over exactly one visit; a single fact
+-- (a total of 1) has no partial visit
+function Store.FullVisit(stamp)
+  local total = tonumber(stamp.total) or 0
+  if total <= 0 then return false end
+  local seen = {}
+  for number in tostring(stamp.matched or ""):gmatch("%d+") do seen[#seen + 1] = tonumber(number) end
+  if Distinct(seen) < total then return false end
+  if total == 1 or (tonumber(stamp.full) or 0) > 0 then return true end
+  local visits = 0
+  for _, n in pairs(type(stamp.ctx) == "table" and stamp.ctx or {}) do visits = visits + (tonumber(n) or 0) end
+  return visits == 1
+end
+
 -- MarkConfirmed(stamp, frozen, trusted): the author saved this account's
 -- confirmation of a source with a shipped listing, in the round the stamp was
 -- made in (spec D36), as Trusted (confirmed) or General (generalConfirmed).
 -- A live stamp with no round is from this data version, whose round the
 -- data names now; a frozen one with none (made before stamps kept their
 -- round) marks nothing, since the data it was made under may have named an
--- earlier round
+-- earlier round. Only a stamp showing one visit that matched the whole
+-- listing by itself marks (FullVisit): a partial visit saved first would
+-- otherwise turn away this account's full one for the round (review CUR-01)
 function Store.MarkConfirmed(stamp, frozen, trusted)
   if type(stamp) ~= "table" or type(stamp.source) ~= "string" or (tonumber(stamp.total) or 0) <= 0 then return end
+  if not Store.FullVisit(stamp) then return end
   local db = Store.DB()
   local round = tonumber(stamp.round)
   if not round then
@@ -669,7 +826,7 @@ function Store.FrozenSaved(requestID, trusted, quiet)
         -- its items with no information, as a live V marks them
         local marks = Count(db.reported)
         for id, record in pairs(type(block.records) == "table" and block.records or {}) do
-          if type(record) == "table" and not apart[tostring(id)] then marks = MarkReported(db, record.fact, marks) end
+          if type(record) == "table" and not apart[tostring(id)] then marks = MarkReported(db, record, marks, false) end
         end
       end
       table.remove(db.frozen, i)

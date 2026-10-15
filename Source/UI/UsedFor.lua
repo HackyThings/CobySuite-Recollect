@@ -178,7 +178,7 @@ local TIER_OPEN, TIER_INFO, TIER_CLOSED = 1, 2, 3   -- still to get or do; no su
 -- are open, done (a recurring quest done for now too) is closed, loading or
 -- unknown says nothing
 local QUEST_TIER = { [5] = TIER_OPEN, [3] = TIER_OPEN, [2] = TIER_OPEN, [4] = TIER_CLOSED, [0] = TIER_CLOSED }
-local QUEST_KIND = { objective = true, questItem = true, starts = true, reward = true, choice = true }
+local QUEST_KIND = { objective = true, questItem = true, starts = true, reward = true, choice = true, duringQuest = true }
 local MAX_FOLLOW = 20   -- plain purchases followed to what they lead to (Facts.Chains), as Purposes.Buys does
 
 local seams = {
@@ -199,24 +199,47 @@ local seams = {
   SkillLineName = function(skillLineID) return C_TradeSkillUI.GetTradeSkillDisplayName(skillLineID) end,
   -- A reputation standing's name ("Revered", 1 Hated to 8 Exalted), as Blizzard's reputation UI words it
   StandingLabel = function(standing) return _G["FACTION_STANDING_LABEL" .. standing] end,
+  -- A friendship faction's rank ("Best Friend"): FriendshipReputationInfo, whose
+  -- friendshipFactionID is 0 for a faction that isn't one (GossipInfoDocumentation)
+  FriendshipData = function(factionID) return C_GossipInfo.GetFriendshipReputation(factionID) end,
   QuestTitle = function(questID) return C_QuestLog.GetTitleForQuestID(questID) end,
   SpellName = function(spellID) return C_Spell.GetSpellName(spellID) end,
+  -- A mount's name and summon spell by its mount ID (GetMountInfoByID's first two returns)
+  MountInfo = function(mountID) return C_MountJournal.GetMountInfoByID(mountID) end,
   -- An instance difficulty's name ("Mythic Keystone"): GetDifficultyInfo's first return
   DifficultyName = function(difficultyID) return (GetDifficultyInfo(difficultyID)) end,
   -- An item's quality (nil until its data is cached) and a quality's color
   ItemQuality = function(itemID) return C_Item.GetItemQualityByID(itemID) end,
   QualityColor = function(quality) return C_Item.GetItemQualityColor(quality) end,
+  -- An item's equip slot, class and subclass with no item load (GetItemInfoInstant's 4th, 6th and 7th)
+  ItemKind = function(itemID)
+    local _, _, _, equipLoc, _, classID, subclassID = C_Item.GetItemInfoInstant(itemID)
+    return equipLoc, classID, subclassID
+  end,
+  -- An armor subclass's name ("Plate"): GetItemSubClassInfo's first return
+  ArmorTypeName = function(subclassID) return (C_Item.GetItemSubClassInfo(4, subclassID)) end,
+  -- A follower mission's name, and whether this character has the garrison type it runs from: neither call is in
+  -- Blizzard's generated docs (12.1.5); Blizzard's own UI makes them (FloatingGarrisonFollowerTooltip.lua's
+  -- FloatingGarrisonMission_Show for a mission link, EventImplementation.lua for HasGarrison), unmeasured here
+  MissionName = function(missionID) return C_Garrison.GetMissionName(missionID) end,
+  HasGarrison = function(garrisonType) return C_Garrison.HasGarrison(garrisonType) end,
+  -- An expansion's name by the game's expansion ID ("Legion" for 6)
+  ExpansionName = function(expansion) return _G["EXPANSION_NAME" .. expansion] end,
 }
 
 local function Colors() return Recollect.UI.VerdictColors end
 local function Verdict() return Recollect.Purposes.Registry.Verdict end
 local function Relations() return Recollect.Facts.Relations end
+-- A count as the player reads it, with the game's thousands separators
+-- ("1,000"; Task #438), everywhere a line prints how many
+local function N(n) return Recollect.Utilities.Count(n) end
 
 -------------------------------------------------------------------------------
 -- Names as game links: what a line names, heard while it is worded
 -------------------------------------------------------------------------------
 local LINK_YELLOW = U.Colors.LINK_YELLOW    -- a quest's or an achievement's link
 local LINK_BLUE = U.Colors.LINK_BLUE        -- a spell's link (a mount, a recipe, an illusion)
+-- a mount, a recipe or an illusion with no item behind it keeps its spell link's blue
 local LINK_KINDS = { quest = LINK_YELLOW, achievement = LINK_YELLOW, spell = LINK_BLUE, mount = LINK_BLUE,
   recipe = LINK_BLUE, illusion = LINK_BLUE }
 
@@ -227,8 +250,48 @@ local function QualityColor(quality)
   return { r, g, b }
 end
 
+-- ItemBehind(kind, id): the item a named thing stands for, whose quality
+-- colors its name as the game's link does, or nil. The one resolver for
+-- every kind a line or a row names (the details window's rows use it too),
+-- so a new kind can't be left white again (Task #434): an item, a toy, an
+-- heirloom or decor is its own item; an ensemble, a pet species, a weapon
+-- illusion or a recipe spell the item the data's T table gives
+-- (Relations.ThingItem); a mount (its mount ID) the item that teaches its
+-- summon spell (Relations.MountItem); anything else (an achievement, a
+-- quest, a currency, a plain spell) none
+local ITEM_KINDS = { item = true, toy = true, heirloom = true, decor = true }
+local THING_LETTER = { ensemble = "e", pet = "p", illusion = "l", recipe = "r" }
+
+function UsedFor.ItemBehind(kind, id)
+  if not Recollect.Utilities.IsPositiveID(id) then return nil end
+  if ITEM_KINDS[kind] then return id end
+  local letter = THING_LETTER[kind]
+  if letter then return Relations().ThingItem(letter, id) end
+  if kind == "mount" then
+    local ok, _, spellID = Try(seams.MountInfo, id)
+    return ok and Recollect.Utilities.IsPositiveID(spellID) and Relations().MountItem(spellID) or nil
+  end
+  return nil
+end
+
+-- The quality color of the item behind a typed thing, or nil (no item, or
+-- one not loaded yet: asked for, rationed, and the name stays uncolored
+-- until it is; never a guess). Task #434: an ensemble and a mount read white
+local function ThingItemColor(kind, id)
+  local itemID = kind ~= "item" and UsedFor.ItemBehind(kind, id)
+  if not itemID then return nil, false end
+  local ok, quality = Try(seams.ItemQuality, itemID)
+  if not ok or type(quality) ~= "number" then
+    Recollect.Facts.Item.Name(itemID)
+    return nil, true
+  end
+  return QualityColor(quality), true
+end
+
 -- The color the game gives a name's link, or nil when it can't be told
 local function LinkColor(kind, id, quality)
+  local thingColor, hasItem = ThingItemColor(kind, id)
+  if hasItem then return thingColor end
   if LINK_KINDS[kind] then return LINK_KINDS[kind] end
   if kind == "item" then
     if quality == nil and Recollect.Utilities.IsPositiveID(id) then
@@ -245,9 +308,11 @@ end
 
 local naming = nil   -- the names the line being worded uses, or nil
 
-local function Named(kind, id, text, quality)
+-- color, when given, is the link's (an NPC's or a zone's: links of
+-- Recollect's own, which the game gives no color; Task #411)
+local function Named(kind, id, text, quality, color)
   if naming and type(text) == "string" and text ~= "" then
-    local color = LinkColor(kind, id, quality)
+    color = color or LinkColor(kind, id, quality)
     if color then naming[#naming + 1] = { kind = kind, id = id, text = text, color = color } end
   end
   return text
@@ -352,7 +417,7 @@ local function QuestState(questID, budget, stateless)
   if quest.onQuest then return title, 5, "you're on it", colors[V.NEEDED], quest end
   local done = Recollect.Facts.QuestInfo.Done(quest)
   local needs = done ~= true and QuestNeeds(quest) or nil
-  if needs then return title, 0, "needs " .. needs, U.Colors.LABEL_GRAY, quest end
+  if needs then return title, 0, "you don't have " .. needs, U.Colors.LABEL_GRAY, quest end
   if quest.repeatable then return title, 3, "repeatable", colors[V.USEFUL], quest end
   local recurs = done and Recurs(questID)
   -- a recurring quest done this time is done (the check and the done color,
@@ -668,7 +733,7 @@ local function SellerKey(relation, line)
   if relation.kind ~= "soldBy" then return nil end
   local ok, name = Try(Recollect.Facts.Vendors.NpcName, relation.id)
   if not ok or type(name) ~= "string" or name == "" then return nil end
-  return table.concat({ name, UsedFor.PriceWords(relation), TagText(line.tags) or "" }, "")
+  return table.concat({ name, UsedFor.PriceWords(relation), TagText(line.tags) or "" }, "\30")
 end
 UsedFor.SellerKey = SellerKey
 
@@ -1072,7 +1137,7 @@ function UsedFor.PriceWords(relation)
   end
   if not words then return "" end
   local count = relation.count or 1
-  if count > 1 then return (", %d for %s"):format(count, words) end
+  if count > 1 then return (", %s for %s"):format(N(count), words) end
   return " for " .. words
 end
 function UsedFor.TradeWords(relation, itemID) return Recollect.Facts.Chains.TradeWords(relation, itemID) end
@@ -1140,7 +1205,7 @@ end
 -- line, and true second when the line waits for its quest's data
 -------------------------------------------------------------------------------
 local QUEST_LEADS = { objective = "Objective of ", reward = "Reward from ", choice = "A choice reward from ",
-  questItem = "Used in ", starts = "Starts " }
+  questItem = "Used in ", starts = "Starts ", duringQuest = "Comes from doing " }
 -- Quest lines that also say what the quest rewards
 local WITH_REWARDS = { objective = true, questItem = true, starts = true }
 local MAX_HELD = 2   -- items an opened object's line names
@@ -1163,9 +1228,9 @@ local function AchievementLine(a, id, needs, stateless)
   elseif a.criterionDone then
     state, color, tier = "that part done", colors[V.DONE], TIER_CLOSED
   elseif type(a.required) == "number" and a.required > 1 and type(a.quantity) == "number" then
-    state, color, tier = ("%d of %d"):format(a.quantity, a.required), colors[V.NEEDED], TIER_OPEN
+    state, color, tier = ("%s of %s"):format(N(a.quantity), N(a.required)), colors[V.NEEDED], TIER_OPEN
   elseif needs and needs > 1 then
-    state, color, tier = ("needs %d; not earned"):format(needs), colors[V.NEEDED], TIER_OPEN
+    state, color, tier = ("needs %s; not earned"):format(N(needs)), colors[V.NEEDED], TIER_OPEN
   else
     state, color, tier = "not earned", colors[V.NEEDED], TIER_OPEN
   end
@@ -1274,6 +1339,167 @@ local function LinkedLines(relations, stateless, itemID)
   return lines
 end
 
+-- OpenersOf(objectID): the keys that open an object, { { itemID, count } },
+-- in item order: every item whose live j code names the object or a
+-- container its spawn is filed under (Vendors.ObjectAliases). The data has
+-- no index from an object to its keys, so the item codes are searched once
+-- per object (a plain find over each bucket, then each candidate's own
+-- parsed codes confirm it), kept for the session while the data stays the
+-- same table (Task #437: the Hexed Vilefeather Eagle's spot opens with
+-- 1000 Vile Essence, and its line didn't say so)
+local openers = { data = nil, byObject = {} }
+
+local function ScanOpeners(objectID, found, seen)
+  local version = Recollect.Facts.DataVersion
+  if version and not version.Ok() then return end
+  local data = Recollect.Data and Recollect.Data.Relations
+  local needle = "j" .. objectID
+  for _, bucket in pairs(type(data) == "table" and type(data.B) == "table" and data.B or {}) do
+    if type(bucket) == "string" and bucket:find(needle, 1, true) then
+      for item, codes in bucket:gmatch("\30(%d+)\31([^\30]*)") do
+        item = tonumber(item)
+        if not seen[item] and codes:find(needle, 1, true) then
+          for _, relation in ipairs(Relations().Of(item, "opens")) do
+            if relation.id == objectID and not (relation.flags and relation.flags.unavailable) then
+              seen[item] = true
+              found[#found + 1] = { itemID = item, count = relation.count or 1 }
+              break
+            end
+          end
+        end
+      end
+    end
+  end
+end
+
+function UsedFor.OpenersOf(objectID)
+  if not Recollect.Utilities.IsPositiveID(objectID) then return {} end
+  local data = Recollect.Data and Recollect.Data.Relations
+  local B = type(data) == "table" and data.B or nil
+  if openers.data ~= B then openers.data, openers.byObject = B, {} end
+  local list = openers.byObject[objectID]
+  if list then return list end
+  list = {}
+  local seen = {}
+  local ok = pcall(function()
+    ScanOpeners(objectID, list, seen)
+    for _, alias in ipairs(Recollect.Facts.Vendors.ObjectAliases(objectID)) do ScanOpeners(alias, list, seen) end
+  end)
+  if not ok then return {} end   -- not kept: asked again next time
+  table.sort(list, function(a, b) return a.itemID < b.itemID end)
+  openers.byObject[objectID] = list
+  return list
+end
+
+-- TokensOf(pieceID): the class tokens that can give a piece, { { itemID,
+-- classes } } in item order (classes: the set of class IDs the token's route
+-- names, or nil), the reverse of the tokens' C codes (Task #440: the piece
+-- named nothing of its token; the data has no code for it, so the item codes
+-- are searched once per piece, as OpenersOf does for a key, and kept for the
+-- session while the data stays the same table)
+local tokens = { data = nil, byPiece = {} }
+
+function UsedFor.TokensOf(pieceID)
+  if not Recollect.Utilities.IsPositiveID(pieceID) then return {} end
+  local data = Recollect.Data and Recollect.Data.Relations
+  local B = type(data) == "table" and data.B or nil
+  if tokens.data ~= B then tokens.data, tokens.byPiece = B, {} end
+  local list = tokens.byPiece[pieceID]
+  if list then return list end
+  list = {}
+  local version = Recollect.Facts.DataVersion
+  if version and not version.Ok() then return list end
+  local needle = "C" .. pieceID
+  local ok = pcall(function()
+    for _, bucket in pairs(type(B) == "table" and B or {}) do
+      if type(bucket) == "string" and bucket:find(needle, 1, true) then
+        for item, codes in bucket:gmatch("\30(%d+)\31([^\30]*)") do
+          item = tonumber(item)
+          if codes:find(needle, 1, true) then
+            for _, relation in ipairs(Relations().Of(item, "givesByClass")) do
+              if relation.id == pieceID and not (relation.flags and relation.flags.unavailable) then
+                list[#list + 1] = { itemID = item, classes = relation.flags and relation.flags.classes or nil }
+                break
+              end
+            end
+          end
+        end
+      end
+    end
+  end)
+  if not ok then return {} end   -- not kept: asked again next time
+  table.sort(list, function(a, b) return a.itemID < b.itemID end)
+  tokens.byPiece[pieceID] = list
+  return list
+end
+
+-- TokenSourceLines(pieceID): the piece's COMES FROM lines for the tokens that
+-- give it ("From the class token Dauntless Plate Token (for Paladin and
+-- Warrior)"), each token's name heard as an item link in its quality's color;
+-- at most MAX_TOKENS, then one line counting the rest
+local MAX_TOKENS = 3
+function UsedFor.TokenSourceLines(pieceID)
+  local out = {}
+  local list = UsedFor.TokensOf(pieceID)
+  for i = 1, math.min(#list, MAX_TOKENS) do
+    local token = list[i]
+    local text = "From the class token " .. ItemName(token.itemID)
+    local names = {}
+    for classID in pairs(token.classes or {}) do names[#names + 1] = classID end
+    table.sort(names)
+    if #names > 0 and #names <= 4 then
+      for k, classID in ipairs(names) do
+        local ok, name = Try(seams.ClassName, classID)
+        if not ok or type(name) ~= "string" or name == "" then names = {} break end
+        names[k] = name
+      end
+      if #names > 0 then
+        text = ("%s (for %s)"):format(text, #names == 1 and names[1]
+          or ("%s and %s"):format(table.concat(names, ", ", 1, #names - 1), names[#names]))
+      end
+    end
+    out[#out + 1] = { text = text, color = U.Colors.LIGHT_GRAY, tier = TIER_INFO }
+  end
+  if #list > MAX_TOKENS then
+    out[#out + 1] = { text = ("From %d more class tokens"):format(#list - MAX_TOKENS), color = U.Colors.LIGHT_GRAY,
+      tier = TIER_INFO }
+  end
+  return out
+end
+
+-- OpenedWords(objectID): ", opened with 1000 Vile Essence" (several: "X or
+-- Y", "X, Y or Z", past three "or one of N more items"), each key's name
+-- heard as an item link in its quality's color; "" when nothing opens it.
+-- complete is false while a key's name hasn't loaded
+local MAX_OPENERS = 3
+function UsedFor.OpenedWords(objectID)
+  local list = UsedFor.OpenersOf(objectID)
+  if #list == 0 then return "", true end
+  local names, complete = {}, true
+  for i = 1, math.min(#list, MAX_OPENERS) do
+    local key = list[i]
+    local name = Recollect.Facts.Item.Name(key.itemID)
+    if type(name) ~= "string" or name == "" then complete = false end
+    name = ItemName(key.itemID)
+    names[i] = key.count > 1 and ("%s %s"):format(Recollect.Utilities.Count(key.count), name) or name
+  end
+  local more = #list - #names
+  local words
+  if more > 0 then
+    words = ("%s or one of %d more items"):format(table.concat(names, ", "), more)
+  elseif #names == 1 then
+    words = names[1]
+  else
+    words = ("%s or %s"):format(table.concat(names, ", ", 1, #names - 1), names[#names])
+  end
+  return ", opened with " .. words, complete
+end
+
+-- Where a chain leads and the way back (Tasks #438 and #439), one table:
+-- this file is near Lua 5.1's 200 locals
+local Lead = { MAX = 2, RANK = { open = 1, unread = 2, done = 3, other = 4, plain = 5 },
+  TIERS = { open = TIER_OPEN, unread = TIER_INFO, plain = TIER_INFO, done = TIER_CLOSED, other = TIER_CLOSED } }
+
 -- What a key opens: "Opens a treasure in Zone (x, y) (not looted)", holding
 -- what; "Used at a spot in Zone (x, y)" for an object that holds nothing.
 -- One that takes several (": takes 1000") says how many you have.
@@ -1297,7 +1523,7 @@ local function OpensLine(relation, places, stateless, itemID)
     text = where and ("Used at a spot in %s"):format(where) or "Used at a spot"
   end
   local takes = (relation.count or 1) > 1 and relation.count or nil
-  if takes then text = ("%s: takes %d"):format(text, takes) end
+  if takes then text = ("%s: takes %s"):format(text, Recollect.Utilities.Count(takes)) end
   local color, tier = U.Colors.LIGHT_GRAY, nil
   if object.questID and not stateless and Recollect.Facts.Ready.Quests() then
     local ok, done = Try(Recollect.Purposes.client.IsQuestFlaggedCompleted, object.questID)
@@ -1307,35 +1533,544 @@ local function OpensLine(relation, places, stateless, itemID)
       text, color, tier = text .. (treasure and " (not looted)" or " (not done)"), colors[V.USEFUL], TIER_OPEN
     end
   end
-  local detail
-  if treasure then
-    local names = {}
-    for i = 1, math.min(#object.contents, MAX_HELD) do names[i] = ItemName(object.contents[i]) end
-    local more = #object.contents - #names
-    detail = "Holds " .. table.concat(names, ", ") .. (more > 0 and (" and %d more"):format(more) or "")
-  end
+  local detail = treasure and Lead.Holds(object.contents) or nil
   local have = takes and not stateless and itemID and Owned(itemID) or nil
   if have then
-    detail = ("You have %d of the %d it takes.%s"):format(have, takes, detail and (" " .. detail) or "")
+    detail = ("You have %s of the %s it takes.%s"):format(Recollect.Utilities.Count(have), Recollect.Utilities.Count(takes),
+      detail and (" " .. detail) or "")
   end
   return { text = text, color = color, tier = tier, detail = detail, place = place }
 end
 
-local function MakesLine(relation, stateless)
+-- CombineLeads(itemID, owner, places): where combining the item leads (the
+-- "leads" check's chains, Task #438: the Diver's Key Fragment makes the
+-- Diver's Key, which opens a treasure holding the Ancient Amani Mask), as
+-- lines: one "Leads to <end>" per end still to get, unread, had or for
+-- someone else (Lead.MAX of them; plain ends only when nothing else is
+-- there), each in its state's color with the end's name a link, then a line
+-- per treasure on the way with its place (added to places, for the waypoint)
+-- and whether it is looted. {} when combining it leads nowhere the data names.
+-- relations: the item's own (Relations.For's list, which the caller holds):
+-- only an item with a confirmed combine among them is followed
+-- (one table: this file is near Lua 5.1's 200 locals)
+function Lead.CombineEnd(entry) return entry.via[1] ~= nil and entry.via[1].kind == "makes" end
+-- a key's own chain too: what the treasure it opens holds, with its state (Task #439: every node of a chain says
+-- what it leads to)
+function Lead.Keep(entry) return entry.via[1] ~= nil and (entry.via[1].kind == "makes" or entry.via[1].kind == "opens") end
+
+-- The names a treasure holds, each once (the Sunken Diver's Chest holds the
+-- Ancient Amani Mask and a plain copy of one name): "Holds X" or "Holds X, Y
+-- and 2 more", or nil when it holds nothing named
+function Lead.Holds(contents)
+  local names, seen, total = {}, {}, 0
+  for _, itemID in ipairs(contents or {}) do
+    local name = ItemName(itemID)
+    if not seen[name] then
+      seen[name] = true
+      total = total + 1
+      if #names < MAX_HELD then names[#names + 1] = name end
+    end
+  end
+  if #names == 0 then return nil end
+  local more = total - #names
+  return "Holds " .. table.concat(names, ", ") .. (more > 0 and (" and %d more"):format(more) or "")
+end
+
+-------------------------------------------------------------------------------
+-- The way back (Task #439; Cobanyte, 2026-10-15, on the Ancient Amani Mask's
+-- HOW TO GET MORE, which ended at "opened with Diver's Key"): under a source
+-- that needs another item first (a spot a key opens: Task #437's OpenersOf; a
+-- combine's parts: f codes), each item on the way as a line with how you get
+-- it, at most Lead.STEPS deep, KEYS items a step, never one twice:
+--   "Diver's Key: combine 3 Diver's Key Fragment (you have 1)"
+--   "Diver's Key Fragment: drops from Glittering Grouper Brinetail (The Coiled Isle)"
+-- Information only: no check reads it.
+-------------------------------------------------------------------------------
+Lead.STEPS, Lead.KEYS = 3, 2
+
+-- How an item is got, in words, and the items that way needs first: a
+-- combine of its parts (with how many you have), else UsedFor.SourceWords'
+-- first source, else a spot it is found at (and the keys that open it)
+function Lead.How(itemID, owner, stateless)
+  local R = Relations()
+  local parts, ids = {}, {}
+  for _, relation in ipairs(R.Of(itemID, "madeFrom")) do
+    local ok, applies = pcall(R.Applies, relation, owner)
+    if Recollect.Utilities.IsPositiveID(relation.id) and (not ok or applies ~= "unavailable") then
+      local have = not stateless and Owned(relation.id) or nil
+      parts[#parts + 1] = ("%s %s%s"):format(N(relation.count or 1), ItemName(relation.id),
+        have and (" (you have %s)"):format(N(have)) or "")
+      ids[#ids + 1] = relation.id
+    end
+  end
+  if #parts > 0 then return "combine " .. Joined(parts), ids end
+  local from = UsedFor.SourceWords(itemID, owner)
+  if from then return from, {} end
+  -- a quest that gives it (Task #446: Living Rot and the Mortar and Pestle,
+  -- both rewards of the quest that uses what they make, read "no way to get
+  -- it is recorded yet"), its title from the game when it has it
+  for _, kind in ipairs({ "reward", "choice", "duringQuest" }) do
+    for _, relation in ipairs(R.Of(itemID, kind)) do
+      local ok, applies = pcall(R.Applies, relation, owner)
+      if Recollect.Utilities.IsPositiveID(relation.id) and (not ok or applies ~= "unavailable") then
+        local title = SeamName(seams.QuestTitle, relation.id)
+        local quest = title and ('"%s"'):format(Named("quest", relation.id, title)) or ("quest " .. relation.id)
+        return (kind == "duringQuest" and "comes from doing " or "a reward of ") .. quest, {}
+      end
+    end
+  end
+  for _, relation in ipairs(R.Of(itemID, "foundIn")) do
+    local ok, applies = pcall(R.Applies, relation, owner)
+    local object = (not ok or applies ~= "unavailable") and Recollect.Facts.Vendors.Object(relation.id)
+    if object then
+      local keys = {}
+      for _, key in ipairs(UsedFor.OpenersOf(relation.id)) do keys[#keys + 1] = key.itemID end
+      local zone = object.mapID and (Recollect.Facts.Vendors.ZoneName(object.mapID) or ("map " .. object.mapID))
+      local words = zone and ("found at a spot in %s (%.1f, %.1f)"):format(zone, object.x * 100, object.y * 100)
+        or "found at a spot in the world"
+      return words .. UsedFor.OpenedWords(relation.id), keys
+    end
+  end
+  return nil, {}
+end
+
+function Lead.Step(itemID, owner, stateless)
+  local how = Lead.How(itemID, owner, stateless)
+  return { text = ("%s: %s"):format(ItemName(itemID), how or "no way to get it is recorded yet"), color = U.Colors.LIGHT_GRAY }
+end
+
+-- The lines of the way back from the items a source needs first (starts)
+function Lead.PathLines(starts, owner, stateless)
+  local lines, seen = {}, {}
+  local function Walk(ids, depth)
+    if depth > Lead.STEPS then return end
+    local taken = 0
+    for _, itemID in ipairs(ids) do
+      if taken >= Lead.KEYS then break end
+      if Recollect.Utilities.IsPositiveID(itemID) and not seen[itemID] then
+        seen[itemID] = true
+        taken = taken + 1
+        lines[#lines + 1] = Build(Lead.Step, itemID, owner, stateless)
+        local _, nexts = Lead.How(itemID, owner, stateless)
+        Walk(nexts or {}, depth + 1)
+      end
+    end
+  end
+  Walk(starts, 1)
+  return lines
+end
+
+-- SourcePath(relation, owner, stateless): the way back under a source
+-- relation, as lines (each { text, color, links }); {} for a source that
+-- needs nothing first. A spot starts from the keys that open it, a combine
+-- from its part
+function UsedFor.SourcePath(relation, owner, stateless)
+  owner = owner or Recollect.Verdicts.Rows.Owner()
+  local starts = {}
+  if relation.kind == "foundIn" then
+    for _, key in ipairs(UsedFor.OpenersOf(relation.id)) do starts[#starts + 1] = key.itemID end
+  elseif relation.kind == "madeFrom" then
+    starts[1] = relation.id
+  end
+  if #starts == 0 then return {} end
+  local ok, lines = pcall(Lead.PathLines, starts, owner, stateless == true)
+  return ok and lines or {}
+end
+
+-- The way back in one detail line ("Diver's Key: combine 3 ...; Diver's Key
+-- Fragment: drops from ..."), or nil
+function Lead.PathDetail(relation, owner, stateless)
+  local texts = {}
+  for _, line in ipairs(UsedFor.SourcePath(relation, owner, stateless)) do texts[#texts + 1] = line.text end
+  return #texts > 0 and table.concat(texts, "; ") or nil
+end
+
+function Lead.Color(state)
+  local colors, V = Colors(), Verdict()
+  if state == "open" then return colors[V.USEFUL] end
+  if state == "done" or state == "other" then return colors[V.DONE] end
+  return U.Colors.LIGHT_GRAY
+end
+
+function Lead.Line(read, owner)
+  local Chains = Recollect.Facts.Chains
+  return { text = "Leads to " .. Chains.Words(read.entry, owner, read.thing, read.quests), color = Lead.Color(read.state),
+    tier = Lead.TIERS[read.state], leadState = read.state, leadEnd = true,
+    collectible = read.thing and read.thing.collectible or false }
+end
+
+function Lead.Treasure(step, owner, places)
+  local Chains = Recollect.Facts.Chains
+  local object = Recollect.Facts.Vendors.Object(step.objectID)
+  if not object then return nil end
+  local looted = Chains.LootState(step.objectID, owner)
+  local text = ("%s opens %s"):format(ItemName(step.of), Chains.TreasureWords(step.objectID, looted))
+  local takes = step.relation and (step.relation.count or 1) > 1 and step.relation.count or nil
+  if takes then text = ("%s: takes %s"):format(text, Recollect.Utilities.Count(takes)) end
+  local place
+  if object.mapID then
+    place = { mapID = object.mapID, x = object.x, y = object.y, what = "the treasure", role = "opens", itemID = step.of,
+      zone = Recollect.Facts.Vendors.ZoneName(object.mapID) or ("map " .. object.mapID) }
+    places[#places + 1] = place
+  end
+  local detail = Lead.Holds(object.contents)
+  local state = looted == "done" and "done" or looted == "open" and "open" or "unread"
+  return { text = text, color = Lead.Color(state), tier = Lead.TIERS[state], detail = detail, place = place, leadState = state }
+end
+
+function Lead.Combines(relations)
+  for _, relation in ipairs(relations or {}) do
+    if (relation.kind == "makes" or relation.kind == "partOf") and not relation.unresolved
+      and Recollect.Utilities.IsPositiveID(relation.id) then return true end
+  end
+  return false
+end
+
+-- Whether the item's own relations hold a key (an opens relation)
+function Lead.Opens(relations)
+  for _, relation in ipairs(relations or {}) do
+    if relation.kind == "opens" and Recollect.Utilities.IsPositiveID(relation.id) then return true end
+  end
+  return false
+end
+
+-- CombinesIn(relations): whether an item's own relations hold a confirmed combine
+function UsedFor.CombinesIn(relations) return Lead.Combines(relations) end
+
+function UsedFor.CombineLeads(itemID, owner, places, relations)
+  if not Lead.Combines(relations) and not Lead.Opens(relations) then return {} end
+  owner = owner or Recollect.Verdicts.Rows.Owner()
+  places = places or {}
+  local Chains = Recollect.Facts.Chains
+  local ok, summary = pcall(Chains.Summary, itemID, owner, Recollect.Facts.QuestInfo.FrameBudget(), nil, Lead.Keep)
+  if not ok or type(summary) ~= "table" then return {} end
+  -- by state, a collectible before a plain item of the same state (a looted
+  -- treasure's plain copy of the toy never stands for the toy), then in order
+  local reads, collectible = {}, false
+  for i, read in ipairs(summary.reads) do
+    reads[i] = read
+    read.order = i
+    if read.thing and read.thing.collectible then collectible = true end
+  end
+  table.sort(reads, function(a, b)
+    if Lead.RANK[a.state] ~= Lead.RANK[b.state] then return Lead.RANK[a.state] < Lead.RANK[b.state] end
+    local ca, cb = a.thing and a.thing.collectible or false, b.thing and b.thing.collectible or false
+    if ca ~= cb then return ca end
+    return a.order < b.order
+  end)
+  local lines, shown, treasures = {}, {}, {}
+  for _, read in ipairs(reads) do
+    if #shown >= Lead.MAX then break end
+    local plain = read.state == "plain" or not (read.thing and read.thing.collectible)
+    if not plain or (#shown == 0 and not collectible) then
+      shown[#shown + 1] = read
+      lines[#lines + 1] = Build(Lead.Line, read, owner)
+    end
+  end
+  for _, read in ipairs(shown) do
+    for _, step in ipairs(read.entry.via) do
+      -- (a treasure the item itself opens is its own opens line)
+      if step.kind == "opens" and step.of ~= itemID and not treasures[step.objectID] then
+        treasures[step.objectID] = true
+        local line = Build(Lead.Treasure, step, owner, places)
+        if line then lines[#lines + 1] = line end
+      end
+    end
+  end
+  return lines
+end
+
+local ProductCustomizes   -- what a combine's product customizes, defined with CustomizesLine below
+
+local function MakesLine(relation, stateless, owner)
   local colors, V = Colors(), Verdict()
   if relation.unresolved then
-    return { text = ("Combines %d of these; what they make is unconfirmed"):format(relation.count or 1), color = colors[V.USE] }
+    return { text = ("Combines %s of these; what they make is unconfirmed"):format(N(relation.count or 1)), color = colors[V.USE] }
   end
   local made = not stateless and Owned(relation.id) or nil
-  local have = made and (made > 0 and ("you have %d"):format(made) or "you have none yet")
-  local text = ("Makes %s from %d"):format(ItemName(relation.id), relation.count or 1)
-  return { text = have and ("%s (%s)"):format(text, have) or text, color = colors[V.USE] }
+  local have = made and (made > 0 and ("you have %s"):format(N(made)) or "you have none yet")
+  local text = ("Makes %s from %s"):format(ItemName(relation.id), N(relation.count or 1))
+  return { text = have and ("%s (%s)"):format(text, have) or text, color = colors[V.USE],
+    detail = ProductCustomizes(relation.id, stateless, owner) }
+end
+
+-- "Using it gives Glyph of the Matriarch's Wings (collected)": what using the
+-- item gives (data format 14's I code, from its Use text), with the product's
+-- own state when it is a collectible the game counts (Facts.Buys.Product, for
+-- the row's owner), else how many you have; information only, never a need
+local GIVES_WORDS = { recipe = { have = "known", missing = "not known" },
+  achievement = { have = "earned", missing = "not earned" } }
+local function GivesLine(relation, stateless, owner)
+  local name = ItemName(relation.id)
+  local text = (relation.count or 1) > 1 and ("Using it gives %s %s"):format(N(relation.count), name) or ("Using it gives " .. name)
+  if stateless then return { text = text, color = U.Colors.LIGHT_GRAY, tier = TIER_INFO } end
+  local colors, V = Colors(), Verdict()
+  local ok, thing = pcall(Recollect.Facts.Buys.Product, relation.id, owner)
+  if ok and type(thing) == "table" and (thing.state == "have" or thing.state == "missing") then
+    local words = GIVES_WORDS[thing.what] and GIVES_WORDS[thing.what][thing.state]
+      or (thing.state == "have" and "collected" or "not collected")
+    return { text = ("%s (%s)"):format(text, words), color = thing.state == "have" and colors[V.DONE] or colors[V.USEFUL],
+      tier = thing.state == "have" and TIER_CLOSED or TIER_OPEN }
+  end
+  local held = (not owner or owner.isViewer ~= false) and Owned(relation.id) or nil
+  local have = held and (held > 0 and ("you have %s"):format(N(held)) or "you have none")
+  return { text = have and ("%s (%s)"):format(text, have) or text, color = U.Colors.LIGHT_GRAY, tier = TIER_INFO }
+end
+
+-- Data format 15 (Task #395): uses from the game's own Use text, information
+-- only. A mount customization (B, the mount's summon spell): the mount by
+-- name with whether you have it, and the option's own state when the item's
+-- tooltip was read (its "Already known" line); "Customizes Cliffside
+-- Wylderdrake (unlocked)", "(not unlocked yet; you have the mount)"
+local function CustomizesLine(relation, stateless, owner, tip)
+  local ok, read = pcall(Recollect.Facts.Buys.Resolve, { kind = "buys", thing = "m", id = relation.id }, owner)
+  local thing = ok and type(read) == "table" and read or nil
+  local name = thing and thing.name
+  if type(name) ~= "string" or name == "" then name = "a mount" else name = Named("mount", thing.id, name) end
+  local text = "Customizes " .. name
+  if stateless then return { text = text, color = U.Colors.LIGHT_GRAY, tier = TIER_INFO } end
+  local colors, V = Colors(), Verdict()
+  if tip and tip.known == true then return { text = text .. " (unlocked)", color = colors[V.DONE], tier = TIER_CLOSED } end
+  local mount = thing and (thing.state == "have" and "you have the mount" or thing.state == "missing" and "you don't have the mount")
+  local option = tip and tip.known == false and "not unlocked yet" or nil
+  local words = option and mount and (option .. "; " .. mount) or option or mount
+  if not words then return { text = text, color = U.Colors.LIGHT_GRAY, tier = TIER_INFO } end
+  local open = option and thing and thing.state == "have"
+  return { text = ("%s (%s)"):format(text, words), color = open and colors[V.USEFUL] or U.Colors.LIGHT_GRAY,
+    tier = open and TIER_OPEN or TIER_INFO }
+end
+
+-- A combine whose product is a mount customization's item (the G-99
+-- Breakneck's turbos, Task #403: the parts make Steamboil, whose own B code
+-- names the mount): "Steamboil customizes G-99 Breakneck (not unlocked yet;
+-- you have the mount)", the product's own B line read with the product's
+-- tooltip ("Already known"), as the detail of the part's line; nil when the
+-- product customizes nothing this character can use
+ProductCustomizes = function(productID, stateless, owner)
+  if not Recollect.Utilities.IsPositiveID(productID) then return nil end
+  local R = Relations()
+  local ok, list = pcall(R.Of, productID, "customizes")
+  local relation = ok and type(list) == "table" and list[1] or nil
+  if not relation or R.Applies(relation, owner) ~= true then return nil end
+  local tip = not stateless and Recollect.Facts.Tooltip.FromItemID(productID) or nil
+  -- the product is rarely held, and a tooltip by ID for an item not cached
+  -- yet still parses, with no "Already known": read it only once it carries
+  -- the Use line, which the product's whole tooltip always has (rule 14)
+  if tip and not tip.useText then tip = nil end
+  local line = CustomizesLine(relation, stateless, owner, tip)
+  if not line then return nil end
+  local more = #list - 1
+  return ItemName(productID) .. " c" .. line.text:sub(2)
+    .. (more > 0 and (more == 1 and " and 1 more mount" or (" and %d more mounts"):format(more)) or "")
+end
+
+-- The owner's standing with a faction, read live: "Renown 12" for a major
+-- faction, a friendship's rank ("Best Friend"), else the standing's name
+-- ("Revered"); nil when none can be read. Only the logged-in character's
+local function StandingWords(factionID, owner)
+  if owner and owner.isViewer == false then return nil end
+  local IsSecret = Recollect.Utilities.IsSecret
+  local okMajor, major = Try(seams.MajorFactionData, factionID)
+  if okMajor and type(major) == "table" and CobySuite_Recollect.Utilities.IsFiniteNumber(major.renownLevel) and not IsSecret(major.renownLevel) then
+    return ("Renown %d"):format(major.renownLevel)
+  end
+  local okFriend, friend = Try(seams.FriendshipData, factionID)
+  if okFriend and type(friend) == "table" and Recollect.Utilities.IsPositiveID(friend.friendshipFactionID)
+    and type(friend.reaction) == "string" and friend.reaction ~= "" and not IsSecret(friend.reaction) then
+    return friend.reaction
+  end
+  local ok, data = Try(seams.FactionData, factionID)
+  if not ok or type(data) ~= "table" or type(data.reaction) ~= "number" or IsSecret(data.reaction) then return nil end
+  local okLabel, label = Try(seams.StandingLabel, data.reaction)
+  return okLabel and type(label) == "string" and label ~= "" and label or nil
+end
+UsedFor.StandingWords = StandingWords
+
+-- "Gives 250 reputation with Valarjar (you're Revered)"; with no one amount
+-- (W<faction>x0), "Raises your reputation with Valarjar"
+local function ReputationWords(relation)
+  local name = FactionName(relation.id)
+  if (relation.count or 0) > 0 then
+    return ("Gives %s reputation with %s"):format(Recollect.Utilities.Count(relation.count), name)
+  end
+  return "Raises your reputation with " .. name
+end
+UsedFor.ReputationWords = ReputationWords
+
+local function ReputationLine(relation, stateless, owner)
+  local text = ReputationWords(relation)
+  local standing = not stateless and StandingWords(relation.id, owner) or nil
+  return { text = standing and ("%s (you're %s)"):format(text, standing) or text, color = U.Colors.LIGHT_GRAY,
+    tier = TIER_INFO }
+end
+
+-- "A lure: Blackwater Whiptail bites more often (you have 3)"
+local function LureLine(relation, stateless, owner)
+  local text = ("A lure: %s bites more often"):format(ItemName(relation.id))
+  local held = not stateless and (not owner or owner.isViewer ~= false) and Owned(relation.id) or nil
+  local have = held and (held > 0 and ("you have %s"):format(N(held)) or "you have none")
+  return { text = have and ("%s (%s)"):format(text, have) or text, color = U.Colors.LIGHT_GRAY, tier = TIER_INFO }
+end
+
+-- Data format 16 (Task #396): what a class token gives (its C codes), one
+-- of them by the class or specialization of whoever uses it. The armor type
+-- each class wears, by class ID (1 Warrior to 13 Evoker; 1 Cloth, 2 Leather,
+-- 3 Mail, 4 Plate, as Enum.ItemArmorSubclass numbers them in the 12.1.5
+-- generated docs): our own table, for the wording only, since no game call
+-- maps a class to its armor type (IsItemPreferredArmorType needs a held
+-- item's location). A piece's own armor type is read from the item.
+local CLASS_ARMOR = { [1] = 4, [2] = 4, [3] = 3, [4] = 2, [5] = 1, [6] = 4, [7] = 3, [8] = 1, [9] = 1, [10] = 2,
+  [11] = 2, [12] = 2, [13] = 3 }
+local ARMOR_WORDS = { "Cloth", "Leather", "Mail", "Plate" }   -- when the game's name can't be read
+local ARMOR_CLASS = 4   -- Enum.ItemClass.Armor
+local MAX_PIECES = 3    -- pieces a line names
+
+-- A piece's armor type (1 to 4), false for one that has none (a ring, a
+-- trinket, a cloak every class wears), nil when it can't be read
+local function ArmorType(itemID)
+  local ok, equipLoc, classID, subclassID = Try(seams.ItemKind, itemID)
+  if not ok or type(classID) ~= "number" then return nil end
+  if classID == ARMOR_CLASS and equipLoc ~= "INVTYPE_CLOAK" and type(subclassID) == "number" and ARMOR_WORDS[subclassID] then
+    return subclassID
+  end
+  return false
+end
+
+local function ArmorName(armor)
+  local ok, name = Try(seams.ArmorTypeName, armor)
+  if ok and type(name) == "string" and name ~= "" then return name end
+  return ARMOR_WORDS[armor]
+end
+
+local function Listed(words)
+  if #words < 2 then return words[1] or "" end
+  return table.concat(words, ", ", 1, #words - 1) .. " and " .. words[#words]
+end
+
+-- "Death Knight, Paladin and Warrior": the classes that wear an armor type,
+-- by name; nil when a name can't be read
+local function Wearers(armor)
+  local names = {}
+  for classID = 1, #CLASS_ARMOR do
+    if CLASS_ARMOR[classID] == armor then
+      local ok, name = Try(seams.ClassName, classID)
+      if not ok or type(name) ~= "string" or name == "" then return nil end
+      names[#names + 1] = name
+    end
+  end
+  table.sort(names)
+  return Listed(names)
+end
+
+-- A token's pieces read for an owner: { armor = { [id] = type or false },
+-- types (the armor types in the order first met), unread, mine (the pieces of
+-- the owner's armor type), ownArmor (nil when the owner's class isn't known),
+-- split (every piece has an armor type and they differ), single (the one
+-- armor type every piece has) }
+local function TokenPieces(ids, owner)
+  local out = { armor = {}, types = {}, unread = false, mine = {} }
+  out.ownArmor = owner and CLASS_ARMOR[owner.classID] or nil
+  local seen, every = {}, true
+  for _, id in ipairs(ids) do
+    local armor = ArmorType(id)
+    if armor == nil then out.unread = true end
+    if not armor then every = false end
+    out.armor[id] = armor or false
+    if armor and not seen[armor] then
+      seen[armor] = true
+      out.types[#out.types + 1] = armor
+    end
+    if armor and armor == out.ownArmor then out.mine[#out.mine + 1] = id end
+  end
+  out.split = every and #out.types >= 2
+  out.single = every and #out.types == 1 and out.types[1] or nil
+  return out
+end
+UsedFor.TokenPieces = TokenPieces
+
+-- "your armor type", or another character's ("Tanklite's armor type")
+local function Whose(owner)
+  if not owner or owner.isViewer ~= false then return "your" end
+  return type(owner.name) == "string" and owner.name ~= "" and (owner.name .. "'s") or "this character's"
+end
+
+local function PieceNames(ids)
+  local names = {}
+  for i = 1, math.min(#ids, MAX_PIECES) do names[i] = ItemName(ids[i]) end
+  local more = #ids - #names
+  if more > 0 then names[#names + 1] = ("%d more"):format(more) end
+  return Listed(names)
+end
+
+-- One line for every piece a token gives (information only): "Gives the
+-- piece for your armor type: Dauntless Plate Helm (Plate)", with every armor
+-- type and who wears it in the line's detail; "Gives one of 16 Mail pieces,
+-- chosen by class and specialization (your armor type)"; "Gives one of 3
+-- items, chosen by class or specialization: A, B and C"; one piece alone
+-- "Using it gives X"
+local function TokenLine(ids, owner)
+  local line = { color = U.Colors.LIGHT_GRAY, tier = TIER_INFO }
+  if #ids == 1 then
+    line.text = "Using it gives " .. ItemName(ids[1])
+    return line
+  end
+  local pieces = TokenPieces(ids, owner)
+  if pieces.split then
+    local types = {}
+    for _, armor in ipairs(pieces.types) do
+      local who = Wearers(armor)
+      types[#types + 1] = who and (ArmorName(armor) .. " for " .. who) or ArmorName(armor)
+    end
+    line.detail = "One for each armor type: " .. table.concat(types, "; ")
+    if #pieces.mine == 1 then
+      line.text = ("Gives the piece for %s armor type: %s (%s)"):format(Whose(owner), ItemName(pieces.mine[1]),
+        ArmorName(pieces.ownArmor))
+    elseif #pieces.mine > 1 then
+      line.text = ("Gives one of %d %s pieces for %s armor type, by specialization: %s"):format(#pieces.mine,
+        ArmorName(pieces.ownArmor), Whose(owner), PieceNames(pieces.mine))
+    else
+      local names = {}
+      for _, armor in ipairs(pieces.types) do names[#names + 1] = ArmorName(armor) end
+      local own = pieces.ownArmor and ("; none is %s, %s armor type"):format(ArmorName(pieces.ownArmor), Whose(owner)) or ""
+      line.text = ("Gives one piece by armor type (%s)%s"):format(table.concat(names, ", "), own)
+    end
+    return line
+  end
+  if pieces.single then
+    local armor = pieces.single
+    local state
+    if pieces.ownArmor == armor then
+      state = Whose(owner) .. " armor type"
+    else
+      local who = Wearers(armor)
+      state = who and ("worn by " .. who) or nil
+    end
+    line.text = ("Gives one of %d %s pieces, chosen by class and specialization%s"):format(#ids, ArmorName(armor),
+      state and (" (" .. state .. ")") or "")
+    return line
+  end
+  line.text = ("Gives one of %d items, chosen by class or specialization: %s"):format(#ids, PieceNames(ids))
+  return line
+end
+
+-- A token's piece as the pinned view's state: its armor type and who wears
+-- it ("Plate, worn by Death Knight, Paladin and Warrior"), "Plate, your
+-- armor type" for the owner's; nil for a piece with no armor type, false
+-- when it can't be read. The second value is true for the owner's piece.
+function UsedFor.PieceWords(itemID, owner)
+  local armor = ArmorType(itemID)
+  if armor == nil then return false end
+  if not armor then return nil end
+  local own = owner and CLASS_ARMOR[owner.classID]
+  if own == armor then return ("%s, %s armor type"):format(ArmorName(armor), Whose(owner)), true end
+  local who = Wearers(armor)
+  return who and ("%s, worn by %s"):format(ArmorName(armor), who) or ArmorName(armor), false
 end
 
 -- "Combines with the Reinforced Amani Haft and Toughened Amani Leather Wrap
 -- into Amani Warrior's Spear (you have 1 of the 3 parts)": one of several
 -- different parts (Purposes.Parts says the same in its reason)
-local function PartOfLine(relation, stateless, itemID)
+local function PartOfLine(relation, stateless, itemID, owner)
   local Parts = Recollect.Purposes.Parts
   local others, own = {}, nil
   for _, part in ipairs(relation.parts) do
@@ -1346,7 +2081,7 @@ local function PartOfLine(relation, stateless, itemID)
       others[#others + 1] = Parts.PartWords(part)
     end
   end
-  local text = ("Combines %swith %s into %s"):format(own and own.count > 1 and (own.count .. " of it ") or "",
+  local text = ("Combines %swith %s into %s"):format(own and own.count > 1 and (own.count .. " of these ") or "",
     Parts.Join(others), ItemName(relation.id))
   local held, readable = 0, not stateless
   for _, part in ipairs(readable and relation.parts or {}) do
@@ -1356,7 +2091,8 @@ local function PartOfLine(relation, stateless, itemID)
   end
   if readable then text = ("%s (you have %d of the %d parts)"):format(text, held, #relation.parts) end
   local open = readable and held < #relation.parts
-  return { text = text, color = Colors()[Verdict().USE], tier = open and TIER_OPEN or nil }
+  return { text = text, color = Colors()[Verdict().USE], tier = open and TIER_OPEN or nil,
+    detail = ProductCustomizes(relation.id, stateless, owner) }
 end
 
 -- How many of a currency the Use line says using the item gives (English
@@ -1387,14 +2123,14 @@ local function CurrencyLine(relation, places, stateless, tip)
   local held = ""
   if quantity then
     local capped = IsFiniteNumber(info.maxQuantity) and info.maxQuantity > 0 and quantity >= info.maxQuantity
-    held = (" (you have %d %s%s)"):format(quantity, info.name, capped and ", the most you can hold" or "")
+    held = (" (you have %s %s%s)"):format(N(quantity), info.name, capped and ", the most you can hold" or "")
   end
   Named("currency", relation.id, info.name, info.quality)
   local gain = not (relation.count and relation.count > 0) and UseGain(tip, info.name) or nil
   if relation.count and relation.count > 0 then
-    text = ("Worth %d %s%s"):format(relation.count, info.name, held)
+    text = ("Worth %s %s%s"):format(N(relation.count), info.name, held)
   elseif gain then
-    text = ("Using it gives %d %s%s"):format(gain, info.name, held)
+    text = ("Using it gives %s %s%s"):format(N(gain), info.name, held)
   else
     text = ("Currency: %s%s"):format(info.name, held)
   end
@@ -1548,10 +2284,49 @@ end
 -- read), a creature skinned (its place like a drop's), and a seasonal drop
 local SEASON_DROP_TEXT = "A seasonal drop: it comes from many of the season's activities, dungeon and raid bosses "
   .. "among them, not from one boss"
-local function GatheredLine(relation)
-  local ok, name = Try(seams.SpellName, relation.id)
-  if not ok or type(name) ~= "string" or name == "" then return nil end
-  return { text = "Comes from " .. name, color = U.Colors.LIGHT_GRAY }
+-- Data format 22 (Task #447): a G on a creature (G<spell>@<npc>, placed like
+-- a drop) or a zone's enemies (G<spell>#<map>): Pick Pocket says pickpocketed,
+-- a profession on a creature names the profession ("Gathered from X with
+-- Herbalism"); a G made by a spell (G<spell>.1) says so ("Made by the spell
+-- Get Shavings", "Made by a spell" when the name can't be read). Spell 0 (a
+-- profession's spell not known) is never read for a name
+local function GatheredWords(relation)
+  local profession = relation.shows and relation.shows.professions and relation.shows.professions[1]
+  local name
+  if relation.id > 0 then
+    local ok, read = Try(seams.SpellName, relation.id)
+    name = ok and type(read) == "string" and read ~= "" and read or nil
+  end
+  local pick = relation.id == Relations().PICK_POCKET
+  if relation.npc or relation.mapID then
+    local where
+    if relation.mapID then
+      where = "enemies in " .. (Recollect.Facts.Vendors.ZoneName(relation.mapID) or ("map " .. relation.mapID))
+    end
+    if pick then return "Pickpocketed from %s", where end
+    local skill = profession and SkillName(profession)
+    if skill then return "Gathered from %s with " .. skill, where end
+    if name then return "Comes from " .. name .. " on %s", where end
+    return nil
+  end
+  if pick then return "Pickpocketed from enemies" end
+  if relation.made then return name and ("Made by the spell " .. name) or "Made by a spell" end
+  return name and ("Comes from " .. name) or nil
+end
+
+local function GatheredLine(relation, _, places, itemID)
+  local words, where = GatheredWords(relation)
+  if not words then return nil end
+  if not relation.npc then
+    return { text = where and words:format(where) or words, color = U.Colors.LIGHT_GRAY }
+  end
+  local who, npc = Recollect.Facts.Vendors.Describe(relation.npc, "a creature")
+  if not who then return nil end
+  if npc then
+    npc.what, npc.role, npc.itemID = "the creature", "gatheredBy", itemID
+    places[#places + 1] = npc
+  end
+  return { text = words:format(who), color = U.Colors.LIGHT_GRAY, place = npc }
 end
 
 local function SkinnedLine(relation, _, places, itemID)
@@ -1600,6 +2375,274 @@ local NEW_SOURCES = {
 }
 UsedFor.SEASON_DROP_TEXT = SEASON_DROP_TEXT
 
+-- Data format 17 (Task #397), sources. "Bought with 3 Mark of Honor":
+-- what buys it, every cost of the trade in rule 50's words (the buying item
+-- first, never a price partly unknown as whole), then the vendor ("at Zektar
+-- (Hallowfall)", a waypoint to it) or the place the trade is ("in Timeless
+-- Isle"); PvP season gear has neither
+local function BoughtWithLine(relation, places, itemID)
+  local text = "Bought with " .. UsedFor.TradeWords(relation, relation.id)
+  local vendors, place = relation.vendors or {}, nil
+  if vendors[1] then
+    local who, vendor = Recollect.Facts.Vendors.Describe(vendors[1])
+    if who then
+      text = text .. " at " .. who
+      local others = #vendors - 1
+      if others > 0 then text = text .. (others == 1 and " or 1 other vendor" or (" or %d other vendors"):format(others)) end
+    end
+    if vendor then
+      vendor.role, vendor.itemID = "soldBy", itemID
+      places[#places + 1] = vendor
+      place = vendor
+    end
+  elseif relation.mapID then
+    text = text .. " in " .. (Recollect.Facts.Vendors.ZoneName(relation.mapID) or ("map " .. relation.mapID))
+  end
+  return { text = text, color = U.Colors.LIGHT_GRAY, place = place }
+end
+
+-- "Given to new Death Knight characters" (data format 18's Z): the classes
+-- and races its route flags name, at most two of each, when the route serves
+-- the owner; "Given to new characters" otherwise, where the route's own tag
+-- says who it is for ("(Death Knight only)")
+function UsedFor.NewCharacterWords(relation, owner)
+  local flags = type(relation) == "table" and relation.flags
+  local served = type(flags) == "table" and Relations().Applies(relation, owner) == true
+  if not served then return "Given to new characters" end
+  local function Names(set, seam)
+    local ids, names = {}, {}
+    for id in pairs(set or {}) do ids[#ids + 1] = id end
+    if #ids == 0 or #ids > 2 then return nil end
+    table.sort(ids)
+    for _, id in ipairs(ids) do
+      local ok, name = Try(seam, id)
+      if not ok or type(name) ~= "string" or name == "" then return nil end
+      names[#names + 1] = name
+    end
+    return table.concat(names, " and ")
+  end
+  local words = {}
+  words[#words + 1] = Names(flags.races, seams.RaceName)
+  words[#words + 1] = Names(flags.classes, seams.ClassName)
+  if #words == 0 then return "Given to new characters" end
+  return ("Given to new %s characters"):format(table.concat(words, " "))
+end
+
+-- "Solved through Archaeology with 34 Dwarf Archaeology Fragments (you have
+-- 120)": an artifact of the race whose fragments the code names, the
+-- fragments' name read live (the game's race calls take a race's index in
+-- the Archaeology window, not an ID the data can carry)
+local function ArchaeologyLine(relation, stateless)
+  local info = Currency(relation.id)
+  if not info then return { text = "Solved through Archaeology", color = U.Colors.LIGHT_GRAY } end
+  Named("currency", relation.id, info.name, info.quality)
+  local count = relation.count and relation.count > 0 and (Recollect.Utilities.Count(relation.count) .. " ") or ""
+  local text = ("Solved through Archaeology with %s%s"):format(count, info.name)
+  local quantity = not stateless and CobySuite_Recollect.Utilities.IsFiniteNumber(info.quantity) and info.quantity or nil
+  if quantity then text = ("%s (you have %s)"):format(text, N(quantity)) end
+  return { text = text, color = U.Colors.LIGHT_GRAY }
+end
+
+-- Data format 19 (Task #401): a reward for completing an event no zone
+-- holds, worded by what names the event, each with its live state:
+-- 'A reward for completing "Fyrakk Assault" (weekly, done for now)', the
+-- quest's own line (nil and true second while it loads); 'A reward for
+-- completing an event the achievement "X" counts (3 of 5 done)', the progress
+-- left out on another character's copy of one not known to be account-wide
+-- (Task #315 ACH-01); 'A reward for completing an event that gives Voidlight
+-- Marl (you have 40)', the count only on the logged-in character's copy
+local EVENT_LEAD = "A reward for completing "
+local function EventRewardLine(relation, budget, stateless, owner)
+  if relation.event == "quest" then
+    local line = QuestLine(EVENT_LEAD, relation.id, false, budget, stateless, owner)
+    return line, line == nil
+  end
+  if relation.event == "achievement" then
+    local A = Recollect.Facts.Achievements
+    local progress = A.Progress(relation.id)
+    if not progress then
+      return { text = EVENT_LEAD .. ("an event achievement %d counts"):format(relation.id), color = U.Colors.LABEL_GRAY }
+    end
+    Named("achievement", relation.id, progress.name)
+    local text = ("%san event the achievement \"%s\" counts"):format(EVENT_LEAD, progress.name)
+    if stateless and not progress.earned and progress.accountWide ~= true then
+      return { text = text, color = U.Colors.LIGHT_GRAY, tier = TIER_INFO }
+    end
+    local words, open = A.ProgressWords(progress)
+    local colors, V = Colors(), Verdict()
+    return { text = ("%s (%s)"):format(text, words),
+      color = open and colors[V.USEFUL] or (open == false and colors[V.DONE]) or U.Colors.LIGHT_GRAY,
+      tier = open and TIER_OPEN or (open == false and TIER_CLOSED) or nil }
+  end
+  local info = Currency(relation.id)
+  if not info then return { text = EVENT_LEAD .. "an event", color = U.Colors.LIGHT_GRAY } end
+  Named("currency", relation.id, info.name, info.quality)
+  local text = ("%san event that gives %s"):format(EVENT_LEAD, info.name)
+  local quantity = not stateless and CobySuite_Recollect.Utilities.IsFiniteNumber(info.quantity) and info.quantity or nil
+  if quantity then text = ("%s (you have %s)"):format(text, N(quantity)) end
+  return { text = text, color = U.Colors.LIGHT_GRAY }
+end
+
+-- Data format 20 (Task #403): a reward of a follower mission, by the game's
+-- Enum.GarrisonFollowerType (the M code's system): what the system is
+-- called, the garrison type HasGarrison asks for it, and its expansion (the
+-- type's own patch, 6.0 to 9.0, less one: rule 45's way)
+local MISSION_SYSTEMS = {
+  [1] = { one = "garrison mission", many = "garrison missions", garrison = 2, expansion = 5 },
+  [2] = { one = "shipyard mission", many = "shipyard missions", garrison = 2, expansion = 5 },
+  [4] = { one = "class hall mission", many = "class hall missions", garrison = 3, expansion = 6 },
+  [22] = { garrison = 9, expansion = 7 },   -- named by its expansion ("Battle for Azeroth mission")
+  [123] = { one = "covenant adventure", many = "covenant adventures", garrison = 111, expansion = 8 },
+}
+
+local function ExpansionName(expansion)
+  local ok, name = Try(seams.ExpansionName, expansion)
+  return ok and type(name) == "string" and name ~= "" and name or nil
+end
+
+-- What a mission of the system is called, one and many ("mission" for a
+-- system this Recollect doesn't know)
+local function MissionNouns(system)
+  local known = MISSION_SYSTEMS[system]
+  if known and known.one then return known.one, known.many end
+  local expansion = known and ExpansionName(known.expansion)
+  if expansion then return expansion .. " mission", expansion .. " missions" end
+  return "mission", "missions"
+end
+
+-- 'A reward from the class hall mission "X" (costs 100 Order Resources, you
+-- have 1240; open to this character)': the mission's name read live ("a
+-- class hall mission" when it can't be, "class hall missions" for mission
+-- 0, which one not known), its cost and the count held, and whether the
+-- logged-in character has the system (C_Garrison.HasGarrison); the details
+-- window's detail says the system is an older expansion's. Information only:
+-- whether the mission is still offered isn't read (Purposes.Legacy's garrison
+-- and follower systems keep still = nil for the same reason)
+-- The mission as a phrase: 'the class hall mission "X"', "a class hall
+-- mission" when its name can't be read, "class hall missions" for mission 0
+local function MissionPhrase(relation)
+  local one, many = MissionNouns(relation.system)
+  if relation.id == 0 then return many end
+  local ok, name = Try(seams.MissionName, relation.id)
+  if ok and type(name) == "string" and name ~= "" then return ("the %s \"%s\""):format(one, name) end
+  return "a " .. one
+end
+
+-- What the mission costs, with how many you hold, and whether this
+-- character has the system: the words in order, and HasGarrison's answer
+-- (true, false, or nil when not read)
+local function MissionStates(relation, stateless)
+  local parts = {}
+  for _, cost in ipairs(relation.costs or {}) do
+    local info = Currency(cost.id)
+    if info then
+      Named("currency", cost.id, info.name, info.quality)
+      local words = cost.count > 0 and ("costs %s %s"):format(Recollect.Utilities.Count(cost.count), info.name)
+        or ("paid with " .. info.name)
+      local quantity = not stateless and CobySuite_Recollect.Utilities.IsFiniteNumber(info.quantity) and info.quantity or nil
+      parts[#parts + 1] = quantity and ("%s, you have %s"):format(words, N(quantity)) or words
+    end
+  end
+  local known = MISSION_SYSTEMS[relation.system]
+  local has
+  if not stateless and known then
+    local ok, answer = Try(seams.HasGarrison, known.garrison)
+    if ok and (answer == true or answer == false) then has = answer end
+    if has == true then parts[#parts + 1] = "open to this character" end
+    if has == false then parts[#parts + 1] = "not unlocked on this character" end
+  end
+  return parts, has
+end
+
+local function MissionLine(relation, stateless)
+  local text = "A reward from " .. MissionPhrase(relation)
+  local parts = MissionStates(relation, stateless)
+  if #parts > 0 then text = ("%s (%s)"):format(text, table.concat(parts, "; ")) end
+  local known = MISSION_SYSTEMS[relation.system]
+  local expansion = known and ExpansionName(known.expansion)
+  return { text = text, color = U.Colors.LIGHT_GRAY, tier = TIER_INFO,
+    detail = expansion and ("A system of %s, an older expansion"):format(expansion) or nil }
+end
+
+-- The pinned view's Mission row: its name ('Class hall mission "X"') and
+-- state ("Costs 100 Order Resources, you have 1240; open to this
+-- character"), and HasGarrison's answer for its filter
+function UsedFor.MissionRow(relation, owner)
+  local name = MissionPhrase(relation):gsub("^the ", ""):gsub("^a ", ""):gsub("^%l", string.upper)
+  local parts, has = MissionStates(relation, not (owner and owner.isViewer))
+  local state = #parts > 0 and (table.concat(parts, "; "):gsub("^%l", string.upper)) or nil
+  return name, state, has
+end
+UsedFor.MISSION_SYSTEMS = MISSION_SYSTEMS
+
+-- Data format 21 (Task #405): an ensemble piece's look comes with its
+-- ensemble. Buying or using the ensemble collects the piece's appearance,
+-- never the item, so the piece isn't "sold by" the ensemble's vendor. The
+-- ensemble is read as a purchase's e thing (Facts.Buys: the set collected or
+-- not, its name), one shared reference per set so the reads are kept (rule 9)
+local ensembleRefs = {}
+local function EnsembleOf(setID, owner)
+  local ref = ensembleRefs[setID]
+  if not ref then
+    ref = { kind = "buys", thing = "e", id = setID }
+    ensembleRefs[setID] = ref
+  end
+  local ok, thing = pcall(Recollect.Facts.Buys.Resolve, ref, owner)
+  return ok and type(thing) == "table" and thing or nil
+end
+
+local SET_WORDS = { have = "you have the ensemble", missing = "you don't have the ensemble" }
+local LOOK_WORDS = { have = "you have this look", missing = "this look isn't collected",
+  unavailable = "this character can't collect this look" }
+
+-- The ensemble's name (the set's, else its item's) and the words of its state
+-- and of this piece's look, for the line and the pinned row: the look is the
+-- piece's own appearance as Facts.Buys.Product reads it, its tooltip agreeing
+-- (rule 5); only the set's state on another character's copy. Returns name,
+-- the words in order, the set's state and the look's
+function UsedFor.EnsembleLook(relation, itemID, owner)
+  local stateless = not (owner and owner.isViewer)
+  local set = EnsembleOf(relation.id, owner)
+  local item = Relations().ThingItem("e", relation.id)
+  local name = set and set.name
+  if not name and item then
+    -- the ensemble's item is named "Ensemble: <set>"; the line says "the ensemble" already
+    name = Recollect.Facts.Item.Name(item)
+    if type(name) == "string" then name = name:gsub("^Ensemble: ", "") end
+  end
+  local words, setState, lookState = {}, set and set.state, nil
+  if SET_WORDS[setState] then words[#words + 1] = SET_WORDS[setState] end
+  if not stateless and Recollect.Utilities.IsPositiveID(itemID) then
+    local ok, look = pcall(Recollect.Facts.Buys.Product, itemID, owner)
+    if ok and type(look) == "table" and look.what == "appearance" then
+      lookState = look.state
+      local lookWords = LOOK_WORDS[lookState]
+      if lookState == "have" and look.otherItem then lookWords = "you have this look from another item" end
+      if lookWords then words[#words + 1] = lookWords end
+    end
+  end
+  return name, words, setState, lookState, item
+end
+
+-- "Its look comes with the ensemble Vestments of the Eternal Blossom (you
+-- don't have the ensemble; this look isn't collected)": information only,
+-- never a need; the line ranks with what is still to get only while both
+-- the ensemble and the look are missing
+local function EnsembleLookLine(relation, itemID, owner)
+  local name, words, setState, lookState, item = UsedFor.EnsembleLook(relation, itemID, owner)
+  local text = "Its look comes with "
+    .. (name and ("the ensemble " .. (item and Named("item", item, name) or name)) or "an ensemble")
+  if #words > 0 then text = ("%s (%s)"):format(text, table.concat(words, "; ")) end
+  local colors, V = Colors(), Verdict()
+  if lookState == "have" or setState == "have" then
+    return { text = text, color = colors[V.DONE], tier = TIER_CLOSED }
+  end
+  if setState == "missing" and lookState == "missing" then
+    return { text = text, color = colors[V.USEFUL], tier = TIER_OPEN }
+  end
+  return { text = text, color = U.Colors.LIGHT_GRAY, tier = TIER_INFO }
+end
+
 local function Line(relation, places, budget, stateless, itemID, owner, tip)
   local kind = relation.kind
   if NEW_SOURCES[kind] then return NEW_SOURCES[kind](relation, stateless, places, itemID) end
@@ -1621,7 +2664,7 @@ local function Line(relation, places, budget, stateless, itemID, owner, tip)
       npc.what, npc.role, npc.itemID = "the NPC", "usedAt", itemID
       places[#places + 1] = npc
     end
-    local takes = (relation.count or 1) > 1 and (": takes %d"):format(relation.count) or ""
+    local takes = (relation.count or 1) > 1 and (": takes %s"):format(Recollect.Utilities.Count(relation.count)) or ""
     return { text = "Used at " .. who .. takes, color = U.Colors.LIGHT_GRAY, place = npc }
   end
   if kind == "soldBy" then
@@ -1656,29 +2699,64 @@ local function Line(relation, places, budget, stateless, itemID, owner, tip)
   end
   if kind == "openedFrom" then return { text = "From opening " .. ItemName(relation.id), color = U.Colors.LIGHT_GRAY } end
   if kind == "holds" then return { text = "Opening it can give " .. ItemName(relation.id), color = U.Colors.LIGHT_GRAY } end
+  -- data format 14: what using it gives, and what using another item gives it
+  if kind == "gives" then return GivesLine(relation, stateless, owner) end
+  if kind == "givenBy" then return { text = "From using " .. ItemName(relation.id), color = U.Colors.LIGHT_GRAY } end
+  -- data format 15: a mount customization, reputation, a fishing lure
+  if kind == "customizes" then return CustomizesLine(relation, stateless, owner, tip) end
+  if kind == "reputation" then return ReputationLine(relation, stateless, owner) end
+  if kind == "lure" then return LureLine(relation, stateless, owner) end
+  -- data format 16: a class token's piece on a route that doesn't serve this
+  -- character (the ones that do are one line, TokenLine)
+  if kind == "givesByClass" then return { text = "Can give " .. ItemName(relation.id), color = U.Colors.LIGHT_GRAY } end
+  -- data format 17: what buys it, a zone's activities, Archaeology
+  if kind == "boughtWith" then return BoughtWithLine(relation, places, itemID) end
+  if kind == "zoneReward" then
+    local zone = Recollect.Facts.Vendors.ZoneName(relation.id) or ("map " .. relation.id)
+    return { text = "A reward from activities in " .. zone, color = U.Colors.LIGHT_GRAY }
+  end
+  if kind == "archaeology" then return ArchaeologyLine(relation, stateless) end
+  -- data format 19: an event no zone holds
+  if kind == "eventReward" then return EventRewardLine(relation, budget, stateless, owner) end
+  -- data format 20: a follower mission's reward
+  if kind == "missionReward" then return MissionLine(relation, stateless, owner) end
+  -- data format 21: an ensemble piece's look
+  if kind == "ensembleLook" then
+    return EnsembleLookLine(relation, itemID, stateless and { isViewer = false, faction = owner and owner.faction } or owner)
+  end
+  -- data format 18: given to new characters
+  if kind == "newCharacter" then return { text = UsedFor.NewCharacterWords(relation, owner), color = U.Colors.LIGHT_GRAY } end
   if kind == "craftedBy" then return CraftedLine(relation, stateless) end
   if kind == "foundIn" then
     local object = Recollect.Facts.Vendors.Object(relation.id)
     local zone = object and object.mapID and Recollect.Facts.Vendors.ZoneName(object.mapID)
-    -- a chest, a node or a spot on the ground: the data doesn't say which
-    if not zone then return { text = "Found at a spot in the world", color = U.Colors.LIGHT_GRAY } end
+    -- a chest, a node or a spot on the ground: the data doesn't say which;
+    -- what opens it, when an item's j code names it (Task #437)
+    local opened = UsedFor.OpenedWords(relation.id)
+    -- looted or not, from its loot quest (Task #439), on the logged-in character's copy
+    local looted = not stateless and object and Recollect.Facts.Chains.LootState(relation.id, owner or { isViewer = true })
+    local state = (looted == "done" and " (looted)") or (looted == "open" and " (not looted yet)") or ""
+    -- the way back: what opens it and how you get that (Task #439)
+    local detail = Lead.PathDetail(relation, owner, stateless)
+    if not zone then return { text = "Found at a spot in the world" .. opened .. state, color = U.Colors.LIGHT_GRAY, detail = detail } end
     local place = { mapID = object.mapID, x = object.x, y = object.y, zone = zone, what = "the spot", role = "found",
       itemID = itemID }
     places[#places + 1] = place
-    return { text = ("Found at a spot in %s (%.1f, %.1f)"):format(zone, object.x * 100, object.y * 100),
-      color = U.Colors.LIGHT_GRAY, place = place }
+    return { text = ("Found at a spot in %s (%.1f, %.1f)%s%s"):format(zone, object.x * 100, object.y * 100, opened, state),
+      color = U.Colors.LIGHT_GRAY, place = place, detail = detail }
   end
   if kind == "criterion" then
     return AchievementLine(Recollect.Facts.Achievements.Get(relation.id, relation.criteria), relation.id, nil, stateless)
   end
   if kind == "linked" then return LinkedLine(relation) end
   -- The count after the other item's name is of that item, never of this one
-  if kind == "makes" then return MakesLine(relation, stateless) end
-  if kind == "partOf" then return PartOfLine(relation, stateless, itemID) end
+  if kind == "makes" then return MakesLine(relation, stateless, owner) end
+  if kind == "partOf" then return PartOfLine(relation, stateless, itemID, owner) end
   if kind == "madeFrom" then
     local have = not stateless and Owned(relation.id) or nil
-    local text = ("Made from %d %s"):format(relation.count or 1, ItemName(relation.id))
-    return { text = have and ("%s (you have %d of those)"):format(text, have) or text, color = U.Colors.LIGHT_GRAY }
+    local text = ("Made from %s %s"):format(N(relation.count or 1), ItemName(relation.id))
+    return { text = have and ("%s (you have %s of those)"):format(text, N(have)) or text, color = U.Colors.LIGHT_GRAY,
+      detail = Lead.PathDetail(relation, owner, stateless) }
   end
   if kind == "recipeFor" then return { text = "Teaches how to make " .. ItemName(relation.id), color = U.Colors.LIGHT_GRAY } end
   if kind == "teaches" then return TeachesLine(relation, stateless) end
@@ -1992,11 +3070,10 @@ end
 -- way to get it was removed in, once this client is at or past it; or nil
 local function RemovedLine(itemID)
   local Season = Recollect.Purposes.Season
-  if not Season or type(Season.RemovedIn) ~= "function" then return nil end
-  local ok, patch = pcall(Season.RemovedIn, itemID)
-  if not ok or not patch then return nil end
-  return { text = ("Can no longer be obtained (removed in patch %s)"):format(Season.PatchText(patch)),
-    color = Colors()[Verdict().OUTDATED], tier = TIER_CLOSED }
+  if not Season or type(Season.RemovedText) ~= "function" then return nil end
+  local ok, text = pcall(Season.RemovedText, itemID)
+  if not ok or not text then return nil end
+  return { text = text, color = Colors()[Verdict().OUTDATED], tier = TIER_CLOSED }
 end
 
 -- LiveUse(itemID, relations, owner, questApplies): whether any use the data
@@ -2017,7 +3094,27 @@ function UsedFor.LiveUse(itemID, relations, owner, questApplies)
   end
   local KnownUse = Recollect.Purposes.KnownUse
   local ok, entries = pcall(KnownUse.EntriesFor, itemID)
-  return not ok or (type(entries) == "table" and #entries > 0)
+  if not ok or (type(entries) == "table" and #entries > 0) then return true end
+  -- a secret still in the game (or one that can't be read while the
+  -- manifest names the item) is a live use too
+  local okSecret, inSecret = Recollect.Facts.SecretUse(itemID)
+  if not okSecret or inSecret == true then return true end
+  -- so is a collectible the item teaches (a toy, a mount, a pet, an
+  -- ensemble), read live by its own check; one that can't be read counts
+  -- too, so "every use is gone" is never said of it (Task #445, audit R12:
+  -- the Whistle of the Mottled Red Raptor teaches a mount, its quest use gone)
+  return UsedFor.TeachesCollectible(itemID) ~= false
+end
+
+-- TeachesCollectible(itemID, ctx): Registry.CollectionItem for an item: true
+-- (a toy, mount, pet or ensemble it teaches; an illusion too when ctx has the
+-- tooltip), false, or "unreadable"; ctx is a check's own when it has one
+function UsedFor.TeachesCollectible(itemID, ctx)
+  if not Recollect.Utilities.IsPositiveID(itemID) then return false end
+  ctx = ctx or { stack = { itemID = itemID }, Tooltip = function() return nil end }
+  local ok, answer = pcall(Recollect.Purposes.Registry.CollectionItem, ctx)
+  if not ok then return "unreadable" end
+  return answer
 end
 
 -- Whether any line among the uses says a use (not a heading or a note)
@@ -2037,6 +3134,7 @@ function UsedFor.Lines(itemID, stack, owner, opts)
   local budget = Recollect.Facts.QuestInfo.FrameBudget()
   local questApplies = R.QuestApplies(itemID, owner)
   local lines, sources, decor, buys, buyApplies, reagents, unavailable, linked = {}, {}, {}, {}, {}, {}, {}, {}
+  local pieces = {}   -- what a class token gives, one line for all (data format 16)
   -- places for the waypoint: what a key opens or an NPC it is used at and a
   -- currency's vendor (in the relations' order), then one that takes it, one
   -- it buys from, and last a source (a seller, a creature or a spot)
@@ -2083,6 +3181,8 @@ function UsedFor.Lines(itemID, stack, owner, opts)
       reagents[#reagents + 1] = relation
     elseif kind == "linked" and applies == true then
       linked[#linked + 1] = relation
+    elseif kind == "givesByClass" and applies == true then
+      pieces[#pieces + 1] = relation.id
     else
       local isSource = R.SOURCE[kind]
       local restricted = applies ~= true
@@ -2099,6 +3199,9 @@ function UsedFor.Lines(itemID, stack, owner, opts)
     end
   end
   Append(lines, LinkedLines(linked, stateless, itemID))
+  -- where combining it leads (Task #438)
+  Append(lines, UsedFor.CombineLeads(itemID, owner, places, relations))
+  if #pieces > 0 then lines[#lines + 1] = Build(TokenLine, pieces, owner) end
   local legacy = (opts.tip or opts.facts) and LegacyLine(itemID, opts.facts, opts.tip, stateless) or nil
   if legacy then lines[#lines + 1] = legacy end
   if owner.isViewer then
@@ -2107,6 +3210,11 @@ function UsedFor.Lines(itemID, stack, owner, opts)
     Append(lines, EndeavorLines(itemID))   -- the neighborhood's endeavor is the logged-in character's
   end
   Append(lines, RecordedLines(itemID))
+  -- the secrets the item is used in (Facts.Secrets), each with its step's state
+  for _, line in ipairs(UsedFor.SecretUseLines(itemID, owner)) do
+    lines[#lines + 1] = line
+    if line.place and not stateless then places[#places + 1] = line.place end
+  end
   Append(lines, ReagentLines(reagents, stateless))
   -- Vendors recorded in game that take the item itself, or sell it
   local Vendors = Recollect.Facts.Vendors
@@ -2133,6 +3241,9 @@ function UsedFor.Lines(itemID, stack, owner, opts)
   Append(places, takingPlaces)
   Append(places, buyPlaces)
   Append(places, sourcePlaces)
+  -- the secrets whose reward the item teaches
+  Append(sources, UsedFor.SecretSourceLines(itemID, owner))
+  Append(sources, UsedFor.TokenSourceLines(itemID))
   -- Where it comes from keeps the relations' order, then "and N more"
   local merged, comesFrom = Merge(sources), {}
   local maxSources = MAX_SOURCES
@@ -2243,8 +3354,12 @@ function UsedFor.SourceWords(itemID, owner)
     if who then return "skinned from " .. who end
   end
   for _, relation in ipairs(Live("gatheredBy")) do
-    local ok, name = Try(seams.SpellName, relation.id)
-    if ok and type(name) == "string" and name ~= "" then return "comes from " .. name end
+    local words, where = GatheredWords(relation)
+    if words and relation.npc then where = Vendors.Describe(relation.npc, "a creature") end
+    if words and (where or not words:find("%s", 1, true)) then
+      words = where and words:format(where) or words
+      return words:sub(1, 1):lower() .. words:sub(2)
+    end
   end
   if #Live("delveReward") > 0 then return "comes from completing a Delve" end
   for _, relation in ipairs(Live("storePromotion")) do
@@ -2303,7 +3418,7 @@ function UsedFor.ChainLines(questID, owner)
   local head = count == 1 and "To get this quest" or ("A chain of %d quests"):format(count)
   local lines = { { text = (who and ("%s from %s"):format(head, who) or head) .. ":", color = U.Colors.LABEL_GRAY } }
   if earlier and earlier > 0 then
-    lines[#lines + 1] = { text = ("(%d earlier quests before these)"):format(earlier), color = U.Colors.LABEL_GRAY }
+    lines[#lines + 1] = { text = ("(%d earlier %s before these)"):format(earlier, earlier == 1 and "quest" or "quests"), color = U.Colors.LABEL_GRAY }
   end
   for i, step in ipairs(path) do
     lines[#lines + 1] = Build(StepLine, i + (earlier or 0), step, owner, budget, i == #path)
@@ -2328,6 +3443,492 @@ function UsedFor.ChainSummary(questID, owner)
   return words
 end
 
+-------------------------------------------------------------------------------
+-- Secrets (Facts.Secrets; the secrets design of Task #391, sections 2.6, 5
+-- and 7): each step in our own words, every name read live,
+-- with its state; the USED FOR line of an item a secret uses, the COMES
+-- FROM line of an item that teaches a secret's reward, and the Secret tab's
+-- steps (UI.DetailData), all from SecretSteps so they never disagree
+-------------------------------------------------------------------------------
+-- A step's state, as the Secret tab, the panel and WHAT IT'S FOR word it
+-- (Task #407, from the secrets UI review): a step merely not started is
+-- pending, never an error; some of what it gets held is in progress; a
+-- read that failed is unavailable, one still coming is loading. mark is the
+-- UI.Icons kind beside it, one on every step so the column is never ragged
+-- (Task #411): a check, an empty circle (blue in progress, green with its
+-- materials held), the waiting mark, the warning, and a gray dash for a step
+-- the game reports nothing about, or one only its own character can be asked
+local SECRET_STATES = {
+  done = { word = "Done", tier = TIER_CLOSED, filter = "have", mark = "done" },
+  ready = { word = "Materials ready", tier = TIER_OPEN, filter = "missing", mark = "ready" },
+  progress = { word = "In progress", tier = TIER_OPEN, filter = "missing", mark = "progress" },
+  todo = { word = "Pending", tier = TIER_OPEN, filter = "missing", mark = "pending" },
+  unread = { word = "Loading progress", tier = TIER_INFO, filter = "none", mark = "wait" },
+  unreadable = { word = "Progress unavailable", tier = TIER_INFO, filter = "none", mark = "warn" },
+  character = { word = "Check on %s", tier = TIER_INFO, filter = "none", mark = "untracked" },
+  untracked = { word = "Not tracked by the game", tier = TIER_INFO, filter = "none", mark = "untracked" },
+}
+local FREQ_WORDS = { w = { done = "Done this week", todo = "Pending this week" },
+  d = { done = "Done today", todo = "Pending today" } }
+
+local function SecretStateColor(state)
+  local V, colors = Verdict(), Colors()
+  if state == "done" then return colors[V.DONE] end
+  if state == "ready" then return colors[V.USE] end
+  if state == "progress" then return colors[V.USEFUL] end
+  if state == "todo" or state == "untracked" then return U.Colors.LIGHT_GRAY end
+  return U.Colors.LABEL_GRAY
+end
+
+-- "20 Inert Phoenix Ash" (an item reference with its count)
+local function CountedItem(ref)
+  local name = ItemName(ref.id)
+  if (ref.count or 1) > 1 then return ("%d %s"):format(ref.count, name) end
+  return name
+end
+
+local function JoinWords(list)
+  if #list <= 1 then return list[1] or "" end
+  return table.concat(list, ", ", 1, #list - 1) .. " and " .. list[#list]
+end
+
+local function ItemList(refs)
+  local words = {}
+  for i, ref in ipairs(refs) do words[i] = CountedItem(ref) end
+  return JoinWords(words)
+end
+
+-- An NPC's name as a link of Recollect's own (rule 36): INFO_BLUE, a boss
+-- the journal knows in the journal's color (as DetailData.LinkColor colors one)
+local function NpcNamed(npcID, name)
+  local Vendors = Recollect.Facts.Vendors
+  local boss = Vendors.Boss(npcID)
+  return Named("npc", npcID, name, nil, boss and boss.link and Vendors.JOURNAL_COLOR or U.Colors.INFO_BLUE)
+end
+
+local function NpcWords(npcID)
+  return NpcNamed(npcID, Recollect.Facts.Vendors.NpcName(npcID)) or "an NPC"
+end
+
+-- A step's place: its own, else its NPC's or its object's, as a waypoint place
+local function StepPlace(step, itemID)
+  local Vendors = Recollect.Facts.Vendors
+  local mapID, x, y = nil, nil, nil
+  if step.at then
+    mapID, x, y = step.at.mapID, step.at.x, step.at.y
+  elseif step.npc then
+    local p = Vendors.Position(step.npc)
+    if p then mapID, x, y = p.mapID, p.x, p.y end
+  elseif step.object then
+    local o = Vendors.Object(step.object)
+    if o and o.mapID then mapID, x, y = o.mapID, o.x, o.y end
+  end
+  if not mapID then return nil end
+  return { mapID = mapID, x = x, y = y, zone = Vendors.ZoneName(mapID), what = "the step", role = "found", itemID = itemID }
+end
+UsedFor.SecretStepPlace = StepPlace
+
+-- Where a looted item comes from: up to two creatures, else a zone (its name
+-- a zone link; Task #411)
+local function LootWords(itemID)
+  local R = Relations()
+  local names, event = {}, false
+  for _, relation in ipairs(R.Of(itemID, "dropsFrom") or {}) do
+    if relation.flags and relation.flags.event then event = true end
+    local name = Recollect.Facts.Vendors.NpcName(relation.id)
+    if name and #names < 2 then names[#names + 1] = NpcNamed(relation.id, name) end
+  end
+  local text
+  if #names > 0 then
+    text = " from " .. JoinWords(names)
+  else
+    local zone = (R.Of(itemID, "zoneDrop") or {})[1]
+    local zoneName = zone and Recollect.Facts.Vendors.ZoneName(zone.id)
+    if zoneName then text = " from enemies in " .. Named("zone", zone.id, zoneName, nil, U.Colors.INFO_BLUE) end
+  end
+  return (text or "") .. (event and ", during a holiday or event" or "")
+end
+
+-- SecretStepText(secret, step, itemID): what the step asks, in our words;
+-- the names it uses are heard as links (Build), its zone's among them
+function UsedFor.SecretStepText(secret, step, itemID)
+  local Secrets = Recollect.Facts.Secrets
+  if step.say then return Secrets.Text(step.say) or ("Step " .. step.label) end
+  local place = StepPlace(step, itemID)
+  local zone = place and place.zone
+  if zone then Named("zone", place.mapID, zone, nil, U.Colors.INFO_BLUE) end
+  local act = step.action
+  local text
+  if act == "buy" then
+    text = ("Buy %s from %s"):format(ItemList(step.products), step.npc and NpcWords(step.npc) or "a vendor")
+    if zone then text = text .. " in " .. zone end
+    if #step.takes > 0 then text = text .. " for " .. ItemList(step.takes) end
+  elseif act == "trade" then
+    text = ("Hand %s to %s for %s"):format(ItemList(step.takes), step.npc and NpcWords(step.npc) or "an NPC",
+      CountedItem(step.makes))
+  elseif act == "loot" then
+    text = "Get " .. CountedItem(step.makes) .. LootWords(step.makes.id)
+  elseif act == "gather" then
+    text = ("Collect %s from a spot%s"):format(CountedItem(step.makes), zone and (" in " .. zone) or "")
+  elseif act == "click" then
+    text = zone and ("Click the spot in %s (%.1f, %.1f)"):format(zone, place.x * 100, place.y * 100) or "Click the spot"
+    if #step.products > 0 then text = text .. " to get " .. ItemList(step.products) end
+  elseif act == "use" then
+    text = ("Use %s"):format(ItemList(#step.tools > 0 and step.tools or step.takes))
+    if #step.products > 0 then text = text .. " to get " .. ItemList(step.products) end
+    if zone then text = text .. " in " .. zone end
+  elseif act == "talk" then
+    text = "Talk to " .. NpcWords(step.npc) .. (zone and (" in " .. zone) or "")
+  elseif act == "kill" then
+    text = "Defeat " .. NpcWords(step.npc) .. (zone and (" in " .. zone) or "")
+  elseif act == "quest" then
+    local title = QuestState(step.quest, Recollect.Facts.QuestInfo.FrameBudget(), true)
+    text = ("Turn in %s"):format(title or ("quest " .. step.quest))
+    if step.npc then text = text .. " to " .. NpcWords(step.npc) end
+    if zone then text = text .. " in " .. zone end
+    if #step.takes > 0 then text = text .. ", with " .. ItemList(step.takes) end
+  elseif act == "fish" then
+    text = zone and ("Fish in %s"):format(zone) or "Fish"
+  elseif act == "go" then
+    text = zone and ("Go to %s (%.1f, %.1f)"):format(zone, place.x * 100, place.y * 100) or "Go to the spot"
+  elseif act == "wait" then
+    text = step.freq == "d" and "Come back after the daily reset" or "Come back after the weekly reset"
+  else
+    text = "Step " .. step.label
+  end
+  return text
+end
+
+-- One prerequisite or hint of a step (Task #411: every kind the data names,
+-- not quests alone): its name, its state in words or nil, whether it is met
+-- (true, false, or nil when that can't be read or isn't the viewer's to
+-- read) and, for a hidden flag a step of the secret sets, that step's label
+-- (the Secret tab words it as that step, with a jump link)
+local function NeedWords(secret, ref, owner, budget)
+  local kind, id = ref.kind, ref.id
+  local viewer = owner.isViewer ~= false
+  if kind == "quest" then
+    local title, rank, state = QuestState(id, budget, not viewer)
+    local met = nil
+    if rank == 4 then met = true elseif rank == 2 or rank == 3 or rank == 5 then met = false end
+    return title or ("quest " .. id), state, met
+  elseif kind == "achievement" then
+    local progress = Recollect.Facts.Achievements.Progress(id)
+    if not progress then return ("the achievement %d"):format(id), "can't be read", nil end
+    local name = ('the achievement "%s"'):format(Named("achievement", id, progress.name))
+    if not viewer and progress.accountWide ~= true then return name, nil, nil end
+    local words, open = Recollect.Facts.Achievements.ProgressWords(progress)
+    local met = nil
+    if open ~= nil then met = not open end
+    return name, words, met
+  elseif kind == "standing" then
+    local okLabel, label = Try(seams.StandingLabel, ref.standing or 0)
+    local words = ("%s with %s"):format(okLabel and type(label) == "string" and label ~= "" and label or "a standing",
+      FactionName(id))
+    if not viewer then return words, nil, nil end
+    local ok, data = Try(seams.FactionData, id)
+    local reaction = ok and type(data) == "table" and type(data.reaction) == "number"
+      and not Recollect.Utilities.IsSecret(data.reaction) and data.reaction or nil
+    if not reaction then return words, nil, nil end
+    if reaction >= (ref.standing or 0) then return words, "reached", true end
+    local now = StandingWords(id, owner)
+    return words, now and ("you're " .. now) or nil, false
+  elseif kind == "flag" then
+    -- a flag one of the secret's own steps sets is that step
+    for _, step in ipairs(secret and secret.steps or {}) do
+      if step.flag == id then return nil, nil, nil, step.label end
+    end
+    local done = Recollect.Facts.Secrets.FlagDone(id, "u", owner)
+    return "an earlier part of the secret", done == true and "done" or done == false and "not done" or nil, done
+  elseif kind == "profession" then
+    local name = SkillLineName(id) or "a profession"
+    if not viewer then return name, nil, nil end
+    local has = Recollect.Facts.Recipes.OwnsSkillLine(id)
+    return name, has == true and "you have it" or has == false and "you don't have it" or nil, has
+  elseif kind == "npc" then
+    return NpcWords(id), nil, nil
+  end
+  return nil, nil, nil
+end
+
+-- What else a step names (Task #411: every kind): what it needs first that
+-- isn't one of its steps (a quest, an achievement, a standing, a hidden flag,
+-- a profession), each with its state, then its hints, labelled as hints and
+-- never blocking. Each { text, color, need or hint, any (one of several is
+-- enough: needsAny), step (a flag that is that step's, for the Secret tab to
+-- word), met, links (the names heard while it was worded) }
+local function StepExtras(step, owner, secret)
+  local out = {}
+  local budget = Recollect.Facts.QuestInfo.FrameBudget()
+  local V, colors = Verdict(), Colors()
+  local function Add(ref, hint)
+    local line = Build(function()
+      local name, state, met, label = NeedWords(secret, ref, owner, budget)
+      if label then
+        return { step = label, text = hint and ("Hint: if it doesn't work yet, do step %s first"):format(label)
+          or ("After step " .. label) }
+      end
+      if not name then return nil end
+      local text
+      if hint then
+        text = ref.kind == "quest" and ("Hint: if it isn't there yet, finish %s first"):format(name)
+          or ("Hint: if it doesn't work yet, %s first"):format(ref.kind == "achievement" and ("earn " .. name)
+          or ref.kind == "npc" and ("find " .. name) or ("get " .. name))
+      else
+        text = (ref.kind == "quest" or ref.kind == "flag") and ("After " .. name) or ("Requires " .. name)
+      end
+      -- the state last, in parentheses, as every line closes with it
+      if state then text = ("%s (%s)"):format(text, state) end
+      return { text = text, met = met }
+    end)
+    if not line then return end
+    line.color = line.met == true and colors[V.DONE] or line.met == false and colors[V.USEFUL] or U.Colors.LABEL_GRAY
+    line.need, line.hint, line.any = not hint, hint or nil, (not hint and step.needsAny) or nil
+    out[#out + 1] = line
+  end
+  for _, ref in ipairs(step.needs) do
+    if ref.kind ~= "step" then Add(ref, false) end
+  end
+  for _, ref in ipairs(step.hints) do Add(ref, true) end
+  return out
+end
+
+-- The item's role in a step: "uses" (the step takes it, uses it as a tool,
+-- or counts it among an "any N" step's choices), "gives" (the step gets it),
+-- or nil; the words for the one-line summary ("ingredient for step 1"); and
+-- the exact kind ("takes", "tool", "keeps" a tool it isn't known to use up
+-- but does keep, "choice", "gives") for the Secret tab's role line
+function UsedFor.SecretRole(step, itemID)
+  if not itemID then return nil end
+  for _, ref in ipairs(step.takes) do
+    if ref.id == itemID then return "uses", ("ingredient for step %s"):format(step.label), "takes" end
+  end
+  for _, ref in ipairs(step.tools) do
+    if ref.id == itemID then return "uses", ("used in step %s"):format(step.label), ref.unsure and "tool" or "keeps" end
+  end
+  for _, ref in ipairs(step.any and step.any.items or {}) do
+    if ref.id == itemID then return "uses", ("one of the choices for step %s"):format(step.label), "choice" end
+  end
+  for _, ref in ipairs(step.products) do
+    if ref.id == itemID then return "gives", ("you get it in step %s"):format(step.label), "gives" end
+  end
+  return nil
+end
+UsedFor.SECRET_ROLE_WORDS = { uses = "Uses this item", gives = "Gives this item" }
+-- The Secret tab's role line by the exact kind, consumption said when known
+-- (the merged design, Task #411)
+UsedFor.SECRET_ROLE_KIND_WORDS = { takes = "Uses this item (used up)", keeps = "Uses this item (you keep it)",
+  tool = "Uses this item (whether it's used up isn't known)", choice = "One of the choices", gives = "Gives this item" }
+
+-- The step that names the item for the player (unfinished uses before a
+-- finished acquisition): the first step that uses it and isn't done, else
+-- the first that gets it and isn't done, else the first that uses it, else
+-- the first that gets it; nil when no step names it
+function UsedFor.SecretMine(steps)
+  local picks = {}
+  for _, s in ipairs(steps) do
+    if s.role then
+      local key = s.role .. (s.state == "done" and ":done" or "")
+      picks[key] = picks[key] or s
+    end
+  end
+  return picks.uses or picks.gives or picks["uses:done"] or picks["gives:done"]
+end
+
+-- What to do next: a step whose materials are all held first; else the
+-- first step not done, in the curated order, with no sub-step left to do and
+-- every step it needs done. A step whose state can't be read is never
+-- suggested, and one the game doesn't track (a talk, a click) never holds
+-- another back, since nothing would ever read it done. "Next step" only when the curated graph is complete, else
+-- "Suggested next" (a missing edge is never read as no prerequisite)
+function UsedFor.SecretSuggest(secret, steps)
+  local byLabel, open = {}, {}
+  for _, s in ipairs(steps) do byLabel[s.label] = s end
+  for _, s in ipairs(steps) do
+    local up = s.step.up and byLabel[s.step.up]
+    if up and s.state ~= "done" and s.state ~= "untracked" then open[up.label] = true end
+  end
+  local label = secret.graph == "complete" and "Next step" or "Suggested next"
+  for _, s in ipairs(steps) do
+    if s.state == "ready" then return { label = label, entry = s } end
+  end
+  for _, s in ipairs(steps) do
+    if (s.state == "todo" or s.state == "progress") and not open[s.label] then
+      local blocked = false
+      for _, ref in ipairs(s.step.needs) do
+        local need = ref.kind == "step" and byLabel[ref.label]
+        if need and need.state ~= "done" and need.state ~= "untracked" then blocked = true end
+      end
+      if not blocked then return { label = label, entry = s } end
+    end
+  end
+  return nil
+end
+
+-- "Phoenix Wishwing, pet" and "not collected": the first reward still
+-- missing (else the first), its kind, whether you have it and that state's
+-- color; nil while no reward reads
+function UsedFor.SecretRewardTitle(things)
+  local pick
+  for _, thing in ipairs(things or {}) do
+    if thing.state == "missing" then pick = thing break end
+  end
+  pick = pick or (things and things[1])
+  if not pick then return nil end
+  local name = Recollect.Facts.Buys.Name(pick) or "Its reward"
+  local kind = (Recollect.Facts.Secrets.KIND_WORDS[pick.what] or ""):gsub("^an? ", "")
+  local V, colors = Verdict(), Colors()
+  local state, color = nil, U.Colors.LABEL_GRAY
+  if pick.state == "missing" then
+    state, color = "not collected", colors[V.NEEDED]
+  elseif pick.state == "have" then
+    state, color = "collected", colors[V.DONE]
+  end
+  return kind ~= "" and ("%s, %s"):format(name, kind) or name, state, color
+end
+
+-- SecretSteps(secret, owner, itemID): the secret's steps for display, each
+-- { step, label, depth, text, links (the names its words use, heard as they
+-- were worded: UI.SecretModel makes them links), state (Facts.Secrets'
+-- state, "progress" for a step whose items are partly held), stateText,
+-- color, mark (UI.Icons), tier, filterState, have ("12 / 20"), held, need,
+-- place, own and role (the item's: "uses" or "gives"), roleKind (SecretRole's
+-- exact kind), roleText, roleWords, extras, reports (Facts.Secrets.Reports:
+-- the game can say it's done) }, and a summary { done, total, tracked (the
+-- steps the game reports), trackedDone, untracked, unread (steps whose state
+-- can't be read), phrase, anyOrder, name (the secret's, else its first
+-- reward's, nil while neither reads), mine (SecretMine's step), suggestion
+-- (SecretSuggest), complete (the secret's own completion: true, false or
+-- nil), things (its rewards) }
+function UsedFor.SecretSteps(secret, owner, itemID)
+  owner = owner or Recollect.Verdicts.Rows.Owner()
+  local Secrets = Recollect.Facts.Secrets
+  local states = Secrets.Steps(secret, owner)
+  local out, done, unread, tracked, trackedDone = {}, 0, 0, 0, 0
+  for _, step in ipairs(secret.steps) do
+    local entry = states[step.label]
+    local state = entry.state
+    if state == "todo" and entry.held and entry.held > 0 and entry.need and entry.held < entry.need then state = "progress" end
+    local key = (state == "unread" and entry.why == "unreadable") and "unreadable" or state
+    local def = SECRET_STATES[key] or SECRET_STATES.unread
+    local words = def.word
+    if key == "character" then words = words:format(owner.name or "the character it's for") end
+    local freq = FREQ_WORDS[step.freq]
+    if freq and (state == "done" or state == "todo") then words = freq[state] end
+    if entry.by then words = ("%s (step %s is done)"):format(words, entry.by) end
+    if state == "done" then done = done + 1 end
+    local reports = Secrets.Reports(step)
+    if reports then
+      tracked = tracked + 1
+      if state == "done" then trackedDone = trackedDone + 1 end
+    end
+    if key == "unread" or key == "unreadable" or key == "character" then unread = unread + 1 end
+    local role, roleWords, roleKind = UsedFor.SecretRole(step, itemID)
+    local action = Build(function() return { text = UsedFor.SecretStepText(secret, step, itemID) } end)
+    out[#out + 1] = { step = step, label = step.label, depth = step.up and 1 or 0, text = action.text, links = action.links,
+      state = state, stateText = words,
+      color = SecretStateColor(state), mark = def.mark, tier = freq and TIER_INFO or def.tier, filterState = def.filter,
+      have = entry.held and entry.need and ("%d / %d"):format(entry.held, entry.need) or nil,
+      held = entry.held, need = entry.need, reports = reports,
+      place = StepPlace(step, itemID), own = role ~= nil, role = role, roleKind = roleKind,
+      roleText = role and UsedFor.SECRET_ROLE_WORDS[role], roleWords = roleWords, extras = StepExtras(step, owner, secret) }
+  end
+  local things = Secrets.Rewards(secret, owner)
+  local name = Secrets.Name(secret, owner) or (things[1] and Recollect.Facts.Buys.Name(things[1])) or nil
+  local summary = { done = done, total = #secret.steps, unread = unread, tracked = tracked, trackedDone = trackedDone,
+    untracked = #secret.steps - tracked,
+    phrase = Recollect.Purposes.Secret.Phrase(secret, things, owner), anyOrder = Secrets.AnyOrder(secret),
+    name = name, mine = itemID and UsedFor.SecretMine(out) or nil, things = things,
+    complete = Secrets.Done(secret, owner) }
+  if summary.complete ~= true then summary.suggestion = UsedFor.SecretSuggest(secret, out) end
+  return out, summary
+end
+
+-- SecretProgressWords(done, tracked, total): "12 of 41 tracked steps done;
+-- 16 the game can't track", or "3 of 8 steps done" when the game tracks every
+-- step (Task #411: progress counts only what the game can report)
+function UsedFor.SecretProgressWords(done, tracked, total)
+  if tracked >= total then return ("%d of %d steps done"):format(done, total) end
+  if tracked == 0 then return ("The game tracks none of its %d steps"):format(total) end
+  return ("%d of %d tracked steps done; %d the game can't track"):format(done, tracked, total - tracked)
+end
+
+-- SecretUseText(summary): the one line that says the item is used in a
+-- Warcraft secret, naming it and the item's role, with the step's state
+-- ('Used in [SECRET: Phoenix Wishwing], ingredient for step 1 (pending)'): the panel's USED FOR line and the details window's WHAT IT'S
+-- FOR line alike (Tasks #406 and #407); and the name, which a painter links
+function UsedFor.SecretUseText(summary)
+  local name = type(summary) == "table" and summary.name or nil
+  local mine = type(summary) == "table" and summary.mine or nil
+  local text = name and ("Used in %s"):format(Recollect.UI.SecretPanel.PlainLink(name)) or "Used in a Warcraft secret"
+  if mine and mine.roleWords then text = ("%s, %s"):format(text, mine.roleWords) end
+  if mine and mine.stateText then text = ("%s (%s)"):format(text, (tostring(mine.stateText):gsub("^%u", string.lower))) end
+  return text, name
+end
+
+-- SecretUseLines(itemID, owner): one USED FOR line per secret the item is
+-- used in (SecretUseText), marked by its step's state (line.icon, so a step
+-- not started is never a red cross) and as a secret's (line.secret, the
+-- secret's ID: painters give the word "secret" its look, UI.SecretPanel.Styled)
+function UsedFor.SecretUseLines(itemID, owner)
+  local Secrets = Recollect.Facts.Secrets
+  local lines = {}
+  if not Secrets or Secrets.Status() ~= "ok" then return lines end
+  local seen = {}
+  for _, entry in ipairs(Secrets.Uses(itemID)) do
+    local secret = not seen[entry.sid] and Secrets.Get(entry.sid)
+    seen[entry.sid] = true
+    if secret and not secret.routeFlags:find("x", 1, true) then
+      local line = Build(function()
+        local _, summary = UsedFor.SecretSteps(secret, owner, itemID)
+        local mine = summary.mine
+        if not mine then return nil end
+        return { text = (UsedFor.SecretUseText(summary)), color = mine.color, tier = mine.tier, place = mine.place,
+          icon = mine.mark or false, secret = entry.sid, secretName = summary.name }
+      end)
+      if line then lines[#lines + 1] = line end
+    end
+  end
+  return lines
+end
+
+-- SecretRewardText(secret, owner, done, tracked): what the item that teaches
+-- a secret's reward is ('The reward of [SECRET: Phoenix Wishwing]: 3 of 8
+-- steps done'), for the panel's COMES FROM and HOW TO GET MORE; done counts
+-- the tracked steps done, tracked how many the game reports (every step when
+-- not given), as the Secret tab counts them (SecretProgressWords)
+function UsedFor.SecretRewardText(secret, owner, done, tracked)
+  local name = Recollect.Facts.Secrets.Name(secret, owner)
+  local what = name and ("The reward of %s"):format(Recollect.UI.SecretPanel.PlainLink(name)) or "The reward of a Warcraft secret"
+  return ("%s: %s"):format(what, UsedFor.SecretProgressWords(done, tracked or #secret.steps, #secret.steps))
+end
+
+-- SecretSourceLines(itemID, owner): one COMES FROM line per secret whose
+-- reward the item teaches (SecretRewardText)
+function UsedFor.SecretSourceLines(itemID, owner)
+  local Secrets = Recollect.Facts.Secrets
+  local lines = {}
+  if not Secrets or Secrets.Status() ~= "ok" then return lines end
+  local seen = {}
+  for _, entry in ipairs(Secrets.RewardOf(itemID)) do
+    local secret = not seen[entry.sid] and Secrets.Get(entry.sid)
+    seen[entry.sid] = true
+    if secret then
+      local states = Secrets.Steps(secret, owner or Recollect.Verdicts.Rows.Owner())
+      local done, tracked = 0, 0
+      for _, step in ipairs(secret.steps) do
+        if Secrets.Reports(step) then
+          tracked = tracked + 1
+          if states[step.label].state == "done" then done = done + 1 end
+        end
+      end
+      lines[#lines + 1] = { text = UsedFor.SecretRewardText(secret, owner, done, tracked), color = U.Colors.LIGHT_GRAY,
+        tier = TIER_INFO, secret = entry.sid, secretName = Secrets.Name(secret, owner) }
+    end
+  end
+  return lines
+end
+
 -- What the pinned view's tables share with these lines (UI.DetailData), so a
 -- row and a line never disagree about a state or its words
 UsedFor.parts = {
@@ -2335,6 +3936,7 @@ UsedFor.parts = {
   STATE_WORDS = STATE_WORDS,
   WHAT_LABEL = WHAT_LABEL, Currency = Currency, GrantedFaction = GrantedFaction, FactionName = FactionName,
   SourceSellers = SourceSellers, Owned = Owned, SkillLineName = SkillLineName, QUEST_KIND = QUEST_KIND,
+  CLASS_ARMOR = CLASS_ARMOR,
   MAX_FOLLOW = MAX_FOLLOW,
   Renown = Renown, MonthWords = MonthWords, TradingPostText = TradingPostText, BLACK_MARKET_TEXT = BLACK_MARKET_TEXT,
   STORE_PROMOTION_TEXT = STORE_PROMOTION_TEXT,

@@ -49,7 +49,7 @@ function QuestLog.ObjectiveItemName(text)
 end
 
 local function ItemIDFromLink(link)
-  return type(link) == "string" and tonumber(link:match("item:(%d+)")) or nil
+  return CobySuite_Recollect.Utilities.IDFromLink(link)
 end
 
 local function AddSpecialItem(built, quest, logIndex)
@@ -128,11 +128,16 @@ function QuestLog.Matches(itemID, itemName)
   local lower = type(itemName) == "string" and itemName:lower() or nil
   if lower and lower ~= "" then
     for _, objective in ipairs(built.itemObjectives) do
-      local match = { questID = objective.questID, title = objective.title, how = "objective", progress = Progress(objective) }
+      -- which list it goes in first, so an objective that names something
+      -- else builds no table (Task #429)
+      local into
       if objective.name and objective.name:lower() == lower then
-        exact[#exact + 1] = match
+        into = exact
       elseif objective.text:lower():find(lower, 1, true) then
-        possible[#possible + 1] = match
+        into = possible
+      end
+      if into then
+        into[#into + 1] = { questID = objective.questID, title = objective.title, how = "objective", progress = Progress(objective) }
       end
     end
   end

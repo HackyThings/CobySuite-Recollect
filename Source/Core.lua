@@ -119,7 +119,7 @@ Recollect.AddonsList = {
 }
 
 -- "/rec reset windows": every window back at its default place and size. The
--- windows save into two tables: the main ones (audit list, details, settings,
+-- windows save into two tables: the main ones (Recollect Audit, details, settings,
 -- guide, changelog, addons list) into RECOLLECT_WINDOW_STATE, and the curator
 -- dashboard and note dialogs into RECOLLECT_CURATOR_DB.windows, which is read
 -- as it stands (never created here) and is simply absent in a build without
@@ -144,7 +144,7 @@ CobySuite_Recollect.Slash.Register({
   version = VERSION,
   message = function(text) Recollect.Utilities.Message(text) end,
   -- The suite's standard commands (show, settings, guide, changelog, addons,
-  -- debug, test), then Recollect's own before test
+  -- reset windows, debug, perf, test), then Recollect's own before test
   commands = CobySuite_Recollect.Slash.StandardCommands({
     show = ToggleList, showHelp = "Open or close the Recollect Audit",
     addons = Recollect.AddonsList,

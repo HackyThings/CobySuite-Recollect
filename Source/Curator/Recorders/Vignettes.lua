@@ -15,11 +15,11 @@
 -- The position goes to the NPC position comparison (NpcPosition.Commit,
 -- Compare.Position): near the shipped position confirms ("p:<npc>" stamp),
 -- far on the same map is a conflict with the quest state, on another map
--- compared in world coordinates. An NPC with no shipped position is never
--- added: the shipped data has no index of the creatures it names as drop
--- sources (the c codes hang off each item, and nothing maps an NPC to them
--- short of scanning every bucket), so a rare with no shipped place gives
--- nothing yet.
+-- compared in world coordinates. An NPC with no shipped position is added
+-- only when the shipped data names it with no place (Host.Unplaced, the
+-- data's unplaced-NPC index, Task #423): a rare whose loot the data lists
+-- gets its place; any other creature's vignette gives nothing. The map is
+-- the player's best map, so a floor or cave keeps its own map ID.
 --
 -- Out of combat only. Only while curator mode may record, and never while a
 -- test run scripts the client. Client reads go through Vignettes.seams.
@@ -55,9 +55,7 @@ local readAt = {}     -- [vignetteGUID] = when it was last read
 local sweptAt = nil   -- when the last sweep ran
 
 local function Seam(name, ...)
-  local ok, a, b = pcall(Vignettes.seams[name], ...)
-  if not ok or Host.IsSecret(a) or Host.IsSecret(b) then return nil end
-  return a, b
+  return CobySuite_Recollect.Utilities.SafeCall(Host.IsSecret, 2, Vignettes.seams[name], ...)
 end
 
 local function InCombat()
@@ -96,7 +94,7 @@ function Vignettes.Read(vignetteGUID)
   if at and now - at < Vignettes.READ_GAP then return false end
   readAt[vignetteGUID] = now
   local capture = Vignettes.Capture(vignetteGUID)
-  NpcPosition.Commit(capture, false)
+  NpcPosition.Commit(capture, capture ~= nil and Host.Unplaced("npc", capture.npc))
   return capture ~= nil
 end
 

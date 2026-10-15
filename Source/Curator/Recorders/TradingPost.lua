@@ -68,9 +68,7 @@ TradingPost.seams = {
 local visit
 
 local function Seam(name, ...)
-  local ok, a, b = pcall(TradingPost.seams[name], ...)
-  if not ok or Host.IsSecret(a) or Host.IsSecret(b) then return nil end
-  return a, b
+  return CobySuite_Recollect.Utilities.SafeCall(Host.IsSecret, 2, TradingPost.seams[name], ...)
 end
 
 local function InCombat()
@@ -113,7 +111,11 @@ function TradingPost.Compare(month, items, ctx, others)
       Store.Record("addition", "tp:i:" .. itemID, tostring(month), ShippedText(codes), ctx)
     end
   end
-  Store.Confirm("tp", matched, 0, ctx)
+  -- a visit that matched nothing this build's stamp lacks for its context
+  -- adds no revision: matching visits made a stamp to send after every one
+  -- (Task #423); another character's matching visit still adds its own
+  -- context (Task #424)
+  if not Store.Covered("tp", matched, ctx) then Store.Confirm("tp", matched, 0, ctx) end
   return #matched
 end
 

@@ -56,11 +56,7 @@ Dashboard.seams = {
 }
 
 local function Seam(name, ...)
-  local fn = Dashboard.seams[name]
-  if not fn then return nil end
-  local ok, value = pcall(fn, ...)
-  if not ok or Host.IsSecret(value) then return nil end
-  return value
+  return U.SafeCall(Host.IsSecret, 1, Dashboard.seams[name], ...)
 end
 Dashboard.Seam = Seam
 
@@ -170,7 +166,7 @@ function Dashboard.Short(at)
 end
 
 local function Plural(n, one, many)
-  return ("%d %s"):format(n, n == 1 and one or (many or (one .. "s")))
+  return ("%d %s"):format(n, U.Plural(n, one, many))
 end
 Dashboard.Plural = Plural
 
@@ -229,7 +225,7 @@ local KIND_COLOR = { new = U.Colors.SUCCESS_GREEN, different = U.Colors.CAUTION_
 Dashboard.KIND_COLOR = KIND_COLOR
 
 Dashboard.STATES = {
-  { key = "pending", label = "Waiting", tooltip = "Not sent yet: goes with the author's next collection" },
+  { key = "pending", label = "Waiting", tooltip = "Not sent yet; it goes with the author's next collection" },
   { key = "sending", label = "Sending", tooltip = "In the collection being sent now" },
   { key = "sent", label = "Sent", tooltip = "The author has it and hasn't said it's saved yet" },
   { key = "delivered", label = "Saved", tooltip = "A note the author saved (kept here until the next database)" },
@@ -553,7 +549,8 @@ end
 -------------------------------------------------------------------------------
 local REFUSED = { busy = "another collection was running", nodata = "your database files failed their check",
   empty = "nothing was waiting", declined = "you declined", pack = "it couldn't be packed",
-  toolarge = "it was too large to send", large = "what's left needs a bigger collection, which the author starts by hand" }
+  toolarge = "it was too large to send", large = "what's left was too big for one ordinary collection; the author asks for it again as a larger one",
+  codec = "your game couldn't pack it the way the author asked; the author asks again without it" }
 
 -- HistoryState(entry): its state in words, and its color
 function Dashboard.HistoryState(entry)

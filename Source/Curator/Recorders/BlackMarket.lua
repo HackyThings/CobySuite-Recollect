@@ -51,9 +51,7 @@ BlackMarket.seams = {
 local visit   -- the open window's { epoch, items = { [itemID] = true } }, or nil
 
 local function Seam(name, ...)
-  local ok, value = pcall(BlackMarket.seams[name], ...)
-  if not ok or Host.IsSecret(value) then return nil end
-  return value
+  return CobySuite_Recollect.Utilities.SafeCall(Host.IsSecret, 1, BlackMarket.seams[name], ...)
 end
 
 local function InCombat()
@@ -85,7 +83,11 @@ function BlackMarket.Compare(items, ctx)
       Store.Record("addition", "bm:i:" .. itemID, "1", GoneText(codes), ctx)
     end
   end
-  Store.Confirm("bm", matched, 0, ctx)
+  -- a visit that matched nothing this build's stamp lacks for its context
+  -- adds no revision: matching visits made a stamp to send after every one
+  -- (Task #423); another character's matching visit still adds its own
+  -- context (Task #424)
+  if not Store.Covered("bm", matched, ctx) then Store.Confirm("bm", matched, 0, ctx) end
   return #matched
 end
 
@@ -97,7 +99,7 @@ function BlackMarket.Read()
   local found = 0
   for index = 1, math.min(count, MAX_ITEMS) do
     local link = Seam("Link", index)
-    local itemID = type(link) == "string" and tonumber(link:match("item:(%d+)"))
+    local itemID = CobySuite_Recollect.Utilities.IDFromLink(link)
     if itemID and itemID > 0 then
       visit.items[itemID] = true
       found = found + 1

@@ -490,14 +490,7 @@ local JOURNAL_CHARS = 200
 function TooltipUI.JournalText(kind, id)
   local ok, text = Try(Recollect.Facts.Journals.SourceText, kind, id)
   if not (IsPositiveID(id) and ok and type(text) == "string" and text ~= "") then return nil end
-  local parts = {}
-  for line in (text:gsub("\r?\n", "|n") .. "|n"):gmatch("(.-)|n") do
-    local plain = CobySuite_Recollect.Utilities.StripColors(line):gsub("|H.-|h(.-)|h", "%1"):gsub("|T.-|t", "")
-    plain = plain:match("^%s*(.-)%s*$")
-    if plain ~= "" then parts[#parts + 1] = plain end
-  end
-  if #parts == 0 then return nil end
-  return table.concat(parts, "; ")
+  return Recollect.Facts.LiveSources.Clean(text)
 end
 
 function TooltipUI.JournalLines(kind, id)
@@ -528,6 +521,19 @@ local function Append(into, list)
   return into
 end
 
+-- What the game itself says about where the item comes from (Task #394:
+-- the housing catalog's source text, an appearance's source type), as one
+-- COMES FROM line, added only when comesFrom has nothing else to say, so a
+-- shipped source always comes first; information only, never a verdict
+local function AddLiveSourceLine(comesFrom, itemID)
+  if #comesFrom > 0 or not IsPositiveID(itemID) then return end
+  local ok, live = pcall(Recollect.Facts.LiveSources.For, itemID)
+  local entry = ok and type(live) == "table" and live[1]
+  if not entry then return end
+  local text = entry.kind == "catalog" and (entry.label .. ": " .. entry.text) or entry.text
+  comesFrom[#comesFrom + 1] = { text = U.Truncate(text, JOURNAL_CHARS), color = U.Colors.LIGHT_GRAY, live = true }
+end
+
 -- Reference mode (contract rule 28): no verdict for an item you are not
 -- holding in that slot; how many you have, then the same USED FOR, COMES FROM and ABOUT
 function TooltipUI.ReferenceModel(data, source)
@@ -539,6 +545,7 @@ function TooltipUI.ReferenceModel(data, source)
   local tip = ParsedTip(data)
   local usedFor, waypoint, comesFrom, lineExtra = Recollect.UI.UsedFor.Lines(itemID, nil, owner, { tip = tip, facts = facts })
   Append(comesFrom, ItemJournalLines(itemID))
+  AddLiveSourceLine(comesFrom, itemID)
   local seasonLine = AddSeasonLine(comesFrom, tip)
   return {
     guid = data.guid or Recollect.UI.AuditPanel.Identity(data), icon = facts and facts.texture,
@@ -562,6 +569,7 @@ function TooltipUI.RowModel(entry, data)
   local tip = ParsedTip(data)
   local usedFor, waypoint, comesFrom, lineExtra = Recollect.UI.UsedFor.Lines(entry.itemID, entry.stack, owner,
     { tip = tip, facts = facts })
+  AddLiveSourceLine(comesFrom, entry.itemID)
   local seasonLine = AddSeasonLine(comesFrom, tip)
   return TooltipUI.Model({ verdict = entry.verdict, reason = entry.reason, purposes = entry.purposes or {}, note = entry.note,
     category = entry.category, recovery = entry.recovery }, {
@@ -625,6 +633,7 @@ local function BuildModel(data, source)
   local usedFor, waypoint, comesFrom, lineExtra = Recollect.UI.UsedFor.Lines(stack.itemID, stack, owner,
     { tip = tipFacts, facts = facts })
   Append(comesFrom, ItemJournalLines(stack.itemID))
+  AddLiveSourceLine(comesFrom, stack.itemID)
   local seasonLine = TooltipUI.SeasonLine(tipFacts)
   if seasonLine then table.insert(comesFrom, 1, seasonLine) end
   return TooltipUI.Model(result, {

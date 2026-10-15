@@ -7,8 +7,10 @@
 --   addonVersion, dataVersion, formatVersion (what the findings were made against),
 --   records, confirms, delivered, awaiting, contexts, quests, reported, bytes
 --     (the recorder fields, capped at 1 MB; Curator.Store owns their shape;
---     reported marks the items with no information already delivered, kept
---     across data versions, Recorders/NoInfo.lua),
+--     reported marks what the author already has, so it is recorded no more:
+--     the items with no information, kept across data versions
+--     (Recorders/NoInfo.lua), and other differences for the data version
+--     they were sent under (Store.lua's header)),
 --   noInfoNotice (the server time from which bag and bank sweeps may run:
 --     set when curator mode is turned on from a build whose settings text
 --     names them, or when the one-time chat line was shown; kept through a
@@ -237,12 +239,12 @@ function Main.DropOldBlocks()
   return dropped
 end
 
+-- A deep copy of a table (Blizzard's CopyTable); anything else as it is
 local function DeepCopy(value)
   if type(value) ~= "table" then return value end
-  local out = {}
-  for k, v in pairs(value) do out[k] = DeepCopy(v) end
-  return out
+  return CopyTable(value)
 end
+Main.Copy = DeepCopy
 
 -- Split(db, field): a field's entries sorted three ways: handed over (K
 -- arrived for this very revision, V not yet: the author has it), dropped (a

@@ -46,12 +46,29 @@ Recollect.Facts.DataVersion = DataVersion
 -- route condition M (instance difficulties), 2026-10-09; 12: the source L
 -- (completing a Delve) and Relations' F table, the other qualities of an
 -- item, 2026-10-10; 13: the source R, the in-game shop or a promotion,
--- 2026-10-11).
+-- 2026-10-11; 14: what using an item gives, I on the giver (a use) and J on
+-- what it gives (a source), from the game's own Use text, 2026-10-13; 15:
+-- the uses B (a mount customization it unlocks), W (reputation it gives)
+-- and T (the fish a lure makes bite), Task #395, 2026-10-13; 16: the source
+-- q (comes from doing a quest, the mirror of u) and the use C (one of the
+-- items a class token gives, by class), Task #396, 2026-10-14; 17: the
+-- sources K (bought with an item, the mirror of b), E (a zone's activity
+-- rewards) and X (solved through Archaeology), Task #397, 2026-10-14; 18:
+-- the source Z (given to new characters) and the X table's record "0",
+-- every way to get an item gone with no patch known, Task #398, 2026-10-14;
+-- 19: the source Q (a reward for completing an event no zone holds, named by
+-- its quest, achievement or currency), Task #401, 2026-10-14; 20: the source
+-- M (a reward of a garrison, class hall or other follower mission), Task #403,
+-- 2026-10-14; 21: the source h (an ensemble piece's look comes with its
+-- ensemble), Task #405, 2026-10-14; 22: a G on a creature or a zone's
+-- enemies, G<spell>@<npc> and G<spell>#<map> (pickpocketed, gathered from a
+-- creature), Task #447, 2026-10-15).
 -- Each adds codes or tables the one before lacks, so an older file still
 -- reads, a missing table as none (a format 6 record of one place or one
 -- giver reads as a list of one; a format 7 file has no currency V)
 DataVersion.SUPPORTED_FORMATS = { [2] = true, [3] = true, [4] = true, [5] = true, [6] = true, [7] = true, [8] = true, [9] = true,
-  [10] = true, [11] = true, [12] = true, [13] = true }
+  [10] = true, [11] = true, [12] = true, [13] = true, [14] = true, [15] = true, [16] = true, [17] = true, [18] = true,
+  [19] = true, [20] = true, [21] = true, [22] = true }
 
 local UNSTAMPED = "unstamped"
 local FILES = { "Relations", "Vendors", "Hints" }

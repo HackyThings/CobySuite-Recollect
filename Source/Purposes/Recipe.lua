@@ -17,6 +17,19 @@ R.Register({
   order = 70,
   Evaluate = function(ctx)
     if ctx.facts.classID ~= R.CLASS_RECIPE then return nil end
+    -- what it teaches is gone from the game (every p and r code flagged x):
+    -- no "learn it"; the removed check says what it was (Task #446). With
+    -- an X record too (every way to get it gone: the recipes AllTheThings
+    -- files only under Never Implemented, all 376 the sweep moved), its Use
+    -- effect is that teaching, so it is accounted for and the removed
+    -- check's Outdated stands (Cobanyte's decision, rule 42); without one it
+    -- stays silent and the Use effect keeps it Can't tell
+    if R.AllGone(ctx.stack.itemID, { "recipeFor", "teaches" }) then
+      if Recollect.Facts.Relations.Removed(ctx.stack.itemID) == nil then return nil end
+      local result = R.Info("Recipe; what it teaches is no longer in the game")
+      result.useAccounted = true
+      return result
+    end
     local tip
     if ctx.live then
       tip = ctx.Tooltip()

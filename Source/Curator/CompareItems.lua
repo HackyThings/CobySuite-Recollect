@@ -19,21 +19,34 @@
 --   de:<item>:i:<out>         disenchanting the item gave out (shipped: a
 --                             live G code of a disenchant spell on out, data
 --                             format 11)
--- A creature looted right after a Skinning cast is a skinning, filed as
--- c:<npc>:i:<item> as before: shipped as skinnedFrom (the S code) or a live
--- G code of a skinning spell, and never a confirmation of a drop code. An
--- item the data ships as a seasonal drop (a live P code) is no finding from
+-- A creature looted right after a Skinning cast is a skinning:
+--   sk:<npc>:i:<item>         skinned from a creature (shipped as skinnedFrom,
+--                             the S code, or a live G code of a skinning
+--                             spell; never a confirmation of a drop code, and
+--                             no stamp). Before Task #423 it was filed as
+--                             c:<npc>:i:<item> with the cast kept beside it.
+--   pp:<npc>:i:<item>         pickpocketed from a creature (stated by a G921 code since data format 22)
+-- An item the data ships as a seasonal drop (a live P code) is no finding from
 -- any source: the season's activities give it, not one creature or chest.
---   pp:<npc>:i:<item>         pickpocketed from a creature (none yet)
 --   R:<recipe>                a recipe's product and count, "<item>x<n>"
 --                             (plus "|<reagents>" when the recipe isn't
 --                             shipped at all; shipped: the C table)
 --   R:<skillLine>:<recipe>    a shipped recipe of a profession its window
 --                             didn't list (not seen)
---   g:<recipe>:i:<reagent>    how many of a reagent a recipe takes
+--   g:<recipe>:i:<reagent>    how many of a reagent a recipe takes (each item a
+--                             required slot accepts, a recipe not shipped too;
+--                             not seen, "schematic", for a shipped reagent no
+--                             required slot lists)
+--   sv:<skillLine>:<recipe>:i:<item>   a salvage recipe's input and the quantity
+--                             it takes (shipped: a g code; not seen "window")
+--   qy:<recipe>:i:<item>      one quality's item of what a recipe crafts, its
+--                             tier (shipped: a y code)
 --   r:<item>                  the recipe an item taught (shipped: teaches)
 --   n:<item>:npc:<id> / :obj:<id>   what a quest item was used on (usedAt)
 --   $:<item>:c:<currency>     how much of a currency using the item gave
+--   tf:<item>                 one use of the item that consumed and gave items:
+--                             "<consumed>|<gained>", each "<item>x<n>" comma
+--                             separated (never judged here; no stamp)
 -- Every looted item is also handed to the items-with-no-information recorder
 -- as seen at its source ("c:<npc>", "ob:<object>" ...: Compare.SawItem, the
 -- fact ni:<item>).
@@ -46,13 +59,28 @@ local Curator = Recollect.Curator
 local Host = Curator.Host
 local Compare = Curator.Compare
 
--- The shipped relations of a kind for an item: { [id] = count or true }
-local function Shipped(itemID, kind)
-  local out = {}
-  for _, relation in ipairs(Host.Sources(itemID, kind)) do
-    if relation.id then out[relation.id] = relation.count or true end
+-- Shipped(itemID, kind, ctx, letter): the shipped relations of a kind for an
+-- item as the observation's character sees them (ctx: the context index it
+-- was seen under, Context.OwnerOf): { [id] = count or true } for the routes
+-- that serve it, the only ones a sighting confirms; and, second, { [id] =
+-- code } for those that don't, a route no longer available ("|x") or for
+-- another faction, class or race: a sighting of one is an addition naming it
+-- ("w900|x"; letter is the code's letter), never a confirmation (Task #421).
+-- An ID with a route that serves is only in the first; a route whose
+-- conditions can't be told for the character is in neither.
+local function Shipped(itemID, kind, ctx, letter)
+  local serving, other = {}, {}
+  for _, relation in ipairs(Host.Sources(itemID, kind, Curator.Context.OwnerOf(ctx))) do
+    if relation.id then
+      if relation.serves == true then
+        serving[relation.id] = relation.count or true
+      elseif relation.serves == false then
+        other[relation.id] = (letter or "") .. relation.id .. (relation.flags and "|" .. relation.flags or "")
+      end
+    end
   end
-  return out
+  for id in pairs(serving) do other[id] = nil end
+  return serving, other
 end
 Compare.Shipped = Shipped
 
@@ -71,15 +99,20 @@ local LOOT = {
   fishing = { prefix = "f", letter = "F" },
   container = { prefix = "x", letter = "Y" },
   disenchant = { prefix = "de", gathered = "DISENCHANT_SPELLS" },
-  pickpocket = { prefix = "pp" },
-  -- a creature's corpse looted right after a Skinning cast (Compare.Skinned)
-  skinning = { prefix = "c", letter = "S", gathered = "SKINNING_SPELLS" },
+  -- a live Pick Pocket G (data format 22) on this creature, on a zone the
+  -- window lies in or with neither (anywhere) states it (Task #449)
+  pickpocket = { prefix = "pp", pickpocket = true },
+  -- a creature's corpse looted right after a Skinning cast (Compare.Skinned):
+  -- its own fact since Task #423 (sk:), where older clients filed it under c:
+  -- with the cast kept beside it; its items are seen at the creature (place c:)
+  skinning = { prefix = "sk", letter = "S", gathered = "SKINNING_SPELLS", place = "c" },
 }
 
 -- The gathering spells whose G codes (data format 11) state a loot: Disenchant
 -- (13262, and 1280952, under which the data files Midnight's enchanting
 -- materials) and Skinning (8613, the cast a skinned corpse follows, and
--- Midnight Skinning's 471014); keep them alike with curator_intake.py's
+-- Midnight Skinning's 471014); keep them alike with the data build's
+-- DISENCHANT_SPELLS and SKINNING_SPELLS
 Compare.DISENCHANT_SPELLS = { [13262] = true, [1280952] = true }
 Compare.SKINNING_SPELLS = { [8613] = true, [471014] = true }
 
@@ -90,21 +123,35 @@ function Compare.Skinned(source)
   return cast and Compare.SKINNING_SPELLS[cast] == true or false
 end
 
+-- Pick Pocket, the spell a pickpocket's G code names (Loot.PICK_POCKET, the
+-- pipeline's PICK_POCKET)
+Compare.PICK_POCKET = 921
+
 -- Whether the data ships an item as coming from one of the spells given
--- ({ [spellID] = true }) on a route still in the game (a live G code)
+-- ({ [spellID] = true }) on a route still in the game (a live plain G code:
+-- never one on a creature or a zone, or one made by the spell, data format 22)
 function Compare.Gathered(itemID, spells)
   for _, code in ipairs(Host.CodesOf(itemID, "G")) do
-    if not code.gone and spells[code.id] then return true end
+    if not code.gone and not (code.npc or code.mapID or code.made) and spells[code.id] then return true end
   end
   return false
+end
+
+-- The three checks below count only a route that may serve the looting
+-- character (owner, Context.OwnerOf; Task #423): a world, zone or seasonal
+-- drop for another faction, class or race, or another difficulty, is no
+-- reason to stay silent, so its copy is a finding; a route whose conditions
+-- can't be told still keeps quiet. With no owner every live code counts.
+local function MayServe(code, owner)
+  return owner == nil or code.serves ~= false
 end
 
 -- Whether the data ships an item as a seasonal drop still in the game (a live
 -- P, data format 11): many of the season's activities give it, so one
 -- creature's, chest's or boss's copy says nothing new (Spark of Tides)
-function Compare.SeasonDrop(itemID)
-  for _, code in ipairs(Host.CodesOf(itemID, "P")) do
-    if not code.gone then return true end
+function Compare.SeasonDrop(itemID, owner)
+  for _, code in ipairs(Host.CodesOf(itemID, "P", owner)) do
+    if not code.gone and MayServe(code, owner) then return true end
   end
   return false
 end
@@ -113,9 +160,9 @@ end
 -- z0: any enemy anywhere can drop it). One creature's copy of a world drop
 -- says nothing about where to farm it, so it is no finding (2026-09-27: a
 -- world-drop ore recorded from two creatures)
-function Compare.WorldDrop(itemID)
-  for _, code in ipairs(Host.CodesOf(itemID, "z")) do
-    if code.id == 0 and not code.gone then return true end
+function Compare.WorldDrop(itemID, owner)
+  for _, code in ipairs(Host.CodesOf(itemID, "z", owner)) do
+    if code.id == 0 and not code.gone and MayServe(code, owner) then return true end
   end
   return false
 end
@@ -125,27 +172,66 @@ end
 -- and the zone it lies in). One creature's copy of a zone drop, looted in
 -- that zone, says no more than the zone code does; in another zone it is a
 -- real difference, so only these maps count
-function Compare.ZoneDrop(itemID, zones)
+function Compare.ZoneDrop(itemID, zones, owner)
   if not zones then return false end
-  for _, code in ipairs(Host.CodesOf(itemID, "z")) do
-    if code.id ~= 0 and not code.gone and zones[code.id] then return true end
+  for _, code in ipairs(Host.CodesOf(itemID, "z", owner)) do
+    if code.id ~= 0 and not code.gone and zones[code.id] and MayServe(code, owner) then return true end
   end
   return false
 end
 
+-- The live codes that name a sighting's source, tallied by whether their
+-- route serves the observation's character (owner: Context.OwnerOf; with
+-- none, every live code counts as serving, as before Task #421): served, a
+-- code that can't be told (unknown), and the codes a restriction leaves the
+-- character out of (outside, as shipped: "c300|f1")
+local function Tally()
+  return { served = false, unknown = false, outside = {} }
+end
+
+local function Count(tally, code, owner)
+  local serves = true
+  if owner ~= nil then serves = code.serves end
+  if serves == true then
+    tally.served = true
+  elseif serves == false then
+    tally.outside[#tally.outside + 1] = code.code
+  else
+    tally.unknown = true
+  end
+end
+
+-- true when a route serves the sighting; nil when none does and one can't be
+-- told (nothing is recorded then, neither confirmation nor finding); false
+-- otherwise, with the codes it falls outside of as text, or nil for none
+local function Verdict(tally)
+  if tally.served then return true end
+  if tally.unknown then return nil end
+  if #tally.outside > 0 then return false, table.concat(tally.outside, ",") end
+  return false
+end
+
+local function AddBossLoot(tally, itemID, encounters, owner)
+  if not next(encounters) then return end
+  for _, code in ipairs(Host.CodesOf(itemID, "D", owner)) do
+    if not code.gone and encounters[code.id] then Count(tally, code, owner) end
+  end
+  for _, code in ipairs(Host.CodesOf(itemID, "c", owner)) do
+    local journal = not code.gone and Host.EncounterOf(code.id)
+    if journal and encounters[journal] then Count(tally, code, owner) end
+  end
+end
+
 -- Whether a live code of the item names it the loot of one of the journal
 -- encounters given (encounters = { [journalID] = true }): a D<encounter>,
--- or a c<npc> of a boss the data maps (J, Host.EncounterOf) to one
-function Compare.BossLoot(itemID, encounters)
-  if not next(encounters) then return false end
-  for _, code in ipairs(Host.CodesOf(itemID, "D")) do
-    if not code.gone and encounters[code.id] then return true end
-  end
-  for _, code in ipairs(Host.CodesOf(itemID, "c")) do
-    local journal = not code.gone and Host.EncounterOf(code.id)
-    if journal and encounters[journal] then return true end
-  end
-  return false
+-- or a c<npc> of a boss the data maps (J, Host.EncounterOf) to one. With
+-- owner (the observation's character, Context.OwnerOf) only a route that
+-- serves it counts: true, nil when that can't be told, false otherwise (with
+-- the codes a restriction leaves it out of, as Verdict gives them)
+function Compare.BossLoot(itemID, encounters, owner)
+  local tally = Tally()
+  AddBossLoot(tally, itemID, encounters, owner)
+  return Verdict(tally)
 end
 
 -- What a source's shipped codes may name it as, besides its own ID: for an
@@ -175,19 +261,38 @@ end
 -- 2026-09-28), and a boss with several creature IDs drops what its first one
 -- is coded with (the pipeline's shipped_now reads all three the same way).
 -- Only a live code counts: a source the data ships only as no longer
--- available (|x) is back when it is looted, an addition (review CUR-01, Task #316)
-local function Known(itemID, def, source, aliases, encounters)
+-- available (|x) is back when it is looted, an addition (review CUR-01, Task #316).
+-- Only a route that serves the character who looted it counts (owner,
+-- Context.OwnerOf: its faction, class, race and the instance difficulty):
+-- a sighting outside a route's restriction is an addition naming that route,
+-- never its confirmation, and one whose restriction can't be told is neither
+-- (Task #421). Returns Verdict's answers.
+-- A pickpocket's loot: a live G921 on that creature, on a zone's enemies of a
+-- map the window lies in (zones), or anywhere (/recollect-data's gathered
+-- with npc reads it the same way, a zone by the sighting's map)
+local function Pickpocketed(itemID, source, zones, owner)
+  local tally = Tally()
+  for _, code in ipairs(Host.CodesOf(itemID, "G", owner)) do
+    if not code.gone and code.id == Compare.PICK_POCKET and not code.made
+      and (code.npc == source.id or (code.mapID and zones and zones[code.mapID]) or not (code.npc or code.mapID)) then
+      Count(tally, code, owner)
+    end
+  end
+  return Verdict(tally)
+end
+
+local function Known(itemID, def, source, aliases, encounters, owner, zones)
   if def.gathered and Compare.Gathered(itemID, Compare[def.gathered]) then return true end
+  if def.pickpocket then return Pickpocketed(itemID, source, zones, owner) end
   if not def.letter then return false end
-  local live = {}
-  for _, code in ipairs(Host.CodesOf(itemID, def.letter)) do
-    if not code.gone then live[code.id] = true end
+  local own = { [source.id] = true }
+  for _, alias in ipairs(aliases) do own[alias] = true end
+  local tally = Tally()
+  for _, code in ipairs(Host.CodesOf(itemID, def.letter, owner)) do
+    if not code.gone and own[code.id] then Count(tally, code, owner) end
   end
-  if live[source.id] then return true end
-  for _, alias in ipairs(aliases) do
-    if live[alias] then return true end
-  end
-  return Compare.BossLoot(itemID, encounters)
+  AddBossLoot(tally, itemID, encounters, owner)
+  return Verdict(tally)
 end
 
 -- Loot(window, ctx): window = { sources = { [key] = { kind, id, items =
@@ -197,24 +302,32 @@ end
 -- the source's stamp; a creature's world drop, or its zone drop in that
 -- zone, records nothing, and neither does a seasonal drop from any source. A
 -- skinned corpse compares against what is skinned from it and stamps
--- nothing: its loot says nothing about the creature's drops.
+-- nothing: its loot says nothing about the creature's drops. An item whose
+-- only codes for the source are routes the looting character falls outside
+-- of (another faction, class or race, or another instance difficulty) is an
+-- addition whose shipped names them; one whose route can't be told for it
+-- records nothing (Task #421).
 function Compare.Loot(window, ctx)
+  local owner = Curator.Context.OwnerOf(ctx)
   for _, source in pairs(window.sources) do
     local skinned = Compare.Skinned(source)
     local def = skinned and LOOT.skinning or LOOT[source.kind]
     local aliases, encounters = Stands(source)
     local matched = {}
     for itemID in pairs(source.items) do
-      Compare.SawItem(itemID, def.prefix .. ":" .. source.id, ctx)
-      if Known(itemID, def, source, aliases, encounters) then
+      Compare.SawItem(itemID, (def.place or def.prefix) .. ":" .. source.id, ctx)
+      local known, outside = Known(itemID, def, source, aliases, encounters, owner, window.zones)
+      if known then
         matched[#matched + 1] = itemID
-      elseif Compare.SeasonDrop(itemID) then
+      elseif known == nil then
+        -- a route whose restriction can't be told for this character: neither
+      elseif Compare.SeasonDrop(itemID, owner) then
         -- a seasonal drop: no one source's finding
       elseif source.kind == "drop" and not skinned
-        and (Compare.WorldDrop(itemID) or Compare.ZoneDrop(itemID, window.zones)) then
+        and (Compare.WorldDrop(itemID, owner) or Compare.ZoneDrop(itemID, window.zones, owner)) then
         -- a world or zone drop: neither a finding nor a confirmation of a drop code
       else
-        Record("addition", def.prefix .. ":" .. source.id .. ":i:" .. itemID, "1", nil, ctx, source.extra)
+        Record("addition", def.prefix .. ":" .. source.id .. ":i:" .. itemID, "1", outside, ctx, source.extra)
       end
     end
     if not skinned then Curator.Store.Confirm(def.prefix .. ":" .. source.id, matched, 0, ctx) end
@@ -232,37 +345,79 @@ local function ReagentsText(reagents)
   return table.concat(parts, ",")
 end
 
--- One reagent slot against the reagent codes of its items: "ok", "addition"
--- or "conflict"
-local function Reagent(spell, reagent, ctx)
-  local shippedCount
-  for _, itemID in ipairs(reagent.itemIDs) do
-    shippedCount = Shipped(itemID, "reagentOf")[spell]
-    if shippedCount then break end
-  end
-  local fact = "g:" .. spell .. ":i:" .. reagent.itemIDs[1]
+-- One item of a required reagent slot against its reagent code for the
+-- recipe (on a route that serves the character): "ok", "addition" or
+-- "conflict". Every item a slot accepts (each quality of a reagent) is its
+-- own fact: one with no code is a missing alternative, never covered by
+-- another quality's code (Task #421)
+local function Reagent(spell, itemID, count, ctx)
+  local serving, other = Shipped(itemID, "reagentOf", ctx, "g")
+  local shippedCount = serving[spell]
+  local fact = "g:" .. spell .. ":i:" .. itemID
   if not shippedCount then
-    Record("addition", fact, tostring(reagent.count), nil, ctx)
+    Record("addition", fact, tostring(count), other[spell], ctx)
     return "addition"
   end
-  if shippedCount ~= true and shippedCount ~= reagent.count then
-    Record("conflict", fact, tostring(reagent.count), tostring(shippedCount), ctx)
+  if shippedCount ~= true and shippedCount ~= count then
+    Record("conflict", fact, tostring(count), tostring(shippedCount), ctx)
     return "conflict"
   end
   return "ok"
 end
 
--- Recipe(spell, schematic, ctx): schematic = { product, quantity, reagents =
--- { { itemIDs, count } } } (the required basic reagents). Returns
--- "confirmed", "addition" or "conflict"; mayAdd false (Recipe.MayAdd: a
--- dummy or salvage recipe) records nothing for an unshipped recipe and
--- returns "skipped".
-function Compare.Recipe(spell, schematic, ctx, mayAdd)
+-- The shipped reagents the schematic no longer lists: every live reagent
+-- code of the recipe (set, Host.ReagentsInBucket's entries) on an item none
+-- of its required slots accepts is not seen, "g:<recipe>:i:<item>" =
+-- "schematic", unless the curator hints mark it verified unseen. Returns
+-- whether there was one
+local function Obsolete(spell, schematic, set, ctx)
+  local listed, any = {}, false
+  for _, reagent in ipairs(schematic.reagents) do
+    for _, itemID in ipairs(reagent.itemIDs) do listed[itemID] = true end
+  end
+  local hints = Host.Hints().unseen
+  for _, entry in ipairs(set) do
+    local fact = "g:" .. spell .. ":i:" .. tostring(entry.item)
+    if not entry.gone and not listed[entry.item] and not hints[fact] then
+      Record("notseen", fact, "schematic", nil, ctx)
+      any = true
+    end
+  end
+  return any
+end
+
+-- Recipe(spell, schematic, ctx, mayAdd, shippedSet): schematic = { product,
+-- quantity, reagents = { { itemIDs, count } } } (every required reagent slot,
+-- Recipe.ReadSchematic). shippedSet = { reagents = { { item, count, gone } }
+-- (every reagent code the data ships for the recipe), salvage (true, false,
+-- or nil when the game's recipe info can't be read) }. A shipped recipe is
+-- "confirmed" only when its product, every required slot's every item and
+-- the whole shipped reagent set match: a missing alternative is an addition,
+-- a count that differs a conflict, a shipped reagent no slot lists not seen
+-- (Obsolete; Task #421). A salvage recipe's inputs are no schematic slot, so
+-- only its product is compared; without the set or the recipe's info the
+-- reagents can't be compared as a whole and an otherwise matching recipe is
+-- "unjudged", never confirmed. Returns "confirmed", "addition", "conflict",
+-- "notseen" or "unjudged"; mayAdd false (Recipe.MayAdd: a dummy or salvage
+-- recipe) records nothing for an unshipped recipe and returns "skipped".
+function Compare.Recipe(spell, schematic, ctx, mayAdd, shippedSet)
   local observed = ("%dx%d"):format(schematic.product or 0, schematic.quantity or 0)
   local shipped = Host.Recipe(spell)
   if not shipped and mayAdd == false then return "skipped" end   -- a dummy or salvage recipe (Recipe.MayAdd)
   if not shipped then
-    Record("addition", "R:" .. spell, observed .. "|" .. ReagentsText(schematic.reagents), nil, ctx)
+    -- the recipe as one value when it fits a value's 200 characters, and each
+    -- item a required slot accepts as its own reagent fact either way, so a
+    -- recipe of many reagents still reaches the review item by item (Task #423)
+    local value = observed .. "|" .. ReagentsText(schematic.reagents)
+    if #value <= Compare.VALUE_MAX then
+      Record("addition", "R:" .. spell, value, nil, ctx)
+    else
+      Host.Log("Recipe %d's schematic is %d characters, past a value's %d: its reagents are recorded one by one", spell,
+        #value, Compare.VALUE_MAX)
+    end
+    for _, reagent in ipairs(schematic.reagents) do
+      for _, itemID in ipairs(reagent.itemIDs) do Reagent(spell, itemID, reagent.count, ctx) end
+    end
     return "addition"
   end
   local result = "confirmed"
@@ -271,9 +426,82 @@ function Compare.Recipe(spell, schematic, ctx, mayAdd)
     result = "conflict"
   end
   for _, reagent in ipairs(schematic.reagents) do
-    local answer = Reagent(spell, reagent, ctx)
-    if answer == "conflict" or (answer == "addition" and result == "confirmed") then result = answer end
+    for _, itemID in ipairs(reagent.itemIDs) do
+      local answer = Reagent(spell, itemID, reagent.count, ctx)
+      if answer == "conflict" or (answer == "addition" and result == "confirmed") then result = answer end
+    end
   end
+  local salvage
+  if type(shippedSet) == "table" then salvage = shippedSet.salvage end
+  if salvage == true then return result end
+  if salvage == nil or type(shippedSet.reagents) ~= "table" then
+    return result == "confirmed" and "unjudged" or result
+  end
+  if Obsolete(spell, schematic, shippedSet.reagents, ctx) and result == "confirmed" then result = "notseen" end
+  return result
+end
+
+-- The longest value a finding may carry (the pipeline's VALUE_TEXT bound)
+Compare.VALUE_MAX = 200
+
+-- RecipeQualities(recipe, items, ctx): every quality's item of what a
+-- recipe crafts, in the game's order (Recipe.Qualities; 2 or more). An item
+-- the data ships as crafted by the recipe (a live y code on a route that
+-- serves the character) goes in the stamp "qy:<recipe>"; any other is an
+-- addition, "qy:<recipe>:i:<item>" = "<tier>", its 1-based place in the list
+-- (Task #423: the window alone answers this, so curators of any profession
+-- fill the data's quality items and its F table). No not seen. Returns how
+-- many matched
+function Compare.RecipeQualities(recipe, items, ctx)
+  local matched = {}
+  for tier, itemID in ipairs(items) do
+    local serving, gone = Shipped(itemID, "craftedBy", ctx, "y")
+    if serving[recipe] then
+      matched[#matched + 1] = itemID
+    else
+      Record("addition", "qy:" .. recipe .. ":i:" .. itemID, tostring(tier), gone[recipe], ctx)
+    end
+  end
+  if #matched > 0 then Curator.Store.Confirm("qy:" .. recipe, matched, 0, ctx) end
+  return #matched
+end
+
+-- Salvage(skillLine, recipe, items, quantity, set, ctx): a salvage recipe's
+-- inputs as the open profession window lists them (Recipe.SalvageInputs: a
+-- list read and not empty), each taking quantity, against the data's
+-- reagent codes for the recipe (set: Host.ReagentsInBucket's entries). Each
+-- input is "sv:<skillLine>:<recipe>:i:<item>" = "<quantity>": an addition
+-- with no live code, a conflict when the shipped quantity differs, in the
+-- stamp "sv:<recipe>" when it matches; a live shipped input the list doesn't
+-- hold is not seen ("window"). Returns "confirmed" when every input matched
+-- and none is missing (Task #423)
+function Compare.Salvage(skillLine, recipe, items, quantity, set, ctx)
+  local result, matched, listed = "confirmed", {}, {}
+  local prefix = "sv:" .. skillLine .. ":" .. recipe .. ":i:"
+  for _, itemID in ipairs(items) do
+    listed[itemID] = true
+    local serving, gone = Shipped(itemID, "reagentOf", ctx, "g")
+    local shipped = serving[recipe]
+    if not shipped then
+      Record("addition", prefix .. itemID, tostring(quantity), gone[recipe], ctx)
+      result = "addition"
+    elseif shipped ~= true and shipped ~= quantity then
+      Record("conflict", prefix .. itemID, tostring(quantity), tostring(shipped), ctx)
+      result = "conflict"
+    else
+      matched[#matched + 1] = itemID
+    end
+  end
+  local hints = Host.Hints().unseen
+  for _, entry in ipairs(type(set) == "table" and set or {}) do
+    local fact = prefix .. tostring(entry.item)
+    if not entry.gone and not listed[entry.item] and not hints[fact] then
+      Record("notseen", fact, "window", nil, ctx)
+      listed[entry.item] = true
+      if result == "confirmed" then result = "notseen" end
+    end
+  end
+  if #matched > 0 then Curator.Store.Confirm("sv:" .. recipe, matched, 0, ctx) end
   return result
 end
 
@@ -307,36 +535,64 @@ end
 -------------------------------------------------------------------------------
 -- What an item teaches, what it is used on, what its use gives
 -------------------------------------------------------------------------------
+-- Each comparison below confirms only a relation on a route that serves the
+-- character (Shipped); a sighting of one no longer available or for someone
+-- else is an addition naming that route (Task #421).
 -- Teaches(itemID, recipeID, ctx): an item used, then the recipe learned
 function Compare.Teaches(itemID, recipeID, ctx)
-  local shipped = Shipped(itemID, "teaches")
+  local shipped, gone = Shipped(itemID, "teaches", ctx, "r")
   if shipped[recipeID] then
     Curator.Store.Confirm("r:" .. itemID, { recipeID }, 1, ctx)
     return "confirmed"
   end
   local other = next(shipped)
-  Record(other and "conflict" or "addition", "r:" .. itemID, tostring(recipeID), other and tostring(other) or nil, ctx)
+  Record(other and "conflict" or "addition", "r:" .. itemID, tostring(recipeID), other and tostring(other) or gone[recipeID], ctx)
   return other and "conflict" or "addition"
 end
 
 -- UsedAt(itemID, targetKind ("npc" or "obj"), targetID, ctx)
 function Compare.UsedAt(itemID, targetKind, targetID, ctx)
-  if targetKind == "npc" and Shipped(itemID, "usedAt")[targetID] then
+  local shipped, gone = Shipped(itemID, "usedAt", ctx, "n")
+  if targetKind == "npc" and shipped[targetID] then
     Curator.Store.Confirm("n:" .. itemID, { targetID }, 0, ctx)
     return "confirmed"
   end
-  Record("addition", "n:" .. itemID .. ":" .. targetKind .. ":" .. targetID, "1", nil, ctx)
+  Record("addition", "n:" .. itemID .. ":" .. targetKind .. ":" .. targetID, "1", targetKind == "npc" and gone[targetID] or nil, ctx)
   return "addition"
+end
+
+-- Transform(itemID, consumed, gained, spell, ctx): one use of an item that
+-- consumed and gave items (Recorders/ContainerUse.lua's Transformation;
+-- consumed and gained as { { id, n } } by item ID, the used item among the
+-- consumed), as one addition "tf:<item>" = "<consumed>|<gained>", each
+-- "<item>x<n>" comma separated, with the Use spell kept as the
+-- observation's cast. The client never judges one: the pipeline sorts it
+-- into a simple combine, a combine of several parts or one for review.
+-- Nothing when the value would pass VALUE_MAX. Returns the record or nil
+function Compare.Transform(itemID, consumed, gained, spell, ctx)
+  local function Text(list)
+    local parts = {}
+    for _, entry in ipairs(list) do parts[#parts + 1] = ("%dx%d"):format(entry.id, entry.n) end
+    return table.concat(parts, ",")
+  end
+  local value = Text(consumed) .. "|" .. Text(gained)
+  if #value > Compare.VALUE_MAX then
+    Host.Log("Item %d's use moved %d items, past a value's %d characters: not recorded", itemID, #consumed + #gained,
+      Compare.VALUE_MAX)
+    return nil
+  end
+  return Record("addition", "tf:" .. itemID, value, nil, ctx, { cast = spell or false })
 end
 
 -- Grant(itemID, currencyID, amount, ctx): using the item gave amount
 function Compare.Grant(itemID, currencyID, amount, ctx)
-  local shipped = Shipped(itemID, "currency")[currencyID]
+  local serving, gone = Shipped(itemID, "currency", ctx, "$")
+  local shipped = serving[currencyID]
   if shipped == amount then
     Curator.Store.Confirm("$:" .. itemID, { currencyID }, 1, ctx)
     return "confirmed"
   end
   Record("addition", "$:" .. itemID .. ":c:" .. currencyID, tostring(amount),
-    shipped and tostring(shipped) or nil, ctx)
+    shipped and tostring(shipped) or gone[currencyID], ctx)
   return "addition"
 end

@@ -105,9 +105,12 @@ local seams = {
   TaskLink = function(taskID) return C_NeighborhoodInitiative.GetInitiativeTaskChatLink(taskID) end,
   -- A quality's color (r, g, b), as UI.UsedFor reads it
   QualityColor = function(quality) return C_Item.GetItemQualityColor(quality) end,
+  After = function(delay, fn) C_Timer.After(delay, fn) end,
 }
 
 local function Parts() return Recollect.UI.UsedFor.parts end
+-- The item a named thing stands for (UsedFor.ItemBehind: the one resolver), or nil
+local function ItemBehind(kind, id) return Recollect.UI.UsedFor.ItemBehind(kind, id) end
 local function Relations() return Recollect.Facts.Relations end
 local function Vendors() return Recollect.Facts.Vendors end
 local function Colors() return Recollect.UI.VerdictColors end
@@ -121,6 +124,8 @@ Data.TABS = {
   { key = "crafting", label = "Crafting" },
   { key = "sources", label = "Comes from" },
   { key = "takes", label = "What it takes" },
+  -- every step of a secret the item is used in or whose reward it teaches (Facts.Secrets)
+  { key = "secret", label = "Secret" },
   { key = "gone", label = "No longer available" },
 }
 
@@ -201,9 +206,9 @@ end
 -- Rows from relations
 -------------------------------------------------------------------------------
 local QUEST_LABEL = { objective = "Objective", questItem = "Used in", starts = "Starts", reward = "Reward",
-  choice = "Choice reward" }
+  choice = "Choice reward", duringQuest = "During quest" }
 local SOURCE_TAB = { reward = true, choice = true, madeFrom = true, taughtBy = true, soldBy = true, dropsFrom = true,
-  foundIn = true }
+  foundIn = true, duringQuest = true }
 
 local MAKERS = {}
 
@@ -222,9 +227,10 @@ MAKERS.buys = function(relation, job)
     job.followed = (job.followed or 0) + 1
     follow = true
   end
-  -- an ensemble, illusion, pet or recipe shows the item that stands for it (its icon, tooltip and link)
+  -- an ensemble, illusion, pet or recipe shows the item that stands for it (its icon, tooltip and link);
+  -- a mount keeps its own link, its teaching item read through ItemOf
   return { tab = "buys", what = thing.what, kindLabel = Parts().WHAT_LABEL[thing.what] or "Item", id = thing.id,
-    itemID = ITEM_WHAT[thing.what] and thing.id or Relations().ThingItem(relation.thing, relation.id),
+    itemID = thing.what ~= "mount" and ItemBehind(thing.what, thing.id) or nil,
     spellID = relation.thing == "m" and relation.id or nil,
     mountID = thing.key:find("^mount:") and thing.id or nil,
     count = relation.count or 1, plus = relation.plus, npcs = relation.vendors, thing = thing, key = thing.key,
@@ -332,11 +338,72 @@ MAKERS.openedFrom = function(relation)
   return { tab = "sources", what = "item", kindLabel = "Opened from", id = relation.id, itemID = relation.id }
 end
 
+-- Data format 17 (Task #397): the item that buys it (its row: the buying
+-- item, the vendor or place the trade is in under Where, the whole price
+-- under Status), a zone's activities, and Archaeology by its fragments
+MAKERS.boughtWith = function(relation)
+  return { tab = "sources", what = "item", kindLabel = "Bought with", id = relation.id, itemID = relation.id,
+    count = relation.count, plus = relation.plus, npcs = relation.vendors, tradeMap = relation.mapID }
+end
+
+MAKERS.zoneReward = function(relation)
+  return { tab = "sources", what = "zone", kindLabel = "Zone activity", id = relation.id, mapID = relation.id }
+end
+
+-- Data format 19 (Task #401): a reward for completing an event no zone
+-- holds, its row the quest, achievement or currency that names the event
+-- (a link, its icon and tooltip, and its live state, RESOLVE.eventReward)
+MAKERS.eventReward = function(relation)
+  local event = relation.event
+  return { tab = "sources", what = event, kindLabel = "Event", id = relation.id,
+    questID = event == "quest" and relation.id or nil, achievementID = event == "achievement" and relation.id or nil,
+    currencyID = event == "currency" and relation.id or nil }
+end
+
+-- Data format 20 (Task #403): a follower mission's reward, a named row (the
+-- mission and its system, read live, RESOLVE.missionReward)
+MAKERS.missionReward = function(relation)
+  return { tab = "sources", what = "store", kindLabel = "Mission", id = relation.id, name = "A mission" }
+end
+
+-- Data format 21 (Task #405): its look comes with an ensemble, the row the
+-- ensemble's (the item the T table gives it: its link, icon and tooltip)
+MAKERS.ensembleLook = function(relation)
+  return { tab = "sources", what = "ensemble", kindLabel = "Ensemble look", id = relation.id,
+    itemID = Relations().ThingItem("e", relation.id) }
+end
+
+-- Data format 18 (Task #398): given to new characters (its route's tags say who for)
+MAKERS.newCharacter = function(relation)
+  return { tab = "sources", what = "store", kindLabel = "New character", id = relation.id, name = "Given to new characters" }
+end
+
+MAKERS.archaeology = function(relation)
+  return { tab = "sources", what = "currency", kindLabel = "Archaeology", id = relation.id, currencyID = relation.id,
+    count = relation.count }
+end
+
 -- Sources of data format 11: a profession's gathering or extracting spell
 -- (a spell row: its name, icon and tooltip), a creature skinned (placed like
 -- a drop) and a seasonal drop (the row's words only)
+-- Since data format 22 (Task #447) a G on a creature is a creature row
+-- (placed like a drop), one on a zone's enemies a zone row, Pick Pocket with
+-- neither a row of words, and one made by a spell (G<spell>.1) a spell row
 MAKERS.gatheredBy = function(relation)
-  return { tab = "sources", what = "recipe", kindLabel = "Profession", id = relation.id, spellID = relation.id }
+  local pick = Relations().PICK_POCKET == relation.id
+  if relation.npc then
+    return { tab = "sources", what = "npc", kindLabel = pick and "Pickpocketed from" or "Gathered from",
+      id = relation.npc, npcID = relation.npc, spellID = relation.id > 0 and relation.id or nil }
+  end
+  if relation.mapID then
+    return { tab = "sources", what = "zone", kindLabel = pick and "Pickpocketed" or "Gathered", id = relation.mapID,
+      mapID = relation.mapID }
+  end
+  if pick then
+    return { tab = "sources", what = "season", kindLabel = "Pickpocketed", id = relation.id, name = "Enemies" }
+  end
+  return { tab = "sources", what = "recipe", kindLabel = relation.made and "Made by spell" or "Profession", id = relation.id,
+    spellID = relation.id }
 end
 
 MAKERS.skinnedFrom = function(relation)
@@ -372,6 +439,42 @@ MAKERS.holds = function(relation)
   return { tab = "crafting", what = "item", kindLabel = "Opening it gives", id = relation.id, itemID = relation.id }
 end
 
+-- Data format 14 (Task #394): what using the item gives (its Makes column the
+-- product's own state, as a recipe's product reads), and on that item, the
+-- item whose use gives it
+MAKERS.gives = function(relation)
+  return { tab = "crafting", what = "item", kindLabel = "Using it gives", id = relation.id, itemID = relation.id,
+    count = relation.count, product = relation.id }
+end
+
+MAKERS.givenBy = function(relation)
+  return { tab = "sources", what = "item", kindLabel = "From using", id = relation.id, itemID = relation.id }
+end
+
+-- Data format 15 (Task #395), on the Crafting tab beside what using it gives:
+-- a mount customization (the mount's row: its name, link and whether you
+-- have it), reputation (the faction, with your standing read live) and the
+-- fish a lure makes bite (how many you have); information only
+MAKERS.customizes = function(relation)
+  return { tab = "crafting", what = "mount", kindLabel = "Customizes", id = relation.id, spellID = relation.id }
+end
+
+MAKERS.reputation = function(relation)
+  return { tab = "crafting", what = "reputation", kindLabel = "Reputation", id = relation.id, factionID = relation.id,
+    count = relation.count }
+end
+
+MAKERS.lure = function(relation)
+  return { tab = "crafting", what = "item", kindLabel = "Lure for", id = relation.id, itemID = relation.id }
+end
+
+-- Data format 16 (Task #396): one row per piece a class token gives, beside
+-- what using it gives, its armor type and who wears it under Status, the
+-- owner's own piece marked; information only
+MAKERS.givesByClass = function(relation)
+  return { tab = "crafting", what = "item", kindLabel = "Gives one of", id = relation.id, itemID = relation.id }
+end
+
 -- Sources of data format 4: a boss in the Encounter Journal (a click opens
 -- the journal at it), a renown reward (the faction, and whether the owner's
 -- renown reached the level), the Black Market and the Trading Post (its month)
@@ -402,8 +505,36 @@ MAKERS.craftedBy = function(relation)
 end
 
 local function Push(job, row)
+  -- the build's owner, kept on the row: what a row's words read later (its
+  -- Rewards and Leads to, in the tables and the Overview) are that
+  -- character's, never the logged-in one's (review UI-03)
+  row.owner = row.owner or job.owner
   local list = job.tabs[row.tab]
   list[#list + 1] = row
+end
+
+-- TabCount(job, tabKey): the number a tab's label shows. The Crafting tab
+-- counts recipes and products only, the number WHAT IT'S FOR and the reagent
+-- summary name ("a reagent in 36 recipes"): its "Your recipes" and "Alt's scan"
+-- index rows are notes about those recipes, never recipes of their own (Task
+-- #384: the tab said 38 beside 36 recipes). Every other tab counts its rows.
+-- Kept on the job and read again only when rows were added.
+function Data.TabCount(job, tabKey)
+  local rows = job.tabs[tabKey]
+  if tabKey ~= "crafting" then return #rows end
+  local cache = job.tabCounts
+  if not cache then
+    cache = {}
+    job.tabCounts = cache
+  end
+  local kept = cache[tabKey]
+  if kept and kept.rows == #rows then return kept.count end
+  local count = 0
+  for _, row in ipairs(rows) do
+    if row.what ~= "index" then count = count + 1 end
+  end
+  cache[tabKey] = { rows = #rows, count = count }
+  return count
 end
 
 -- What makes two seller routes one row (Task #338): the creature's name and the price (UsedFor.SellerKey, nil
@@ -522,13 +653,6 @@ local function CraftSlots(relations, owner)
   return slots
 end
 
--- What the sources of rows that can change while the view is open give for
--- the item, as strings that stay the same while they do (Task #315 UI-04): the
--- journals' costs (JournalStamp, taken before the journal rows), and the
--- recipe index, the running endeavor's tasks, other characters' scans and
--- the schematics of the recipes that make it (ExtrasStamp, taken before
--- the other rows). The relations, vendors and what a use takes come from
--- the shipped data, which doesn't change in a session.
 -- The journal's own words for the mount or pet the item teaches (nil when it
 -- teaches none or the journal has no text yet): its kind label and the
 -- cleaned, whole text
@@ -541,6 +665,13 @@ local function JournalSource(itemID)
   return kind == "mount" and "Mount Journal" or "Pet Journal", text
 end
 
+-- What the sources of rows that can change while the view is open give for
+-- the item, as strings that stay the same while they do (Task #315 UI-04): the
+-- journals' costs (JournalStamp, taken before the journal rows), and the
+-- recipe index, the running endeavor's tasks, other characters' scans and
+-- the schematics of the recipes that make it (ExtrasStamp, taken before
+-- the other rows). The relations, vendors and what a use takes come from
+-- the shipped data, which doesn't change in a session.
 local function JournalStamp(itemID)
   local parts = {}
   local index = Recollect.Facts.Journals.Get()
@@ -550,6 +681,9 @@ local function JournalStamp(itemID)
   end
   local label, text = JournalSource(itemID)
   if label then parts[#parts + 1] = "t" .. text end
+  -- what the game itself says (Task #394), which may answer after the view was built
+  local ok, live = pcall(Recollect.Facts.LiveSources.For, itemID)
+  for _, entry in ipairs(ok and type(live) == "table" and live or {}) do parts[#parts + 1] = "g" .. tostring(entry.text) end
   return table.concat(parts, "|")
 end
 
@@ -571,6 +705,11 @@ local function ExtrasStamp(itemID, owner, relations)
   end
   for _, slot in ipairs(CraftSlots(relations or {}, owner)) do
     parts[#parts + 1] = ("c%d:%s:%d"):format(slot.spellID, table.concat(slot.items, "/"), slot.need)
+  end
+  local Secrets = Recollect.Facts.Secrets
+  if Secrets then
+    parts[#parts + 1] = "s" .. tostring((Secrets.Status()))
+    for _, entry in ipairs(Secrets.Of("item", itemID)) do parts[#parts + 1] = "s" .. entry.sid .. ":" .. entry.role end
   end
   return table.concat(parts, "|")
 end
@@ -626,11 +765,27 @@ local function AddExtras(job)
     Push(job, { tab = "sources", kind = "quality", what = "item", kindLabel = "Another quality", id = sibling,
       itemID = sibling, of = itemID, filterState = "none", tier = Parts().TIER_INFO })
   end
+  -- the class tokens that can give it (Task #440: the reverse of their C codes, searched at need)
+  for _, token in ipairs(Recollect.UI.UsedFor.TokensOf(itemID)) do
+    Push(job, { tab = "sources", kind = "classToken", what = "item", kindLabel = "Class token", id = token.itemID,
+      itemID = token.itemID, of = itemID, filterState = "none", tier = Parts().TIER_INFO })
+  end
   -- the mount or pet journal's own words, after the data's sources (live text, informational)
   local journalLabel, journalText = JournalSource(itemID)
   if journalLabel then
     Push(job, { tab = "sources", kind = "journalSource", what = "journalSource", kindLabel = journalLabel,
       name = journalText, of = itemID, filterState = "none", tier = Parts().TIER_INFO })
+  end
+  -- what the game itself says (Task #394): the housing catalog's source text,
+  -- and an appearance's source type in our words unless a shipped source of
+  -- that kind already names it (live, informational, like the journal's row)
+  local LiveSources = Recollect.Facts.LiveSources
+  local okLive, live = pcall(LiveSources.For, itemID)
+  for _, entry in ipairs(okLive and type(live) == "table" and live or {}) do
+    if not LiveSources.Covered(entry, job.relations) then
+      Push(job, { tab = "sources", kind = "liveSource", what = "journalSource", kindLabel = entry.label,
+        name = entry.text, sourceType = entry.sourceType, of = itemID, filterState = "none", tier = Parts().TIER_INFO })
+    end
   end
   for _, slot in ipairs(CraftSlots(job.relations, owner)) do
     local row = { tab = "takes", kind = "part", what = "item", kindLabel = "To craft", id = slot.items[1],
@@ -639,6 +794,7 @@ local function AddExtras(job)
     Data.Resolve(row, owner, job.budget)
     Push(job, row)
   end
+  Data.AddSecretRows(job, Push)
   local okR, records = pcall(Recollect.Facts.Requirements.For, itemID, owner, job.relations)
   for _, record in ipairs(okR and records or {}) do
     for _, part in ipairs(record.parts) do
@@ -861,9 +1017,31 @@ RESOLVE.buysDecor = function(row)
   Set(row, state, StateWords("decor", state), CollectibleColor(state), state)
 end
 
+-- How long a quest row waits for its title before it says it can't be read
+-- (seconds): a quest the server never answers (one retired from the game, a
+-- request the client drops) must not read "Checking" for ever (Task #384)
+local QUEST_NAME_WAIT = 20
+
+-- QuestWaitedOut(row): whether the row's quest has been waited for longer than
+-- QUEST_NAME_WAIT; the first call starts the wait and schedules one repaint
+-- just after it, so a row still waiting then changes its words
+function Data.QuestWaitedOut(row)
+  local now = seams.Now()
+  if not row.questWaitFrom then
+    row.questWaitFrom = now
+    pcall(seams.After, QUEST_NAME_WAIT + 0.5, function()
+      if Data.onItemLoaded then pcall(Data.onItemLoaded) end
+    end)
+  end
+  return now - row.questWaitFrom >= QUEST_NAME_WAIT
+end
+
 local function QuestRow(row, owner, budget)
   local title, rank, words, color = Parts().QuestState(row.questID, budget, not owner.isViewer)
-  if not title then return Set(row, "loading", "Checking", U.Colors.LABEL_GRAY, "none") end
+  if not title then
+    if Data.QuestWaitedOut(row) then return Set(row, nil, "Can't be read", U.Colors.LABEL_GRAY, "none") end
+    return Set(row, "loading", "Checking", U.Colors.LABEL_GRAY, "none")
+  end
   row.name = title:gsub('^"(.*)"$', "%1")
   -- rank 0: it needs a profession this character doesn't have (Task #338): out of reach, closed, the grayed cross
   local filter = (rank == 5 or rank == 3 or rank == 2) and "missing" or (rank == 4 and "have") or (rank == 0 and "other") or "none"
@@ -923,12 +1101,18 @@ RESOLVE.linked = function(row, owner)
   Set(row, "have", many and "Linked parts done" or "Linked part done", colors[V().DONE], "have")
 end
 
--- An achievement that rewards the item: its progress (Facts.Achievements)
-RESOLVE.achievementReward = function(row)
+-- An achievement that rewards the item: its progress (Facts.Achievements).
+-- That progress is the logged-in character's: another character's copy shows
+-- it only when it is earned or account-wide, else the name alone (Task #315
+-- ACH-01; review UI-02, as the event reward's row already did)
+RESOLVE.achievementReward = function(row, owner)
   local A = Recollect.Facts.Achievements
   local progress = A.Progress(row.achievementID)
   if not progress then return Set(row, nil, "Can't be read", U.Colors.LABEL_GRAY, "none") end
   row.name = progress.name
+  if owner and not owner.isViewer and not progress.earned and progress.accountWide ~= true then
+    return Set(row, nil, nil, U.Colors.LIGHT_GRAY, "none")
+  end
   local words, open = A.ProgressWords(progress)
   words = words:gsub("^%l", string.upper)
   if type(progress.done) == "number" and type(progress.total) == "number" and progress.total > 1 then
@@ -967,6 +1151,15 @@ RESOLVE.opens = function(row, owner)
   Set(row, nil, nil, U.Colors.LABEL_GRAY, "none")
 end
 
+-- A spot the item is found at: looted or not, from the object's loot quest
+-- (Task #439, the Sunken Diver's Chest), on the logged-in character's copy only
+RESOLVE.foundIn = function(row, owner)
+  local looted = Recollect.Facts.Chains.LootState(row.objectID, owner)
+  if looted == "done" then return Set(row, "have", "Looted", Colors()[V().DONE], "have") end
+  if looted == "open" then return Set(row, "missing", "Not looted yet", Colors()[V().USEFUL], "missing") end
+  Set(row, nil, nil, U.Colors.LIGHT_GRAY, "none")
+end
+
 RESOLVE.currency = function(row, owner)
   local parts = Parts()
   local factionID = parts.GrantedFaction(row.currencyID)
@@ -982,9 +1175,6 @@ RESOLVE.currency = function(row, owner)
   Set(row, "held", quantity and ("You have %d"):format(quantity) or nil, Colors()[V().USEFUL], "none")
 end
 
--- A recipe's own state for the logged-in character; a recipe of a system
--- whose "not known" was never measured (Facts.Buys.RecipeKnown "unverified":
--- Protoform Synthesis and the like) can't be read for it
 -- The recipe's profession ("Tailoring") when the logged-in character is read
 -- not to have it, else nil: a profession it has, one that can't be read and
 -- a recipe of another system say nothing here (Task #334). A teaches row has
@@ -1000,6 +1190,9 @@ local function LackedProfession(row)
   return Parts().SkillLineName(Recipes.ProfessionOf(line))
 end
 
+-- A recipe's own state for the logged-in character; a recipe of a system
+-- whose "not known" was never measured (Facts.Buys.RecipeKnown "unverified":
+-- Protoform Synthesis and the like) can't be read for it
 local function RecipeRow(row, owner)
   if not owner.isViewer then return Set(row, "unassessed", "Known per character", U.Colors.LABEL_GRAY, "none") end
   local known, why = Recollect.Facts.Buys.RecipeKnown(row.spellID)
@@ -1118,6 +1311,118 @@ RESOLVE.makes = HeldRow
 RESOLVE.madeFrom = HeldRow
 RESOLVE.openedFrom = HeldRow
 RESOLVE.holds = HeldRow
+RESOLVE.givenBy = HeldRow
+RESOLVE.lure = HeldRow
+
+-- An event's row reads as its quest's, achievement's or currency's own row
+-- does (done for now, 3 of 5 done, You have 40); another character's copy
+-- shows an achievement's progress only when it is earned or account-wide
+-- (Task #315 ACH-01)
+RESOLVE.eventReward = function(row, owner, budget)
+  if row.what == "quest" then return QuestRow(row, owner, budget) end
+  if row.what == "achievement" then return RESOLVE.achievementReward(row, owner) end
+  return RESOLVE.currency(row, owner)
+end
+
+-- A mission's row: 'Class hall mission "X"', its cost and whether this
+-- character has the system (the logged-in character's copy only)
+RESOLVE.missionReward = function(row, owner)
+  local name, state, has = Recollect.UI.UsedFor.MissionRow(row.relation, owner)
+  row.name = name
+  if has == true then return Set(row, "have", state, Colors()[V().DONE], "have") end
+  if has == false then return Set(row, nil, state, U.Colors.LABEL_GRAY, "other") end
+  Set(row, nil, state, U.Colors.LIGHT_GRAY, "none")
+end
+
+-- An ensemble's row: whether you have the ensemble, and on the logged-in
+-- character's copy whether this piece's look is collected, as the panel's
+-- line words them; had when either is, still to get when both are missing
+RESOLVE.ensembleLook = function(row, owner)
+  local name, words, setState, lookState = Recollect.UI.UsedFor.EnsembleLook(row.relation, row.of, owner)
+  row.name = row.name or name
+  local state = #words > 0 and (table.concat(words, "; "):gsub("^%l", string.upper)) or nil
+  local colors = Colors()
+  if lookState == "have" or setState == "have" then return Set(row, "have", state, colors[V().DONE], "have") end
+  if setState == "missing" and lookState == "missing" then
+    return Set(row, "missing", state, colors[V().USEFUL], "missing")
+  end
+  if setState == "unread" or lookState == "unread" then
+    return Set(row, nil, state or "Can't be read yet", U.Colors.LABEL_GRAY, "none")
+  end
+  Set(row, nil, state, U.Colors.LIGHT_GRAY, "none")
+end
+
+-- Given to new characters: the words the panel's line uses, for the owner
+RESOLVE.newCharacter = function(row, owner)
+  row.name = Recollect.UI.UsedFor.NewCharacterWords(row.relation, owner)
+  Set(row, nil, nil, U.Colors.LIGHT_GRAY, "none")
+end
+
+-- What buys it: the whole price in rule 50's words ("For 3 Mark of Honor and
+-- 500 Honor"), and how many of the buying item you have
+RESOLVE.boughtWith = function(row, owner)
+  local ok, words = pcall(Recollect.UI.UsedFor.TradeWords, row.relation, row.itemID)
+  local text = ok and type(words) == "string" and words ~= "" and ("For " .. words) or nil
+  local held = owner.isViewer and Parts().Owned(row.itemID) or nil
+  if text and held then text = ("%s; you have %d"):format(text, held) end
+  Set(row, nil, text, U.Colors.LIGHT_GRAY, "none")
+end
+
+-- Archaeology: the race's fragments by name, how many an artifact takes and
+-- how many you have
+RESOLVE.archaeology = function(row, owner)
+  local info = Parts().Currency(row.currencyID)
+  if not info then return Set(row, nil, "Can't be read", U.Colors.LABEL_GRAY, "none") end
+  row.name = info.name
+  row.icon = row.icon or info.iconFileID
+  local quantity = owner.isViewer and CobySuite_Recollect.Utilities.IsFiniteNumber(info.quantity) and info.quantity or nil
+  local takes = (row.count or 0) > 0 and ("Takes %d"):format(row.count) or nil
+  local have = quantity and ("you have %d"):format(quantity) or nil
+  local text = takes and have and (takes .. "; " .. have) or takes or (have and (have:gsub("^%l", string.upper)))
+  Set(row, nil, text, U.Colors.LIGHT_GRAY, "none")
+end
+
+-- A class token's piece: "Plate, your armor type" for the owner's (in the
+-- Useful color, so it stands out), "Mail, worn by Evoker, Hunter and Shaman"
+-- for the others; a piece with no armor type (a ring, a trinket) says how
+-- many you have
+RESOLVE.givesByClass = function(row, owner)
+  local ok, words, own = pcall(Recollect.UI.UsedFor.PieceWords, row.itemID, owner)
+  if not ok or words == false then return Set(row, nil, "Can't be read", U.Colors.LABEL_GRAY, "none") end
+  if words == nil then return HeldRow(row, owner) end
+  Set(row, nil, words, own and Colors()[V().USEFUL] or U.Colors.LIGHT_GRAY, "none")
+end
+
+-- The mount a customization is for: its name and whether the owner has it
+RESOLVE.customizes = function(row, owner)
+  local ok, thing = pcall(Recollect.Facts.Buys.Resolve, { kind = "buys", thing = "m", id = row.spellID }, owner)
+  thing = ok and type(thing) == "table" and thing or nil
+  if thing and IsPositiveID(thing.id) and thing.id ~= row.spellID then row.mountID = thing.id end
+  if thing and type(thing.name) == "string" and thing.name ~= "" then row.name = thing.name end
+  local colors = Colors()
+  if thing and thing.state == "have" then return Set(row, "have", "You have the mount", colors[V().DONE], "have") end
+  if thing and thing.state == "missing" then return Set(row, "missing", "You don't have the mount", colors[V().USEFUL], "missing") end
+  if thing and thing.state == "unavailable" then return Set(row, nil, "Not for this character", U.Colors.LABEL_GRAY, "other") end
+  Set(row, nil, "Can't be read", U.Colors.LABEL_GRAY, "none")
+end
+
+-- The faction reputation is given with: its name, and the owner's standing
+-- ("Revered", "Renown 12"), the logged-in character's only
+RESOLVE.reputation = function(row, owner)
+  local UsedFor = Recollect.UI.UsedFor
+  row.name = UsedFor.ReputationWords({ id = row.factionID, count = row.count })
+  local standing = owner.isViewer and UsedFor.StandingWords(row.factionID, owner) or nil
+  Set(row, nil, standing and ("You're " .. standing) or nil, U.Colors.LIGHT_GRAY, "none")
+end
+-- what using it gives: how many you have, then the product's own state when
+-- it is a collectible (Data.Product: its words in the Makes column, and the
+-- still-need filter following it); information only
+RESOLVE.gives = function(row, owner)
+  HeldRow(row, owner)
+  row.recipeFilter, row.recipeTier = row.filterState, row.tier
+  row.productThing, row.productText, row.productLoading = nil, nil, nil
+  Data.Product(row, owner)
+end
 
 -- A combine of several parts: how many of the parts you have
 RESOLVE.partOf = function(row, owner)
@@ -1164,6 +1469,106 @@ function Data.EndeavorUses(itemID)
   return ok and type(uses) == "table" and uses or {}
 end
 
+-------------------------------------------------------------------------------
+-- Secrets (Facts.Secrets): the Secret tab's steps and the reward's source row,
+-- worded and stated by UI.UsedFor.SecretSteps so a row and the panel's line
+-- never disagree. One secret's steps are read once a refresh (kept by its
+-- sid and the frame's time), not once per row
+-------------------------------------------------------------------------------
+local secretSteps = { at = nil, bySid = {} }
+
+local function StepsOf(sid, owner, itemID)
+  local now = seams.Now()
+  if secretSteps.at ~= now then secretSteps.at, secretSteps.bySid = now, {} end
+  local key = sid .. ":" .. tostring(itemID)
+  local kept = secretSteps.bySid[key]
+  if kept == nil then
+    local secret = Recollect.Facts.Secrets.Get(sid)
+    if secret then
+      local ok, steps, summary = pcall(Recollect.UI.UsedFor.SecretSteps, secret, owner, itemID)
+      kept = ok and { steps = steps, summary = summary, secret = secret } or false
+    else
+      kept = false
+    end
+    secretSteps.bySid[key] = kept
+  end
+  return kept or nil
+end
+Data.SecretStepsOf = StepsOf
+
+RESOLVE.secretStep = function(row, owner)
+  local read = StepsOf(row.sid, owner, row.of)
+  local entry
+  for _, s in ipairs(read and read.steps or {}) do
+    if s.label == row.label then entry = s end
+  end
+  if not entry then return Set(row, nil, "Can't be read", U.Colors.LABEL_GRAY, "none") end
+  row.name = (entry.depth > 0 and "    " or "") .. entry.text
+  row.place = entry.place or false
+  row.have = entry.have
+  row.own = entry.own
+  row.kindLabel = "Step " .. entry.label   -- the item's own steps are marked by role (UI.SecretPanel), not in the label
+  row.role = entry.role
+  local notes = {}
+  for _, extra in ipairs(entry.extras) do notes[#notes + 1] = extra.text end
+  row.note = #notes > 0 and table.concat(notes, "; ") or nil
+  local step = entry.step
+  local iconItem = (step.makes and step.makes.id) or (step.tools[1] and step.tools[1].id) or (step.takes[1] and step.takes[1].id)
+  if iconItem and row.icon == nil then
+    local ok, icon = Try(seams.ItemIcon, iconItem)
+    row.icon = ok and icon or false
+  end
+  Set(row, entry.state, entry.stateText, entry.color, entry.filterState)
+  row.tier = entry.tier
+end
+
+RESOLVE.secretReward = function(row, owner)
+  local read = StepsOf(row.sid, owner, nil)
+  if not read then return Set(row, nil, "Can't be read", U.Colors.LABEL_GRAY, "none") end
+  row.name = Recollect.UI.UsedFor.SecretRewardText(read.secret, owner, read.summary.trackedDone, read.summary.tracked)
+  row.secretName = Recollect.Facts.Secrets.Name(read.secret, owner)
+  local _, all = Recollect.Facts.Secrets.Rewards(read.secret, owner)
+  if all == "have" then
+    Set(row, "have", "Reward collected", Colors()[V().DONE], "have")
+  elseif all == "missing" then
+    Set(row, "missing", "Reward not collected", Colors()[V().USEFUL], "missing")
+  else
+    Set(row, nil, "Can't be read yet", U.Colors.LABEL_GRAY, "none")
+  end
+end
+
+-- AddSecretRows(job, push): a row for every step of each secret the item is
+-- used in or whose reward it teaches, and a Comes from row for the reward
+function Data.AddSecretRows(job, push)
+  local Secrets = Recollect.Facts.Secrets
+  if not Secrets or Secrets.Status() ~= "ok" then return end
+  local itemID, owner = job.itemID, job.owner
+  local roles, order = {}, {}
+  for _, entry in ipairs(Secrets.Of("item", itemID)) do
+    if Secrets.USE_ROLES[entry.role] or entry.role == "teaches" then
+      if not roles[entry.sid] then order[#order + 1] = entry.sid end
+      roles[entry.sid] = roles[entry.sid] == "use" and "use" or (entry.role == "teaches" and "teaches" or "use")
+    end
+  end
+  for n, sid in ipairs(order) do
+    local secret = Secrets.Get(sid)
+    if secret and not secret.routeFlags:find("x", 1, true) then
+      if roles[sid] == "teaches" then
+        local row = { tab = "sources", kind = "secretReward", what = "secretStep", kindLabel = "Secret", sid = sid, of = itemID,
+          order = n * 1000 }
+        Data.Resolve(row, owner, job.budget)
+        push(job, row)
+      end
+      for i, step in ipairs(secret.steps) do
+        local row = { tab = "secret", kind = "secretStep", what = "secretStep", kindLabel = "Step " .. step.label, sid = sid,
+          label = step.label, order = n * 1000 + i, of = roles[sid] == "use" and itemID or nil }
+        Data.Resolve(row, owner, job.budget)
+        push(job, row)
+      end
+    end
+  end
+end
+
 -- An endeavor task: open (its requirement line, as the game words it),
 -- done, or a state that can't be read; read again at every refresh
 RESOLVE.endeavor = function(row)
@@ -1197,13 +1602,14 @@ end
 
 -- LeadsTo(row): what a plain purchase leads to ("Phoenix Wishwing, a pet
 -- you don't have, through ..."), read for a row on screen and kept until
--- data changes; nil when it leads nowhere the data names
+-- data changes; nil when it leads nowhere the data names. With no owner, the
+-- row's own (the build's), so a summary built here is that character's
 -- keptOnly (the column's sort key): only a summary already built and still
 -- current, never a new one, so sorting a tab of thousands of purchases builds
 -- none (the rows on screen build theirs; Mark of Honor buys about 8,700)
 function Data.LeadsTo(row, owner, keptOnly)
   if row.kind ~= "buys" or not row.thing or row.thing.collectible or row.restricted or row.gone then return nil end
-  owner = owner or Recollect.Verdicts.Rows.Owner()
+  owner = owner or row.owner or Recollect.Verdicts.Rows.Owner()
   local summary = row.chain
   if summary == nil or row.chainStamp ~= Recollect.Facts.Buys.Stamp() then
     if keptOnly then return nil end
@@ -1215,11 +1621,11 @@ function Data.LeadsTo(row, owner, keptOnly)
 end
 
 -- Rewards(row): what a quest row's quest rewards, with states ("Phoenix
--- Wishwing, a pet you don't have"), or nil
+-- Wishwing, a pet you don't have"), or nil; with no owner, the row's own
 local REWARD_ROWS = { objective = true, questItem = true, starts = true }
 function Data.Rewards(row, owner)
   if not REWARD_ROWS[row.kind] or not row.questID then return nil end
-  local words = Recollect.Facts.Chains.RewardWords(row.questID, owner or Recollect.Verdicts.Rows.Owner())
+  local words = Recollect.Facts.Chains.RewardWords(row.questID, owner or row.owner or Recollect.Verdicts.Rows.Owner())
   return words and words:gsub("^rewards ", "") or nil
 end
 
@@ -1298,6 +1704,8 @@ end
 
 -- Resolve(row, owner, budget): the row's state read now
 function Data.Resolve(row, owner, budget)
+  owner = owner or row.owner or Recollect.Verdicts.Rows.Owner()
+  row.owner = owner
   if row.gone or row.restricted then QuestTitle(row, budget) end
   row.stateInline = nil
   row.bar = nil   -- set again only by a read that still has progress to show
@@ -1409,7 +1817,9 @@ end
 
 -- A row's label as the reason its place is visited (UI.Waypoint's roles)
 local ROW_ROLES = { ["Used at"] = "usedAt", ["Sold by"] = "soldBy", ["Drops from"] = "dropsFrom", ["Skinned from"] = "skinnedFrom",
-  ["Takes it as payment"] = "payment", ["Found at"] = "found", Treasure = "opens", Spot = "spot" }
+  ["Takes it as payment"] = "payment", ["Found at"] = "found", Treasure = "opens", Spot = "spot",
+  -- a G on a creature (data format 22): the pin says pickpocket or gather (Task #449)
+  ["Pickpocketed from"] = "gatheredBy", ["Gathered from"] = "gatheredBy" }
 
 -- Where the row's thing is, whoever it is for (kept on the row)
 local function RawPlace(row)
@@ -1559,6 +1969,13 @@ function Data.Name(row)
       return "An NPC in " .. PlaceWords(place), true
     end
   elseif what == "object" then
+    -- a spot an item is found at says what opens it, as its COMES FROM line
+    -- does (Task #437); never kept, so a key's name loading late fills in
+    if row.kind == "foundIn" then
+      local place = Data.Place(row)
+      local opened = Recollect.UI.UsedFor.OpenedWords(row.objectID)
+      return (place and ("A spot in " .. PlaceWords(place)) or "A spot") .. opened, place ~= nil
+    end
     local place = Data.Place(row)
     if not place then return row.kindLabel == "Spot" and "A spot" or "A treasure" end
     return (row.kindLabel == "Spot" and "A spot in " or "A treasure in ") .. PlaceWords(place), true
@@ -1571,7 +1988,9 @@ function Data.Name(row)
     name = select(2, Parts().Renown(row.factionID, row.level, false))
   elseif what == "zone" then
     name = row.mapID == 0 and "Any enemy, anywhere" or Vendors().ZoneName(row.mapID)
-    if name and row.mapID ~= 0 then name = (row.kind == "fishedIn" and "Fishing in " or "Enemies in ") .. name end
+    if name and row.mapID ~= 0 then
+      name = (row.kind == "fishedIn" and "Fishing in " or row.kind == "zoneReward" and "Activities in " or "Enemies in ") .. name
+    end
   end
   if row.unresolved then name = "Unconfirmed product" end
   -- a part any of several items fill: the first, and how many others would do
@@ -1603,15 +2022,16 @@ function Data.Clock() return seams.Clock() end
 function Data.DisplayName(row)
   local name = Data.Name(row)
   if name then return name end
-  -- a gone route's quest may never answer with its title (Task #232)
+  -- a gone route's quest may never answer with its title (Task #232), nor a
+  -- quest the server leaves unanswered (waited for QUEST_NAME_WAIT seconds)
   if row.what == "quest" then
     local okQuest, _, why = pcall(Recollect.Facts.QuestInfo.Get, row.questID)
-    local unavailable = row.gone or (okQuest and why == "unavailable")
+    local unavailable = row.gone or (okQuest and why == "unavailable") or Data.QuestWaitedOut(row)
     return ("Quest %s (%s)"):format(tostring(row.questID), unavailable and "name unavailable" or "name not loaded")
   end
   if row.what == "encounter" then return ("Encounter %s"):format(tostring(row.encounterID or row.id or "?")) end
   if row.what == "npc" then
-    return ("%s %s"):format((row.kind == "dropsFrom" or row.kind == "skinnedFrom") and "Creature" or "NPC",
+    return ("%s %s"):format((row.kind == "dropsFrom" or row.kind == "skinnedFrom" or row.kind == "gatheredBy") and "Creature" or "NPC",
       tostring(row.npcID or row.id or "?"))
   end
   return ("%s %s"):format(row.kindLabel or row.what or "?", tostring(row.id or "?"))
@@ -1668,14 +2088,24 @@ function Data.Icon(row)
   return FALLBACK_ICON, nil
 end
 
--- Quality(row): an item's quality, for its name's color, or nil
+-- Quality(row): an item's quality, for its name's color, or nil while it
+-- can't be read. Only a read quality is kept: an item not loaded yet (the
+-- item behind an ensemble, a pet or an illusion a purchase names, whose name
+-- comes from elsewhere) is asked of the view's own loader, and the repaint
+-- its arrival brings reads it again, so its name takes its quality's color
+-- as the game's link does (Task #434), never staying white. A mount's is
+-- the quality of the item that teaches it (Data.ItemOf), as its tooltip shows
 function Data.Quality(row)
-  if not row.itemID then return nil end
-  if row.quality == nil then
-    local ok, q = Try(seams.ItemQuality, row.itemID)
-    row.quality = ok and type(q) == "number" and q or false
+  local itemID = Data.ItemOf(row)
+  if not itemID then return nil end
+  if type(row.quality) == "number" then return row.quality end
+  local ok, q = Try(seams.ItemQuality, itemID)
+  if ok and type(q) == "number" and not Recollect.Utilities.IsSecret(q) then
+    row.quality = q
+    return q
   end
-  return row.quality or nil
+  Data.ItemName(itemID)   -- a load asked for, rationed like a name's
+  return nil
 end
 
 -- Seller(row): who sells a purchase ("Fizz Alechux (Razorwind Shores) and 2
@@ -1787,7 +2217,7 @@ end
 -- a real link
 function Data.PlainWords(text)
   text = tostring(text or "")
-  text = text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|T.-|t", ""):gsub("|A.-|a", ""):gsub("|", "")
+  text = U.StripColors(text):gsub("|T.-|t", ""):gsub("|A.-|a", ""):gsub("|", "")
   return text
 end
 
@@ -1877,15 +2307,14 @@ local LINK_ROWS = {
   currency = function(id) return { what = "currency", currencyID = id } end,
   spell = function(id) return { what = "recipe", spellID = id } end,
   mount = function(id) return { what = "mount", mountID = id } end,
-  pet = function(id) return { what = "pet", itemID = Relations().ThingItem("p", id) } end,
-  ensemble = function(id) return { what = "ensemble", itemID = Relations().ThingItem("e", id) } end,
-  illusion = function(id) return { what = "illusion", itemID = Relations().ThingItem("l", id) } end,
+  -- a recipe names its spell; its item, when the data gives one, stands for it as on a Buys row
+  recipe = function(id) return { what = "recipe", spellID = id, itemID = ItemBehind("recipe", id) } end,
   npc = function(id) return { what = "npc", npcID = id } end,
   encounter = function(id) return { what = "encounter", encounterID = id } end,
 }
-LINK_ROWS.recipe = LINK_ROWS.spell
-for _, what in ipairs({ "toy", "heirloom", "decor" }) do
-  LINK_ROWS[what] = function(id) return { what = what, itemID = id } end
+-- the kinds whose name stands for an item: the shared resolver's
+for _, what in ipairs({ "pet", "ensemble", "illusion", "toy", "heirloom", "decor" }) do
+  LINK_ROWS[what] = function(id) return { what = what, itemID = ItemBehind(what, id) } end
 end
 
 function Data.LinkRow(kind, id)
@@ -1906,11 +2335,13 @@ local function QualityColor(quality)
   return { r, g, b }
 end
 
--- LinkColor(row): the color the game gives the row's link, or nil
+-- LinkColor(row): the color the game gives the row's link, or nil. A thing
+-- with an item behind it, a mount's teaching item included, takes that
+-- item's quality color (Task #434)
 function Data.LinkColor(row)
   local what = row.what
   if what == "quest" or what == "achievement" then return LINK_YELLOW end
-  if row.itemID then return QualityColor(Data.Quality(row)) end
+  if Data.ItemOf(row) then return QualityColor(Data.Quality(row)) end
   if what == "mount" or what == "recipe" or what == "illusion" then return LINK_BLUE end
   if what == "encounter" then return Vendors().JOURNAL_COLOR end
   if what == "npc" or what == "object" then

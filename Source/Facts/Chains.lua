@@ -13,22 +13,36 @@
 -- { steps } }, a step being { kind = "quest", questID, of } (of is the item
 -- followed; the quest is one it is used in, is an objective of, or starts,
 -- and the quest's rewards are the ends), { kind = "makes", itemID,
--- relation } or { kind = "buys", itemID, count, relation }. At most
+-- relation } or { kind = "buys", itemID, count, relation }, and since Task
+-- #438 { kind = "opens", objectID, of, relation } (a key's object: each
+-- item the object holds, Facts.Vendors.Object's contents, is an end) and
+-- { kind = "holds", container, relation } (a container item's H codes: each
+-- item opening it can give is an end). An end that is an item the data
+-- doesn't type (an object's contents, a container's) carries product = its
+-- ID, read live through Facts.Buys.Product (a toy, a mount, an appearance...),
+-- else a plain item. At most
 -- MAX_RELATIONS of an item's relations are looked at and MAX_ENDS ends
 -- kept; an item already on the path is never followed again. The structure
 -- is the data's alone and kept per item (bounded at KEEP items); states are
 -- read at every call.
 --
 -- State(entry, owner, budget) reads one end now: "open" (every link serves
--- the owner, a quest on the way is not done, on it, repeatable or recurs,
--- and the end is a collectible still missing), "done" (the end is had, or a
--- one-time quest on the way is done), "other" (a link, or the end's own
+-- the owner, a quest on the way is not done, on it, repeatable or recurs, a
+-- treasure on the way not looted yet, and the end is a collectible still
+-- missing), "done" (the end is had, or a one-time quest on the way is done,
+-- or a treasure on the way is looted), "other" (a link, or the end's own
 -- purchase, is for another faction, class or race, or no longer in the
 -- game), "plain" (the end is a plain item with nothing to own, every link
 -- read) or "unread" (a link or
 -- the end can't be read yet, or is another character's to read), and the
--- thing as Facts.Buys resolved it. Summary(itemID, owner, budget, from) tallies
--- the ends and names the first open one (else the first unread, else any).
+-- thing as Facts.Buys resolved it; a fourth answer is the end's item when it
+-- is still loading (the caller asks for it). A treasure's state is its loot
+-- quest's, the logged-in character's, read once the quest history has loaded
+-- (as Purposes/Opens.lua reads it); one with no loot quest can't be read.
+-- Summary(itemID, owner, budget, from, keep) tallies the ends (keep(entry),
+-- when given, picks which count) and names the first open one (else the
+-- first unread, else any) as best, the first of each state as first[state],
+-- and the ends still loading as loading = { itemID }.
 -- Words(entry, owner, thing, quests) and ThingWords(thing) word them for a
 -- line.
 -- SetNamer(fn) lets the panel hear each name the words use (fn(kind, id,
@@ -43,6 +57,9 @@ local Chains = {}
 Recollect.Facts.Chains = Chains
 
 local IsPositiveID = Recollect.Utilities.IsPositiveID
+-- A count as the player reads it, with the game's thousands separators
+-- ("1,000 Vile Essence"; Task #438)
+local function Count(n) return Recollect.Utilities.Count(n) end
 
 local MAX_DEPTH = 2        -- items followed: the one bought, then one it buys or makes
 local MAX_RELATIONS = 200  -- relations of one item looked at
@@ -103,6 +120,14 @@ local function Copy(list, extra)
   return out
 end
 
+-- An end that is an item: typed when the data's K says what it is, else
+-- read live as a product (Facts.Buys.Product) when the state is read
+local function ItemEnd(itemID, via)
+  local letter, id = Relations().ItemThing(itemID)
+  if id then return { thing = ThingRelation(letter, id), via = via } end
+  return { thing = ThingRelation("", itemID), product = itemID, via = via }
+end
+
 local Follow
 Follow = function(itemID, depth, via, visited, out)
   visited[itemID] = true
@@ -133,6 +158,19 @@ Follow = function(itemID, depth, via, visited, out)
         local step = { kind = "buys", itemID = relation.id, count = relation.count, relation = relation }
         Follow(relation.id, depth + 1, Copy(via, step), visited, out)
       end
+    elseif kind == "opens" and IsPositiveID(relation.id) then
+      -- a key: what the treasure it opens holds (Task #438, the Diver's Key)
+      local object = Recollect.Facts.Vendors.Object(relation.id)
+      if object then
+        local step = { kind = "opens", objectID = relation.id, of = itemID, relation = relation }
+        for _, content in ipairs(object.contents) do
+          if #out.ends >= MAX_ENDS then return end
+          if not visited[content] then out.ends[#out.ends + 1] = ItemEnd(content, Copy(via, step)) end
+        end
+      end
+    elseif kind == "holds" and IsPositiveID(relation.id) and not visited[relation.id] then
+      -- a container: what opening it can give
+      out.ends[#out.ends + 1] = ItemEnd(relation.id, Copy(via, { kind = "holds", container = itemID, relation = relation }))
     end
   end
 end
@@ -197,8 +235,35 @@ end
 
 local END_STATE = { missing = "open", have = "done", unavailable = "other" }
 
+-- A treasure on the way: "done" (its loot quest is complete: looted),
+-- "open" (not looted yet) or "unread" (no loot quest, the quest history
+-- still loading, a read that failed, or another character's copy)
+local function LootState(objectID, owner)
+  if not owner.isViewer then return "unread" end   -- the loot quest is the logged-in character's
+  local object = Recollect.Facts.Vendors.Object(objectID)
+  if not object or not object.questID or not Recollect.Facts.Ready.Quests() then return "unread" end
+  local ok, done = Recollect.Utilities.Try(Recollect.Purposes.client.IsQuestFlaggedCompleted, object.questID)
+  if not ok or type(done) ~= "boolean" then return "unread" end
+  return done and "done" or "open"
+end
+Chains.LootState = LootState
+
+-- The thing an end stands for: the data's typed thing, or for an item the
+-- data doesn't type the product read live (a collectible), else the plain
+-- item; nil and the item while it is still loading
+local function EndThing(entry, owner)
+  local Buys = Recollect.Facts.Buys
+  if entry.product then
+    local thing, why = Buys.Product(entry.product, owner)
+    if thing then return thing end
+    if why == "loading" then return nil, entry.product end
+  end
+  return Buys.Resolve(entry.thing, owner)
+end
+
 -- State(entry, owner, budget): "open", "done", "other", "plain" or "unread"; the
--- thing Facts.Buys resolved; the quests on the way { [questID] = facts }
+-- thing Facts.Buys resolved; the quests on the way { [questID] = facts }, with
+-- each treasure's loot state under "o<objectID>"; the end's item while it loads
 function Chains.State(entry, owner, budget)
   owner = owner or Recollect.Verdicts.Rows.Owner()
   local state, quests = nil, {}
@@ -215,12 +280,24 @@ function Chains.State(entry, owner, budget)
     if step.kind == "quest" then
       local questState, quest = QuestState(step.questID, owner, budget)
       quests[step.questID] = quest or false
-      if questState == "done" then return "done", Recollect.Facts.Buys.Resolve(entry.thing, owner), quests end
+      if questState == "done" then
+        local thing, loading = EndThing(entry, owner)
+        return "done", thing, quests, loading
+      end
       if questState == "unread" then state = "unread" end
+    elseif step.kind == "opens" then
+      -- a treasure looted is a one-time step done (Task #438)
+      local looted = LootState(step.objectID, owner)
+      quests["o" .. step.objectID] = looted
+      if looted == "done" then
+        local thing, loading = EndThing(entry, owner)
+        return "done", thing, quests, loading
+      end
+      if looted == "unread" then state = "unread" end
     end
   end
-  local thing = Recollect.Facts.Buys.Resolve(entry.thing, owner)
-  if not thing then return "unread", nil, quests end
+  local thing, loading = EndThing(entry, owner)
+  if not thing then return "unread", nil, quests, loading end
   if not thing.collectible then return state or "plain", thing, quests end
   local own = END_STATE[thing.state]
   if own == "done" or own == "other" then return own, thing, quests end
@@ -228,21 +305,29 @@ function Chains.State(entry, owner, budget)
   return state or "open", thing, quests
 end
 
--- Summary(itemID, owner, budget): { open, done, other, unread, plain,
--- total, best = { entry, state, thing, quests } } or nil when the item
--- leads nowhere the data names
-function Chains.Summary(itemID, owner, budget, from)
+-- Summary(itemID, owner, budget, from, keep): { open, done, other, unread,
+-- plain, total, best = { entry, state, thing, quests }, first = { [state] =
+-- the same }, reads = every end read, in order, loading = { itemID } } or nil
+-- when the item leads nowhere the data names (or keep, when given, keeps none
+-- of its ends)
+function Chains.Summary(itemID, owner, budget, from, keep)
   local structure = Chains.Leads(itemID, from)
   if #structure.ends == 0 then return nil end
-  local out = { open = 0, done = 0, other = 0, unread = 0, plain = 0, total = #structure.ends }
+  local out = { open = 0, done = 0, other = 0, unread = 0, plain = 0, total = 0, first = {}, reads = {}, loading = {} }
   local rank = { open = 1, unread = 2, plain = 3, done = 4, other = 5 }
   for _, entry in ipairs(structure.ends) do
-    local state, thing, quests = Chains.State(entry, owner, budget)
-    out[state] = out[state] + 1
-    if not out.best or rank[state] < rank[out.best.state] then
-      out.best = { entry = entry, state = state, thing = thing, quests = quests }
+    if not keep or keep(entry) then
+      local state, thing, quests, loading = Chains.State(entry, owner, budget)
+      out[state] = out[state] + 1
+      out.total = out.total + 1
+      if loading then out.loading[#out.loading + 1] = loading end
+      local read = { entry = entry, state = state, thing = thing, quests = quests }
+      out.first[state] = out.first[state] or read
+      out.reads[#out.reads + 1] = read
+      if not out.best or rank[state] < rank[out.best.state] then out.best = read end
     end
   end
+  if out.total == 0 then return nil end
   return out
 end
 
@@ -296,9 +381,26 @@ local function QuestWords(questID, quest, owner)
   return title
 end
 
+local LOOT_WORDS = { done = " (looted)", open = " (not looted yet)" }
+
+-- TreasureWords(objectID, looted): "a treasure in Zul'Aman (65.4, 5.6) (not
+-- looted yet)"; "a treasure" for one with no known place. The data ships no
+-- object's name, so the place names it
+function Chains.TreasureWords(objectID, looted)
+  local object = Recollect.Facts.Vendors.Object(objectID)
+  local text = "a treasure"
+  if object and object.mapID then
+    local zone = Recollect.Facts.Vendors.ZoneName(object.mapID) or ("map " .. object.mapID)
+    text = ("a treasure in %s (%.1f, %.1f)"):format(zone, object.x * 100, object.y * 100)
+  end
+  return text .. (LOOT_WORDS[looted] or "")
+end
+
 -- Words(entry, owner, thing, quests): "Phoenix Wishwing, a pet you don't
 -- have, through "Tale of the Phoenix" (not done)"; "..., by buying Phoenix
--- Ash Talisman with 1"
+-- Ash Talisman with 1"; "Ancient Amani Mask, a toy you don't have, by
+-- making Diver's Key, then through a treasure in Zul'Aman (65.4, 5.6) (not
+-- looted yet)"
 function Chains.Words(entry, owner, thing, quests)
   owner = owner or Recollect.Verdicts.Rows.Owner()
   local text = Chains.ThingWords(thing)
@@ -310,7 +412,11 @@ function Chains.Words(entry, owner, thing, quests)
     elseif step.kind == "makes" then
       steps[#steps + 1] = "by making " .. ItemName(step.itemID)
     elseif step.kind == "buys" then
-      steps[#steps + 1] = ("by buying %s with %d"):format(ItemName(step.itemID), step.count or 1)
+      steps[#steps + 1] = ("by buying %s with %s"):format(ItemName(step.itemID), Count(step.count or 1))
+    elseif step.kind == "opens" then
+      steps[#steps + 1] = "through " .. Chains.TreasureWords(step.objectID, quests and quests["o" .. step.objectID])
+    elseif step.kind == "holds" then
+      steps[#steps + 1] = "by opening " .. ItemName(step.container)
     end
   end
   if #steps > 0 then text = text .. ", " .. table.concat(steps, ", then ") end
@@ -319,7 +425,7 @@ function Chains.Words(entry, owner, thing, quests)
 end
 
 -- RewardWords(questID, owner, max): "rewards Phoenix Wishwing, a pet you
--- don't have, and 1 more", whether a reward is a collectible still missing,
+-- don't have; and 1 more", whether a reward is a collectible still missing,
 -- and how many things the quest rewards; nil when the data names none
 function Chains.RewardWords(questID, owner, max)
   local rewards = Chains.Rewards(questID)
@@ -351,7 +457,7 @@ function Chains.GoldWords(copper)
   copper = math.floor(copper)
   local gold, silver, rest = math.floor(copper / 10000), math.floor(copper / 100) % 100, copper % 100
   local parts = {}
-  if gold > 0 then parts[#parts + 1] = gold .. " gold" end
+  if gold > 0 then parts[#parts + 1] = Count(gold) .. " gold" end
   if silver > 0 then parts[#parts + 1] = silver .. " silver" end
   if rest > 0 or #parts == 0 then parts[#parts + 1] = rest .. " copper" end
   return table.concat(parts, " ")
@@ -371,11 +477,11 @@ local function CostPart(cost)
   elseif cost.kind == "item" and cost.id then
     local okName, name = pcall(Recollect.Facts.Item.Name, cost.id)
     name = okName and type(name) == "string" and name or nil
-    return ("%d %s"):format(cost.count or 1, Named("item", cost.id, name) or ("item " .. cost.id))
+    return ("%s %s"):format(Count(cost.count or 1), Named("item", cost.id, name) or ("item " .. cost.id))
   elseif cost.kind == "currency" and cost.id then
     local okInfo, info = Recollect.Utilities.Try(Recollect.Purposes.client.GetCurrencyInfo, cost.id)
     local name = okInfo and type(info) == "table" and type(info.name) == "string" and info.name or nil
-    return ("%d %s"):format(cost.count or 1, name and Named("currency", cost.id, name, info.quality) or ("currency " .. cost.id))
+    return ("%s %s"):format(Count(cost.count or 1), name and Named("currency", cost.id, name, info.quality) or ("currency " .. cost.id))
   end
   return nil
 end
@@ -398,7 +504,7 @@ function Chains.PriceWords(costs)
   return JoinAnd(parts)
 end
 
--- What a purchase costs in all, worded (item 9): "1 Phoenix Feather and 20
+-- What a purchase costs in all, worded (rule 50): "1 Phoenix Feather and 20
 -- Apexis Crystal", this item first with how many the trade takes, then
 -- every other cost, each name heard as a link (Cobanyte, 2026-09-30: "for 1
 -- plus 20 Apexis Crystal" left a new player guessing what the 1 was);
@@ -411,7 +517,7 @@ function Chains.TradeWords(relation, itemID)
   local count = tonumber(relation.count) or 1
   local okName, name = pcall(Recollect.Facts.Item.Name, itemID)
   name = IsPositiveID(itemID) and okName and type(name) == "string" and name or nil
-  local parts = { name and ("%d %s"):format(count, Named("item", itemID, name)) or ("%d of this item"):format(count) }
+  local parts = { name and ("%s %s"):format(Count(count), Named("item", itemID, name)) or ("%s of this item"):format(Count(count)) }
   local ok, costs = pcall(Relations().Costs, relation, itemID)
   for i, cost in ipairs(ok and type(costs) == "table" and costs or {}) do
     if i > 1 then parts[#parts + 1] = CostPart(cost) end

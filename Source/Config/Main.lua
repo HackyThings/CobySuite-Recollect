@@ -49,12 +49,10 @@ local base = CobySuite_Recollect.Config.New({
     ["version_check"]         = { type = "boolean" },
   },
   debug = Recollect.Debug,
-  onSet = function(name, old, value)
-    Recollect.EventBus:Fire(Recollect.Events.ConfigChanged, name, value, old)
-  end,
-  onReset = function()
-    Recollect.EventBus:Fire(Recollect.Events.ConfigChanged)
-  end,
+  -- Set fires ConfigChanged (name, value, old), Reset fires it alone
+  bus = Recollect.EventBus, event = Recollect.Events.ConfigChanged,
+  -- anything but a table here is a damaged file: that table starts over
+  ensureTables = { "RECOLLECT_WINDOW_STATE" },
 })
 
 Config.Options       = base.Options
@@ -68,10 +66,6 @@ Config.Set           = base.Set
 ---------------------------------------------------------------------------
 function Config.InitializeData()
   base.InitializeData()
-  -- Anything but a table here is a damaged file: start that table over
-  if type(RECOLLECT_WINDOW_STATE) ~= "table" then
-    RECOLLECT_WINDOW_STATE = {}
-  end
   -- Once: "Include your other characters" became on by default
   -- (Cobanyte, 2026-09-28), and a saved "off" from the beta, when it
   -- defaulted off, is turned on this one time; a later "off" stays

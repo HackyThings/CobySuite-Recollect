@@ -341,41 +341,67 @@ local function Timed(label, fn)
   return ok, a, b
 end
 
--- One valid message of every type, as protocol 2's decoder reads them
--- exactly (Protocol.SHAPES): { to, fields }. Placeholder fields would fail
--- every type's field checks
+-- One valid message of every type in its whole shape, as protocol 2's
+-- decoder reads them exactly (Protocol.SHAPES): { to, fields }. Placeholder
+-- fields would fail every type's field checks. Task #419's forms: an R
+-- ending in the codecs this client can send, a Q naming a codec, an S
+-- carrying the CBOR's size before compression
 local FORMAT_SAMPLES = {
   H = { "ALL", "0123456789ab", "2", "", "", "", "" },
-  R = { "AUTHOR", "0123456789ab", "abcdef0123456789", "0.0.3", "2026.09.30.4", "8", "2", "", "on", "idle", "0", "0", "", "none", "" },
+  R = { "AUTHOR", "0123456789ab", "abcdef0123456789", "0.0.3", "2026.09.30.4", "8", "2", "", "on", "idle", "0", "0", "", "none", "",
+    "bz" },
   O = { "AUTHOR", "abcdef0123456789", "0.0.3", "2026.09.30.4", "8", "2" },
   L = { "AUTHOR", "abcdef0123456789" },
-  Q = { "curator", "q1000abcd", "0", "s1.1000", "0", "0" },
-  S = { "AUTHOR", "q1000abcd", "1", "100", "", "records:1,confirms:0,notes:0,more:0" },
+  Q = { "curator", "q1000abcd", "0", "s1.1000", "0", "0", "z" },
+  S = { "AUTHOR", "q1000abcd", "1", "100", "", "records:1,confirms:0,notes:0,more:0", "4096" },
   D = { "AUTHOR", "q1000abcd", "1", "QUJD" },
+  -- a binary data part (Task #419): any byte but NUL, the separator too
+  B = { "AUTHOR", "q1000abcd", "1", "\002~\255" },
   N = { "curator", "q1000abcd", "1,2" },
   K = { "curator", "q1000abcd", "0123abcd", "v:1@1" },
   V = { "curator", "q1000abcd", "", "", "", "" },
   X = { "AUTHOR", "q1000abcd", "by the author" },
 }
 
--- FormatCheck(): whether every message type encodes and decodes, in words
--- (the route test's "message format" line)
+-- The shorter forms older clients still send, which the decoder reads too
+-- (SHAPES' older): an R of 14 fields (before Task #419) and of 12 (before
+-- Task #299), and a Q and an S of 5 (a plain pull, as before Task #419)
+local FORMAT_OLDER = {
+  R = {
+    { "AUTHOR", "0123456789ab", "abcdef0123456789", "0.0.3", "2026.09.30.4", "8", "2", "", "on", "idle", "0", "0", "", "none", "" },
+    { "AUTHOR", "0123456789ab", "abcdef0123456789", "0.0.3", "2026.09.30.4", "8", "2", "", "on", "idle", "0", "0", "" },
+  },
+  Q = { { "curator", "q1000abcd", "0", "s1.1000", "0", "0" } },
+  S = { { "AUTHOR", "q1000abcd", "1", "100", "", "records:1,confirms:0,notes:0,more:0" } },
+}
+Ping._test = { FORMAT_SAMPLES = FORMAT_SAMPLES, FORMAT_OLDER = FORMAT_OLDER }
+
+-- Whether one sample encodes and decodes back as its kind with every field it sent
+local function RoundTrips(P, kind, sample)
+  local to = sample[1] == "curator" and "abcdef0123456789" or P[sample[1]]
+  local text = P.Encode(kind, P.LIVE, to, unpack(sample, 2))
+  local back = text and P.Decode(text)
+  return back ~= nil and back.kind == kind and #back.fields == #sample - 1
+end
+
+-- FormatCheck(): whether every message type encodes and decodes in its
+-- whole shape, and the older forms too, in words (the route test's
+-- "message format" line)
 function Ping.FormatCheck()
   local P = Curator.Protocol
-  local kinds, bad = {}, {}
+  local kinds, bad, older = {}, {}, 0
   for kind in pairs(P.SHAPES) do kinds[#kinds + 1] = kind end
   table.sort(kinds)
   for _, kind in ipairs(kinds) do
     local sample = FORMAT_SAMPLES[kind]
-    local back
-    if sample then
-      local to = sample[1] == "curator" and "abcdef0123456789" or P[sample[1]]
-      local text = P.Encode(kind, P.LIVE, to, unpack(sample, 2))
-      back = text and P.Decode(text)
+    if not (sample and RoundTrips(P, kind, sample)) then bad[#bad + 1] = kind end
+    for _, form in ipairs(FORMAT_OLDER[kind] or {}) do
+      older = older + 1
+      if not RoundTrips(P, kind, form) then bad[#bad + 1] = ("%s of %d fields"):format(kind, #form - 1) end
     end
-    if not (back and back.kind == kind) then bad[#bad + 1] = kind end
   end
-  return #bad == 0 and ("every message type encodes and decodes (%d)"):format(#kinds) or ("broken: " .. table.concat(bad, ", "))
+  if #bad > 0 then return "broken: " .. table.concat(bad, ", ") end
+  return ("every message type encodes and decodes (%d), and the older forms of R, Q and S (%d)"):format(#kinds, older)
 end
 
 function Ping.LocalTests()
@@ -692,6 +718,15 @@ function Ping.Listen(why)
       Ping.CHANNEL)
   end)
   return not already
+end
+
+-- For the suites: the session state Reset keeps (whether others' tests are
+-- answered, and the session whose end is due), read and put back exactly, so
+-- a test's session never outlives it (Task #433)
+function Ping._test.Session() return state.listening, sessionID end
+function Ping._test.SetSession(listening, id)
+  state.listening = listening
+  sessionID = id
 end
 
 -------------------------------------------------------------------------------

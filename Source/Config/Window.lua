@@ -3,7 +3,7 @@
 --
 -- The suite's standard settings window (CobySuite.UI.CreateSettingsWindow):
 -- a sidebar with Audit panel, Recollect Audit, Keys and waypoints and
--- Curator, staged edits that Apply writes through Config.Set, Cancel, and
+-- Curator, staged edits that Apply writes through Config.Set, Undo Edits, and
 -- Defaults, and a Guide button beside Defaults. It grows from its corner and
 -- keeps its size. Built at load, so opening it never creates frames in
 -- combat; a ConfigChanged event repaints an open window.
@@ -158,7 +158,7 @@ local function OthersTip()
 end
 
 local function BuildAuditList(panel)
-  panel:Section("Include in the audit list", { icon = ICONS .. "INV_Misc_Bag_08",
+  panel:Section("Include in the Recollect Audit", { icon = ICONS .. "INV_Misc_Bag_08",
     subtitle = "What the Recollect Audit (/rec, or the minimap button) lists" })
   panel:ToggleTiles{
     columns = 2,
@@ -308,7 +308,7 @@ local function BuildCurator(panel)
     visibleWhen = function() return HasCurator() and not CuratorAvailable() end,
   }
   panel:Button{
-    text = "Join the Curator Community", width = 210,
+    text = "Join Recollect Curators", width = 210,
     description = "Prints the community's invite link in chat; click it there to open the game's join window.",
     visibleWhen = function()
       return HasCurator() and CuratorAvailable() and Ask("IsEnabled") == true and Ask("IsMember") == false

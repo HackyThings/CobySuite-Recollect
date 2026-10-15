@@ -67,7 +67,7 @@ local STAT = { "A temporary stat boost", "A current-expansion temporary stat boo
 -- weapon oil, stone or rune; a permanent coating ("lasts until canceled") and
 -- an artifact relic name no time, and stay Other
 local function IsTimedWeaponBuff(useText)
-  local plain = useText:gsub("|c........", ""):gsub("|[rR]", ""):lower()
+  local plain = CobySuite_Recollect.Utilities.StripColors(useText):lower()
   local weapon = plain:find("your weapons?%f[%A]") or plain:find("your [%a%-]+ weapons?%f[%A]")
     or plain:find("your [%a%-]+ [%a%-]+ weapons?%f[%A]")
   local timed = plain:find("for %d+ min") or plain:find("for %d+ hour") or plain:find("for %d+ sec")
@@ -199,17 +199,26 @@ R.Register({
         ctx.facts.spellLoading and "loading" or "unreadable")
     end
     local lead = fun and FUN_DRINK or (words or OTHER)[1]
+    -- A kind each expansion replaces, unless its Use line makes it an
+    -- optional use no newer one replaces (rule 51): pet-battle food that heals
+    -- battle pets, or a novelty (Task #442, audit R11: Little Buddy Biscuits
+    -- read Outdated)
+    local replaced = words and not fun
+    if replaced and age ~= "current" then
+      local optional = UseEffect.Optional(ctx, age)
+      if optional == "petBattle" or optional == "novelty" then replaced = false end
+    end
     if age == "older" then
       -- Both sources place it in an older expansion (Facts.Item.Age)
-      local text = ("%s %s, an older expansion"):format(lead, UseEffect.From(expansion, source, patch))
-      if words and not fun then return R.Result(V.OUTDATED, text) end
+      local text = ("%s %s"):format(lead, UseEffect.Older(expansion, source, patch))
+      if replaced then return R.Result(V.OUTDATED, text) end
       return NotReplaced(ctx, text, age)
     end
     if age == "disagree" then
       -- The game says older, the added patch says current: never Outdated,
       -- never "current-expansion"
       local text = ("%s; %s"):format(lead, UseEffect.Disagree(ctx.facts, expansion, patch))
-      if words and not fun then return R.Unknown(text .. ", so whether a newer one replaces it can't be told") end
+      if replaced then return R.Unknown(text .. ", so whether a newer one replaces it can't be told") end
       return NotReplaced(ctx, text, age)
     end
     -- A season of this expansion that isn't the current one: Season speaks
@@ -231,6 +240,15 @@ R.Register({
       return R.Unknown(text .. "; whether it has a Use effect can't be read")
     end
     local okUse, canUse = Try(client.CanUseItem, ctx.stack.itemID)
+    -- an item every way to get is gone for (an X record) and every use the
+    -- data names is gone too is no live current-expansion consumable: it
+    -- only informs, and the removed check speaks (Task #446: Memory of
+    -- Kalimdor, whose Use is a combine no longer in the game, read Keep it).
+    -- One with no use codes (a perfume) still works when held, so stays
+    if okUse and canUse == true and Recollect.Facts.Relations.Removed(ctx.stack.itemID) ~= nil
+      and R.UsesGone(ctx.stack.itemID) then
+      return R.Info(text .. "; it can no longer be obtained")
+    end
     if okUse and canUse == true then return R.Result(V.USEFUL, text) end
     if not okUse or canUse ~= false then
       return R.Unknown(text .. "; whether this character can use it can't be read", nil, "unreadable")

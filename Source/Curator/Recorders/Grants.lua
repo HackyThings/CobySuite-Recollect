@@ -54,7 +54,7 @@ end
 -- the most it allows, or when its info can't be read
 function Grants.AtCap(currencyID)
   local ok, info = pcall(Grants.seams.CurrencyInfo, currencyID)
-  if not ok or type(info) ~= "table" or (issecrettable and issecrettable(info)) then return true end
+  if not ok or type(info) ~= "table" or CobySuite_Recollect.Utilities.IsSecretTable(info) then return true end
   local max, weeklyMax = Field(info, "maxQuantity"), Field(info, "maxWeeklyQuantity")
   if not max or not weeklyMax then return true end
   if max > 0 then
@@ -76,7 +76,8 @@ function Grants.Finish(which)
   if which.ambiguous or InCombat() or not Curator.Main.StillCurrent(which.epoch) then return end
   local currency, amount = next(which.gains)
   if currency and next(which.gains, currency) == nil and not Grants.AtCap(currency) then
-    Curator.Main.Defer(function() Curator.Compare.Grant(which.itemID, currency, amount, Curator.Context.Current()) end)
+    local ctx = which.ctx
+    Curator.Main.Defer(function() Curator.Compare.Grant(which.itemID, currency, amount, ctx) end)
   end
 end
 
@@ -84,7 +85,9 @@ end
 -- combat nothing is opened (a kill's currency would land in it), and a
 -- cast of any held item's Use spell while a window is open, one several
 -- items share included, makes both windows ambiguous (a delayed gain could
--- belong to either; as ContainerUse.OnCast)
+-- belong to either; as ContainerUse.OnCast). The window keeps the context
+-- block of the cast (Task #431: a zone or difficulty change before the
+-- window closes never becomes the grant's)
 function Grants.OnCast(spellID)
   if not Curator.Main.MayRecord() then return end
   if InCombat() then
@@ -95,7 +98,7 @@ function Grants.OnCast(spellID)
   if #items == 0 then return end
   if window then window.ambiguous = true end
   if #items ~= 1 then return end
-  local opened = { itemID = items[1], epoch = Curator.Main.Epoch(), gains = {} }
+  local opened = { itemID = items[1], epoch = Curator.Main.Epoch(), gains = {}, ctx = Curator.Context.Current() }
   if window then opened.ambiguous = true end
   window = opened
   Grants.seams.After(Bags.CAST_WINDOW, function() Grants.Finish(opened) end)

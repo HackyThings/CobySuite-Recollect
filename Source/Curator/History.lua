@@ -33,7 +33,7 @@
 -- findings aren't sent again unless they change), lost (V: the
 -- author's copy was lost; its findings went back to pending and travel with
 -- a later collection), cancelled (why: "you" or "author"), refused (why: the
--- reason S carried: busy, nodata, empty, declined, pack, large), replaced (a new
+-- reason S carried: busy, nodata, empty, declined, pack, large, codec), replaced (a new
 -- request came while this one waited for K; its findings stay pending),
 -- interrupted (the game closed or reloaded mid-way, or it never started:
 -- curator mode toggled between the request and its start), expired (a

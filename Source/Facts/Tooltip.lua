@@ -29,8 +29,8 @@
 --     questLines }               -- { { type, text } } for quest title,
 --                                --  objective and player lines (8, 17, 18)
 -- or nil when there is no data or any line is secret. Lines are matched
--- against the client's own localized global strings, so this works in every
--- locale. Data comes from C_TooltipInfo getters, which build no frame and
+-- against the client's own localized global strings (all but the English-only
+-- season tag), so this works in every locale. Data comes from C_TooltipInfo getters, which build no frame and
 -- touch no GameTooltip.
 -------------------------------------------------------------------------------
 local Tooltip = {}
@@ -57,13 +57,8 @@ Tooltip.StripColors = CobySuite_Recollect.Utilities.StripColors
 
 -- A format string such as "Collected (%d/%d)" or "%d Slot %s" as a pattern
 -- with captures; nil for a format with positional arguments ("%1$d"), whose
--- captures could come back in another order
-function Tooltip.FormatToPattern(fmt)
-  if fmt:find("%%%d") then return nil end
-  local escaped = CobySuite_Recollect.Utilities.EscapePattern(fmt)
-  escaped = escaped:gsub("%%%%d", "(%%d+)"):gsub("%%%%s", "(.+)")
-  return "^" .. escaped .. "$"
-end
+-- captures could come back in another order (CobySuite.Utilities.FormatToPattern)
+Tooltip.FormatToPattern = CobySuite_Recollect.Utilities.FormatToPattern
 
 local STRINGS                -- resolved on first use: the globals load before us,
 local function Strings()     -- but suites may swap them

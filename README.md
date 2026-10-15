@@ -35,7 +35,7 @@ A short summary beside the tooltip: the verdict and why, the uses that matter mo
 
 Everything Recollect knows about one item, so you don't need a website. Open it with Alt+D, or click a row in the Recollect Audit. A setting can make the key a click instead (Alt-click, for example), which works on any item, even in combat.
 
-- **Still needed?** Recollect's suggestion (Keep it, Sell it, Likely safe to delete, Probably done, Just for fun, Replaced, Lower level or Can't tell yet) with a short reason; hover for the rest.
+- **Still needed?** Recollect's suggestion (Keep it, Sell it, Likely safe to delete, Probably done, Just for fun, Your call, Replaced, Lower level or Can't tell yet) with a short reason; hover for the rest.
 - **What it's for:** what the item is, its Use line, and a tile for each kind of use with how many there are and how many are still open.
 - **Achievements:** what it counts toward, with progress bars.
 - **How to get more:** each way to get it (sold by, drops from, rewards) with the whole price and what buying requires first. With no source recorded yet, it says so, and whether another player could trade you one.
@@ -45,7 +45,9 @@ Everything Recollect knows about one item, so you don't need a website. Open it 
 
 A green check marks what's done, earned, collected or known, a red cross what's still to get or do, and a gray cross what this character can't use.
 
-Tabs along the bottom list everything in sortable, searchable tables. Names work as they do in chat (hover, Shift-click, Ctrl-click), Alt-click opens that item here, and right-click gives a menu: link it, preview it, set a waypoint, or copy its Wowhead link. An achievement row's icon opens the game's achievement window at it.
+Tabs along the bottom list everything in sortable, searchable tables (Buys, Quests and achievements, Crafting, Comes from, What it takes and No longer available, each shown only when the item has rows). Names work as they do in chat (hover, Shift-click, Ctrl-click), Alt-click opens that item here, and right-click gives a menu: link it, preview it, set a waypoint, or copy its name or Wowhead link. An achievement row's icon opens the game's achievement window at it.
+
+An item that belongs to one of the game's secrets also gets a **Secret** tab, and What it's for names the secret as a link that opens it. The tab walks you through the secret: a step list on the left (stages that fold, a mark on every step, a search, All, To do and This item filters, and a Suggested next step), and one page for the chosen step on the right with what you need and own, what to do, and its places with a Set waypoint button. Previous and Next walk the steps, and for steps the game can't track you can tick your own checkmark; those marks are only your checklist and never count as the game's progress.
 
 ## The Recollect Audit
 
@@ -59,7 +61,7 @@ Waypoints go to TomTom when it's installed, else to the game's map pin; a settin
 
 `/rec settings`, a right-click on the minimap button, or Options > AddOns.
 
-- **Audit panel:** whether Recollect shows on item tooltips, and when the audit panel shows (Alt, Shift, Ctrl or always), with an example.
+- **Audit panel:** whether Recollect shows on item tooltips, and when the audit panel shows (Alt, Shift, Ctrl or always), with an example, and whether to be told when a newer version of Recollect is out.
 - **Recollect Audit:** whether the list includes your bank, warband bank and other characters, and the minimap button.
 - **Keys and waypoints:** the item details key, the waypoint key, and where waypoints go (TomTom first, or the game's map pin).
 - **Curator:** curator mode (below).
@@ -68,9 +70,9 @@ Waypoints go to TomTom when it's installed, else to the game's map pin; a settin
 
 Optional and off by default, and available only in the Americas and Oceania region. It helps the author find missing or wrong item data while you play.
 
-- Turn it on under `/rec settings` > **Curator**, which lists exactly what is recorded. It records game IDs and positions, never names, chat, gold, currencies or how many of anything you have.
+- Turn it on under `/rec settings` > **Curator**, which lists exactly what is recorded. It records game IDs and positions, a few details about your character (such as class, level, faction and zone), items Recollect knows nothing about (your bags and banks included) and Recollect's own errors; never names, chat, gold, currencies or how many of anything you have. While it is on, the author's online checks also report your zone and the kind of instance you're in.
 - Join **Recollect Curators** with `/rec curator join`; the author collects findings through that community.
-- **Curator Flag** (or **Request Info**) in item details and `/rec feedback` send your own notes.
+- **Curator Flag** (or **Request info**) in item details and `/rec feedback` send your own notes.
 - `/rec curator` shows what waits to be sent and the collection history. Turn on **Ask me before each collection** to approve each one.
 - Turning curator mode off stops recording and offers to delete saved findings.
 
@@ -91,6 +93,8 @@ Optional and off by default, and available only in the Americas and Oceania regi
 ```
 
 The Addon Compartment also opens the Recollect Audit; right-click it for settings.
+
+`/rec curator status` prints one status line, `join` prints the invite link to the Recollect Curators community, `cancel` stops a running collection, `diag` prints connection details for a bug report and `ping` tests the connection to the author.
 
 ## Issues / feedback
 

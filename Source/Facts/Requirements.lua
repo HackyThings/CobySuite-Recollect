@@ -8,6 +8,8 @@
 --     "makes"); never one whose product is unconfirmed (an "mx<n>" code)
 --   * a combine of several different parts the data names (Facts.Relations
 --     "partOf"): every part, with how many of each
+--   * a step of a secret that takes the item (Facts.Secrets): every item the
+--     step takes, with how many of each; only a secret still in the game
 -- For(itemID, owner, relations) returns { { title, kind, reward, done,
 -- parts } } (a combine's record: { kind = "combine", product, parts }):
 --   parts  { { itemID, need, bags, bank, warband, have, missing, uncertain,
@@ -131,6 +133,22 @@ function Requirements.For(itemID, owner, relations)
     for partID, need in pairs(entry.parts) do parts[#parts + 1] = Requirements.Part(partID, tonumber(need) or 1) end
     records[#records + 1] = { title = entry.name or entry.key, kind = entry.kind, reward = entry.reward,
       done = KnownUse.TargetDone(entry.target), parts = SortParts(parts) }
+  end
+  -- a secret's step that takes the item: every item that step takes
+  local Secrets = Recollect.Facts.Secrets
+  for _, entry in ipairs(Secrets and Secrets.Uses(itemID) or {}) do
+    local secret = Secrets.Get(entry.sid)
+    local step = secret and Secrets.StepOf(secret, entry.step)
+    if step and entry.role == "input" and #step.takes > 0 and not secret.routeFlags:find("x", 1, true) then
+      local parts = {}
+      for _, ref in ipairs(step.takes) do parts[#parts + 1] = Requirements.Part(ref.id, ref.count) end
+      local states = Secrets.Steps(secret, owner)
+      local state = states[step.label] and states[step.label].state
+      local things = Secrets.Rewards(secret, owner)
+      records[#records + 1] = { title = ("%s, step %s"):format(Secrets.Name(secret, owner) or "a secret", step.label),
+        kind = "secret", reward = Secrets.RewardWords(things), parts = SortParts(parts),
+        done = state == "done" or ((state == "todo" or state == "ready") and false) or nil }
+    end
   end
   local Relations = Recollect.Facts.Relations
   for _, relation in ipairs(relations or Relations.For(itemID)) do

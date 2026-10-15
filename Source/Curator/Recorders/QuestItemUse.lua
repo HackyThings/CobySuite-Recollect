@@ -35,9 +35,7 @@ QuestItemUse.seams = {
 local sent = {}   -- [castGUID] = { kind, id, spell, at }
 
 local function Read(name, ...)
-  local ok, value = pcall(QuestItemUse.seams[name], ...)
-  if not ok or Host.IsSecret(value) then return nil end
-  return value
+  return CobySuite_Recollect.Utilities.SafeCall(Host.IsSecret, 1, QuestItemUse.seams[name], ...)
 end
 
 local function Readable(text)
@@ -88,7 +86,10 @@ function QuestItemUse.OnCast(spellID, castGUID)
     end
   end
   if found then
-    Curator.Main.Defer(function() Curator.Compare.UsedAt(found, target.kind, target.id, Curator.Context.Current()) end)
+    -- the context of the cast, read here (Task #431: a zone or difficulty
+    -- change before the deferred comparison never becomes the use's)
+    local ctx = Curator.Context.Current()
+    Curator.Main.Defer(function() Curator.Compare.UsedAt(found, target.kind, target.id, ctx) end)
   end
 end
 

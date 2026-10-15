@@ -166,7 +166,9 @@ end
 --   removed      the "removed" check's Outdated (every use the data knows is
 --                gone) turns Unknown when the item has a Use effect, or its
 --                spell can't be read, and no other check decided: that effect
---                may still be a use, and nothing checked it
+--                may still be a use, and nothing checked it; unless a check
+--                read that effect and found it gone (useAccounted: a recipe
+--                whose teaching and every way to get it are gone, Task #446)
 function Verdicts.Settle(ctx, purposes)
   local over
   for _, p in ipairs(purposes) do
@@ -175,8 +177,11 @@ function Verdicts.Settle(ctx, purposes)
       for key in pairs(p.supersedes) do over[key] = p end
     end
   end
-  local removed, decidedOther = nil, false
+  -- useAccounted: a check that read the Use effect itself and found it gone
+  -- (a recipe whose teaching is no longer in the game, Task #446)
+  local removed, decidedOther, useAccounted = nil, false, false
   for _, p in ipairs(purposes) do
+    if p.useAccounted then useAccounted = true end
     local by = over and over[p.key]
     if by and by ~= p and not p.noSettle and (p.verdict == V.USEFUL or p.verdict == V.USE
       or (p.verdict == V.UNKNOWN and p.headline ~= nil and not p.readOwed)) then
@@ -189,7 +194,8 @@ function Verdicts.Settle(ctx, purposes)
       decidedOther = true
     end
   end
-  if removed and removed.verdict == V.OUTDATED and not decidedOther and ctx.facts and ctx.facts.hasSpell ~= false then
+  if removed and removed.verdict == V.OUTDATED and not decidedOther and not useAccounted and ctx.facts
+    and ctx.facts.hasSpell ~= false then
     removed.verdict = V.UNKNOWN
     removed.brief = nil   -- the Outdated summary no longer says it
     removed.reason = removed.reason .. (ctx.facts.hasSpell == nil and "; whether it has a Use effect can't be read"

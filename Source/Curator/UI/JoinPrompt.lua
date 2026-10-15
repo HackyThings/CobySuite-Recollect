@@ -33,7 +33,7 @@ Join.seams = {
 }
 
 Join.DECLINED = "This character won't be asked again. Findings you record here are still collected "
-  .. "through your characters in the Recollect Curators community; /rec curator join adds this one later."
+  .. "through your characters in the Recollect Curators community; /rec curator join prints the invite link if you change your mind."
 
 local dialog
 local shownFor = nil     -- the GUID the open window asks for
@@ -51,7 +51,7 @@ function Join.ShouldAsk(guid)
   if type(guid) ~= "string" or not Curator.Main.IsEnabled() then return false end
   if Asked()[guid] then return false end
   local ok, clubs = pcall(Join.seams.Clubs)
-  if not ok or type(clubs) ~= "table" or (issecrettable and issecrettable(clubs)) then return false end
+  if not ok or type(clubs) ~= "table" or CobySuite_Recollect.Utilities.IsSecretTable(clubs) then return false end
   Curator.Transport.Forget()
   return not Curator.Transport.IsMember()
 end

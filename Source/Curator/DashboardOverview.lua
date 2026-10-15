@@ -553,7 +553,7 @@ end
 -------------------------------------------------------------------------------
 Dashboard.RECORDED = {
   "Where the game and Recollect's database differ: vendor goods and prices, drops, quest rewards and givers, recipes, combines, where NPCs stand, the Black Market and the Trading Post",
-  "Items Recollect's database knows nothing about, wherever you see them, your bags and banks included: the item's ID and where you saw it",
+  "Items Recollect's database knows nothing about, wherever you see them, your bags and banks included: the item's ID, what kind of item it is and where you saw it",
   "Confirmations: what the game showed that matches the database, so the author knows it still holds",
   "Game IDs only, with your character's class, race, level, faction, professions, zone, War Mode, Chromie Time, the instance difficulty and, where it matters, quest progress and how a vendor regards you (a reputation discount changes its prices)",
   "Your notes: items you flag, feedback you write, and Recollect's own errors, whether or not the game showed them; only the author reads them",

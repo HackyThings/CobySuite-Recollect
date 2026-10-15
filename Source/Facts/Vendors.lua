@@ -229,13 +229,14 @@ function Vendors.NpcName(npcID)
   return text
 end
 
--- A creature's name read before this session asked, or nil; never builds a
+-- A creature's name already read this session, or nil; never builds a
 -- tooltip (the pinned view rations new reads itself)
 function Vendors.KnownName(npcID)
   return names[npcID]
 end
 
--- A vendor for a panel line: "Name (Zone)", "a vendor in Zone (x, y)", or
+-- A vendor for a panel line: "Name (Zone)", "Name (Dungeon or Raid)" for a boss
+-- with no place, "Name" alone, "a vendor in Zone (x, y)", or
 -- nil when neither its name nor its place is known; and its position.
 -- noun words an NPC that isn't a vendor ("an NPC").
 function Vendors.Describe(npcID, noun)

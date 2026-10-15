@@ -1,7 +1,7 @@
 -------------------------------------------------------------------------------
 -- Purpose: an item of an older expansion's system (legendary memories, Heart
--- of Azeroth essences, Corruption), saying what the system was and whether
--- it still does anything
+-- of Azeroth essences, Corruption, soulbind conduits, garrison, follower and
+-- champion items), saying what the system was and whether it still does anything
 --
 -- Legacy.System(itemID, facts, tip) names the system from the item's Use
 -- text, read on English clients only (Registry.EnglishClient): the tooltip's
@@ -22,6 +22,10 @@
 --   corruption  the Corruption system went away in patch 9.0 (2020-10-12),
 --               but the cloak's Use line also names Sanity Drain, and whether
 --               it serves Horrific Visions now isn't known (nil)
+--   conduit, garrison, followers  not settled by a page read (nil); each
+--               system's opening words are the Use line's own (Task #395).
+--               A conduit teaches something, so its "Already known" reads
+--               like a memory's (rule 6, a character-only copy is done)
 --
 -- No C_LegendaryCrafting call maps an item to its power (RuneforgePower has
 -- no item field; GetRuneforgePowerInfo takes a power ID, 12.1.0 docs), so
@@ -37,6 +41,9 @@
 --   could use
 --   the system no longer does anything (still     Outdated, naming the system
 --   false)                                        and why
+--   a system marked informs (garrison,            soft Unknown (Registry.Info):
+--   follower and champion items, Task #395)                       what the system was, never
+--                                                 holding another answer back
 --   otherwise                                     Unknown, led by what the
 --                                                 system was, with whether it
 --                                                 still does anything
@@ -81,6 +88,34 @@ local SYSTEMS = {
     still = nil,
     stillWords = "Corruption was removed in patch 9.0; whether it still serves Horrific Visions isn't checked",
   },
+  -- Task #395: systems a coverage sweep of the dump's Use lines found with no
+  -- words (286 conduits, 405 garrison, follower and champion items); what each was
+  -- comes from the Use line itself, and nothing says whether it still does
+  -- anything (still nil) until an allowed current source does
+  {
+    key = "conduit", opening = "Add this Conduit to your collection", learn = true,
+    name = "Soulbind conduit",
+    what = "a Shadowlands conduit: using it adds it to your conduit collection, to install in a soulbind",
+    still = nil,
+    stillWords = "whether conduits still matter outside Shadowlands content isn't checked",
+  },
+  {
+    key = "garrison", openings = { "Provides the plans needed to", "Instantly completes" }, learn = false, informs = true,
+    name = "Garrison item",
+    what = "a garrison item: it builds or upgrades a building in your garrison, or finishes work orders there",
+    still = nil,
+    stillWords = "whether it still helps you isn't checked",
+  },
+  {
+    key = "followers",
+    openings = { "Hire this follower", "Upgrade a follower's", "Equip a follower with", "Equip a Champion with",
+      "Equip a champion with", "Create an uncommon, rare or epic follower" },
+    learn = false, informs = true,
+    name = "Follower and champion item",
+    what = "an item for the followers or champions you send on missions",
+    still = nil,
+    stillWords = "whether it still helps you isn't checked",
+  },
 }
 
 -- The Use text without its trigger ("Use: "), color codes and texture tags
@@ -123,10 +158,14 @@ function Legacy.System(itemID, facts, tip)
   local text = UseText(itemID, facts, tip)
   if not text then return nil end
   for _, system in ipairs(SYSTEMS) do
-    if text:sub(1, #system.opening) == system.opening then
+    local matched = system.opening and text:sub(1, #system.opening) == system.opening
+    for _, opening in ipairs(system.openings or {}) do
+      if text:sub(1, #opening) == opening then matched = true end
+    end
+    if matched then
       local out = {}
       for k, v in pairs(system) do out[k] = v end
-      out.opening = nil
+      out.opening, out.openings = nil, nil
       if system.key == "memory" then out.power = PowerName(text) end
       return out
     end
@@ -161,6 +200,15 @@ R.Register({
         end
         return R.Unknown(("%s; this character already knows it, but this copy could serve another character"):format(title), title)
       end
+    end
+    -- a system that teaches nothing and whose fate no source settles only
+    -- informs (Task #395): soft, so it never holds another check's answer or
+    -- the band back (367 garrison, follower and champion items read Your call or
+    -- Replaced before it, and still do)
+    if system.informs then
+      local info = R.Info(about)
+      info.headline = title
+      return info
     end
     if system.still == false then return R.Result(V.OUTDATED, about) end
     local known = ""

@@ -60,7 +60,7 @@ NoInfo.STORED_AFTER = 2    -- seconds from the first stored bank read of a burst
 
 -- The one-time line for a curator who opted in before bags and banks were included
 NoInfo.NOTICE_TEXT = "Curator mode now also notes items Recollect's database knows nothing about, including ones in "
-  .. "your bags and banks: only the item's ID and where you saw it, never how many you have, currencies, gold or "
+  .. "your bags and banks: only the item's ID, what kind of item it is and where you saw it, never how many you have, currencies, gold or "
   .. "anything else you carry. /rec curator shows what's recorded; turning curator mode off stops it."
 
 -- Sightings that say where the item is, not where it came from

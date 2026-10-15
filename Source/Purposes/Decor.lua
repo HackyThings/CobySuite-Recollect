@@ -55,7 +55,7 @@ R.Register({
       end
       return R.Result(V.USE, "Decor you don't own in your house or its storage")
     end
-    return R.Result(V.USEFUL, ("Decor you own %d of (%d placed, %d in storage); another copy can be placed too")
+    return R.Result(V.USEFUL, ("Decor you own: %d (%d placed, %d in storage); another copy can be placed too")
       :format(owned, placed, stored + redeemable))
   end,
 })

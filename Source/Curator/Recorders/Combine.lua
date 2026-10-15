@@ -30,7 +30,7 @@ local function CombineCounts(itemID)
 end
 
 -- Judge(before, after): the combines the change shows, one per input
--- ({ { input, inCount, output, outCount, spell, also } }), or nil
+-- ({ { input, inCount, output, outCount, spell, also, transform } }), or nil
 function Combine.Judge(before, after)
   local down, up = Bags.Changes(before, after)
   if #down == 0 or #up ~= 1 then return nil end
@@ -49,9 +49,16 @@ function Combine.Judge(before, after)
     if not CombineCounts(d.id)[d.n] or Bags.CastJustNow(d.id) ~= spell then also[#also + 1] = ("%dx%d"):format(d.id, d.n) end
   end
   local alsoText = #also > 0 and table.concat(also, ",") or nil
+  -- the container use recorder keeps such a use whole (tf:) only when the
+  -- spell is one held item's alone; parts sharing one Use spell open no
+  -- window there, so their simple combines stay recorded here (Task #423).
+  -- Counted in before: a last stack used up is gone from the bags after the
+  -- change (review CUR-02)
+  local transform = alsoText ~= nil and #Bags.ItemsForSpell(spell, before) == 1
   local out = {}
   for _, d in ipairs(inputs) do
-    out[#out + 1] = { input = d.id, inCount = d.n, output = up[1].id, outCount = up[1].n, spell = spell, also = alsoText }
+    out[#out + 1] = { input = d.id, inCount = d.n, output = up[1].id, outCount = up[1].n, spell = spell, also = alsoText,
+      transform = transform }
   end
   return out
 end
@@ -59,8 +66,8 @@ end
 function Combine.OnBagsChanged(before, after)
   local judged = Combine.Judge(before, after)
   if not judged then return end
+  local ctx = Curator.Context.Current()   -- the moment of the combine, read in the event (Task #421)
   Curator.Main.Defer(function()
-    local ctx = Curator.Context.Current()
     for _, seen in ipairs(judged) do
       local result = Curator.Compare.Combine(seen, ctx)
       Host.Log("Combine seen: %d x%d made %d x%d (%s)", seen.input, seen.inCount, seen.output, seen.outCount,

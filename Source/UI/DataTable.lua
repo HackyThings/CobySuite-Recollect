@@ -1,8 +1,8 @@
 -------------------------------------------------------------------------------
 -- UI.DataTable: rows in columns, one header per view, a fixed pool of rows
 --
--- A table widget that knows nothing of Recollect (a candidate for the shared
--- library, /shared):
+-- A table widget that knows nothing of Recollect (kept here rather than in the
+-- shared library, whose CreateSortTable does less; Task #382):
 --   local t = DataTable.Create(parent, {
 --     name, pool = 40, rowHeight = 20, maxCells = 8, utilities,
 --     persistence = { savedVariable = "NAME", path = "key" },   -- column widths

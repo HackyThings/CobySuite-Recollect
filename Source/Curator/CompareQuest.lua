@@ -22,6 +22,9 @@
 -- (Compare.SawItem, the fact ni:<item>).
 -- Rewards are filtered by class (U14), so a quest window is never complete
 -- and gives no "not seen": additions, conflicts and stamps only.
+-- Only a relation on a route that serves the character confirms (Shipped):
+-- a sighting of one no longer available ("|x") or for another faction,
+-- class or race is an addition whose shipped names that route (Task #421).
 -------------------------------------------------------------------------------
 local Curator = Recollect.Curator
 local Host = Curator.Host
@@ -41,12 +44,13 @@ function Compare.QuestRewards(visit, ctx)
   for _, kind in ipairs(KINDS) do
     for itemID, count in pairs(visit[kind.field] or {}) do
       Compare.SawItem(itemID, "q:" .. quest, ctx)
-      if Compare.Shipped(itemID, kind.relation)[quest] then
+      local serving, gone = Compare.Shipped(itemID, kind.relation, ctx, kind.letter)
+      if serving[quest] then
         matched[#matched + 1] = itemID
-      elseif Compare.Shipped(itemID, kind.otherRelation)[quest] then
+      elseif Compare.Shipped(itemID, kind.otherRelation, ctx)[quest] then
         Record("conflict", "q:" .. quest .. ":i:" .. itemID, kind.letter, kind.other, ctx)
       else
-        Record("addition", "q:" .. quest .. ":" .. kind.letter .. ":" .. itemID, tostring(count), nil, ctx)
+        Record("addition", "q:" .. quest .. ":" .. kind.letter .. ":" .. itemID, tostring(count), gone[quest], ctx)
       end
     end
   end
@@ -60,10 +64,12 @@ function Compare.QuestRequired(questID, required, ctx)
   local matched = {}
   for itemID, count in pairs(required) do
     Compare.SawItem(itemID, "q:" .. questID, ctx)
-    local shipped = Compare.Shipped(itemID, "objective")[questID] or Compare.Shipped(itemID, "questItem")[questID]
+    local objective, goneObjective = Compare.Shipped(itemID, "objective", ctx, "o")
+    local questItem, goneItem = Compare.Shipped(itemID, "questItem", ctx, "u")
+    local shipped = objective[questID] or questItem[questID]
     local fact = "q:" .. questID .. ":o:" .. itemID
     if not shipped then
-      Record("addition", fact, tostring(count), nil, ctx)
+      Record("addition", fact, tostring(count), goneObjective[questID] or goneItem[questID], ctx)
     elseif shipped ~= true and shipped ~= count then
       Record("conflict", fact, tostring(count), tostring(shipped), ctx)
     else
@@ -76,11 +82,12 @@ end
 
 -- QuestStarter(itemID, questID, ctx): the quest an item offered
 function Compare.QuestStarter(itemID, questID, ctx)
-  if Compare.Shipped(itemID, "starts")[questID] then
+  local serving, gone = Compare.Shipped(itemID, "starts", ctx, "s")
+  if serving[questID] then
     Curator.Store.Confirm("s:" .. itemID, { questID }, 1, ctx)
     return "confirmed"
   end
-  Record("addition", "s:" .. itemID, tostring(questID), nil, ctx)
+  Record("addition", "s:" .. itemID, tostring(questID), gone[questID], ctx)
   return "addition"
 end
 

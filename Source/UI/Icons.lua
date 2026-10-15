@@ -8,6 +8,17 @@
 --   na     common-icon-redx, grayed      not for this character, no longer available
 --   warn   transmog-icon-warning-small   can't be read
 --   wait   UI-LFG-PendingMark            still being checked
+--   pending common-radiobutton-circle, grayed   not done yet, nothing wrong (a secret's step
+--                                        not started: an empty circle, never a red cross and never
+--                                        the question mark of the ready check; Tasks #407, #410;
+--                                        the unselected radio button of Blizzard's character
+--                                        creation and role poll)
+--   progress the same circle in blue     some of what it gets is held (Task #411)
+--   ready   the same circle in green     everything it takes is held
+--   untracked common-icon-minus, grayed  nothing the game reports shows it done (a dash:
+--                                        Blizzard's house list's minus, 12.1.5)
+--   marked  common-icon-checkmark, in blue  ticked by the player on a personal checklist,
+--                                        never a game-confirmed done
 -- They are added only where text is painted (never to a line's own text,
 -- which Copy and chat use), sized to the text they sit in: inline markup
 -- at height 0 takes the font's height, and a texture takes the size its
@@ -22,9 +33,16 @@ Icons.ATLAS = {
   na = "common-icon-redx",
   warn = "transmog-icon-warning-small",
   wait = "UI-LFG-PendingMark",
+  pending = "common-radiobutton-circle",
+  progress = "common-radiobutton-circle",
+  ready = "common-radiobutton-circle",
+  untracked = "common-icon-minus",
+  marked = "common-icon-checkmark",
 }
 -- A kind drawn grayed (0 to 255, as the game's inline markup takes them)
-Icons.GRAY = { na = { 150, 150, 150 } }
+Icons.GRAY = { na = { 150, 150, 150 }, pending = { 170, 170, 170 }, untracked = { 150, 150, 150 } }
+-- A kind drawn in a color of its own: grayed, then tinted (0 to 255)
+Icons.TINT = { progress = { 77, 166, 255 }, ready = { 64, 217, 89 }, marked = { 120, 170, 230 } }
 
 -- Markup(kind, size): the icon as inline text with a space after it, size
 -- 0 (the default) being the font's height; "" for no kind
@@ -32,7 +50,7 @@ function Icons.Markup(kind, size)
   local atlas = kind and Icons.ATLAS[kind]
   if not atlas then return "" end
   size = tonumber(size) or 0
-  local gray = Icons.GRAY[kind]
+  local gray = Icons.GRAY[kind] or Icons.TINT[kind]
   if gray then
     return ("|A:%s:%d:%d:0:0:%d:%d:%d|a "):format(atlas, size, size, gray[1], gray[2], gray[3])
   end
@@ -45,9 +63,13 @@ function Icons.Paint(texture, kind)
   local atlas = kind and Icons.ATLAS[kind]
   if not atlas then return false end
   texture:SetAtlas(atlas)
-  local gray = Icons.GRAY[kind]
-  texture:SetDesaturated(gray ~= nil)
-  texture:SetVertexColor(1, 1, 1, 1)
+  local gray, tint = Icons.GRAY[kind], Icons.TINT[kind]
+  texture:SetDesaturated(gray ~= nil or tint ~= nil)
+  if tint then
+    texture:SetVertexColor(tint[1] / 255, tint[2] / 255, tint[3] / 255, 1)
+  else
+    texture:SetVertexColor(1, 1, 1, 1)
+  end
   return true
 end
 

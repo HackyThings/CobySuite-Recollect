@@ -64,8 +64,14 @@ Transport.FULL_RATE = 1          -- the rate BUDGET's shares are of (WhisperInte
 Transport.BUDGET = { idle = 0.5, moving = 0.35, combat = 0.2 }
 Transport.BACKOFF = 5             -- seconds after a throttle before the rate recovers
 Transport.WHISPER_INTERVAL = 0.25 -- seconds between whispers when idle (4 a second arrived whole, 2026-09-28)
--- The game doesn't hand a sender its own community channel message (Step 1
--- T14, in game 2026-09-26), so every message sent is also given to this
+-- A faster pace for curators that compress (Task #419), off (nil) until a
+-- pull between two players measures what whispers sustain: game read V2
+-- (Task #414) had 60 of 60 arrive at up to 15 a second, but only whispered
+-- to oneself. Nothing reads it while it is nil; every pull keeps
+-- WHISPER_INTERVAL
+Transport.CAPABLE_INTERVAL = nil
+-- The game doesn't hand a sender its own addon message (Step 1 T14 saw it on
+-- the old community channel, in game 2026-09-26), so every message sent is also given to this
 -- client's own receiver a frame later, and a copy the server does return is
 -- dropped: each message is handled once either way (spec, T14's fallback)
 Transport.LOCAL_ECHO = true
@@ -113,10 +119,15 @@ local tally = { sent = {}, results = {}, got = {}, own = {}, raw = {}, echo = {}
   whispered = 0, retried = 0 }
 
 local function Seam(name, ...)
-  local ok, a, b = pcall(Transport.seams[name], ...)
-  if not ok or Host.IsSecret(a) or Host.IsSecret(b) then return nil end
-  return a, b
+  return CobySuite_Recollect.Utilities.SafeCall(Host.IsSecret, 2, Transport.seams[name], ...)
 end
+
+-- IsData(kind): a pull's data part, D or (the binary form, Task #419) B:
+-- never logged with its payload, never sent ahead of what waits
+local function IsData(kind)
+  return kind == "D" or kind == "B"
+end
+Transport.IsData = IsData
 
 -------------------------------------------------------------------------------
 -- Names
@@ -125,33 +136,32 @@ end
 function Transport.Canonical(name)
   if type(name) ~= "string" or Host.IsSecret(name) or name == "" then return nil end
   if name:find("-", 1, true) then return name end
-  local realm = Seam("Realm")
-  if type(realm) == "string" and realm ~= "" then return name .. "-" .. realm end
-  return name
+  return CobySuite_Recollect.Utilities.CanonicalName(name, Seam("Realm"))
 end
 
 function Transport.Self()
   local name, realm = Seam("Self")
   if type(name) ~= "string" then return nil end
   if type(realm) ~= "string" or realm == "" then return Transport.Canonical(name) end
-  return name .. "-" .. realm
+  return CobySuite_Recollect.Utilities.CanonicalName(name, realm)
 end
 
 -------------------------------------------------------------------------------
 -- The debug log (CURATOR, /rec debug): every step of the conversation, so a
 -- curator can copy it for the author (Cobanyte, 2026-09-28). Only plain
 -- values are logged; a data part's payload never is, and only the first and
--- every 50th part of a transfer are.
+-- every 50th part of a transfer are; a B part's bytes never, not even as
+-- text (Task #419).
 -------------------------------------------------------------------------------
 local DATA_EVERY = 50
 
 -- A message in words: its type, mode, addressee and fields (a data part's
--- request and number only)
+-- request and number only, D or B)
 function Transport.Describe(msg)
   if type(msg) ~= "table" then return "?" end
   local fields = msg.fields or {}
   local shown = {}
-  if msg.kind == "D" then
+  if IsData(msg.kind) then
     shown = { tostring(fields[1]), "part " .. tostring(fields[2]) }
   else
     for i = 1, #fields do
@@ -166,7 +176,7 @@ end
 
 -- Whether a data part is worth a line (the first, every 50th)
 local function DataWorthLogging(msg)
-  local seq = msg and msg.kind == "D" and tonumber((msg.fields or {})[2])
+  local seq = msg and IsData(msg.kind) and tonumber((msg.fields or {})[2])
   return not seq or seq == 1 or seq % DATA_EVERY == 0
 end
 
@@ -183,7 +193,7 @@ end
 -------------------------------------------------------------------------------
 local function FindClub()
   local clubs = Seam("Clubs")
-  if type(clubs) ~= "table" or (issecrettable and issecrettable(clubs)) then return nil end
+  if type(clubs) ~= "table" or CobySuite_Recollect.Utilities.IsSecretTable(clubs) then return nil end
   for _, club in ipairs(clubs) do
     if Curator.Const.CLUB_ID and tostring(club.clubId) == tostring(Curator.Const.CLUB_ID) then return club.clubId end
     if not Curator.Const.CLUB_ID and not Host.IsSecret(club.name) and club.name == Curator.Const.CLUB_NAME then
@@ -195,7 +205,7 @@ end
 
 local function FindStream(clubId)
   local streams = Seam("Streams", clubId)
-  if type(streams) ~= "table" or (issecrettable and issecrettable(streams)) then return nil end
+  if type(streams) ~= "table" or CobySuite_Recollect.Utilities.IsSecretTable(streams) then return nil end
   for _, stream in ipairs(streams) do
     if not Host.IsSecret(stream.name) and stream.name == Curator.Const.STREAM_NAME then return stream.streamId end
   end
@@ -460,7 +470,7 @@ function Transport.Enqueue(text, tag, onSent, first, target)
   for i, item in ipairs(items) do
     if first then table.insert(queue, i, item) else queue[#queue + 1] = item end
   end
-  if kind ~= "D" or #queue == #items then
+  if not IsData(kind) or #queue == #items then
     Host.Log("Curator queued %s%s (%d characters) for %d %s; %d waiting, sending %s", kind, first and " first" or "", #text,
       #items, #items == 1 and "character" or "characters", #queue, paused and "paused" or tostring(Transport.Activity()))
   end
@@ -472,7 +482,7 @@ end
 -- can't be encoded
 function Transport.Send(kind, mode, to, ...)
   local text = Protocol.Encode(kind, mode, to, ...)
-  return Transport.Enqueue(text, nil, nil, kind ~= "D")
+  return Transport.Enqueue(text, nil, nil, not IsData(kind))
 end
 
 -- EnqueueLocal(text, onSent, tag): hands a message to this client's own
@@ -514,7 +524,7 @@ end
 -- the message has left the queue (a deadline starts then, not when queued)
 function Transport.SendThen(onSent, kind, mode, to, ...)
   local text = Protocol.Encode(kind, mode, to, ...)
-  return Transport.Enqueue(text, nil, onSent, kind ~= "D")
+  return Transport.Enqueue(text, nil, onSent, not IsData(kind))
 end
 
 -- SendTo(target, onSent, kind, mode, to, ...): Send to one character by its
@@ -522,7 +532,7 @@ end
 -- curator ID set; onSent as SendThen
 function Transport.SendTo(target, onSent, kind, mode, to, ...)
   local text = Protocol.Encode(kind, mode, to, ...)
-  return Transport.Enqueue(text, nil, onSent, kind ~= "D", target)
+  return Transport.Enqueue(text, nil, onSent, not IsData(kind), target)
 end
 
 -- SendTagged(tag, target, onSent, kind, mode, to, ...): SendTo with a tag,
@@ -531,7 +541,7 @@ end
 -- other message alone)
 function Transport.SendTagged(tag, target, onSent, kind, mode, to, ...)
   local text = Protocol.Encode(kind, mode, to, ...)
-  return Transport.Enqueue(text, tag, onSent, kind ~= "D", target)
+  return Transport.Enqueue(text, tag, onSent, not IsData(kind), target)
 end
 
 -- Drop(tag): the queued messages with that tag, and the tagged local

@@ -78,7 +78,7 @@ local seams = {
   ViewingActive = function() return C_NeighborhoodInitiative.IsViewingActiveNeighborhood() end,
   Info = function() return C_NeighborhoodInitiative.GetNeighborhoodInitiativeInfo() end,
   Request = function() C_NeighborhoodInitiative.RequestNeighborhoodInitiativeInfo() end,
-  IsSecretTable = function(t) return issecrettable ~= nil and issecrettable(t) and true or false end,
+  IsSecretTable = function(t) return CobySuite_Recollect.Utilities.IsSecretTable(t) end,
   InCombat = function() return InCombatLockdown() end,
   Now = function() return GetTime() end,
 }

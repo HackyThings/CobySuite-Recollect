@@ -13,6 +13,10 @@
 -- holds across the bags, bank and warband bank. A target that cannot be read
 -- yet is Unknown. Entries without a confirmed line are skipped. When an item
 -- has several uses, any one still needed makes it Needed.
+-- An entry with any = N (any N different parts are enough, not all of them:
+-- the felcycle's lucky items) never makes a part Needed: while the target
+-- isn't done each part is Useful, "any N different ones count". The entry's
+-- what (default "items") names the parts in that line.
 -------------------------------------------------------------------------------
 local R = Recollect.Purposes.Registry
 local V = R.Verdict
@@ -83,14 +87,14 @@ function KnownUse.EntriesFor(itemID)
 end
 
 -- How each kind of use reads: what the item is part of, and what it is
--- still needed for. %s is the entry's name.
+-- still needed for, and how it names the use. %s is the entry's name.
 local KIND_WORDS = {
-  secret = { part = "Part of the secret %s", needed = "Needed for the secret %s" },
-  cache = { part = "One of the keys to %s", needed = "Needed to open %s" },
-  exchange = { part = "One of the items that buy %s", needed = "Needed to buy %s" },
-  collection = { part = "Part of the collection %s", needed = "Needed for the collection %s" },
+  secret = { part = "Part of the secret %s", needed = "Needed for the secret %s", name = "the secret %s" },
+  cache = { part = "One of the keys to %s", needed = "Needed to open %s", name = "%s" },
+  exchange = { part = "One of the items that buy %s", needed = "Needed to buy %s", name = "%s" },
+  collection = { part = "Part of the collection %s", needed = "Needed for the collection %s", name = "the collection %s" },
 }
-local DEFAULT_WORDS = { part = "Part of %s", needed = "Needed for %s" }
+local DEFAULT_WORDS = { part = "Part of %s", needed = "Needed for %s", name = "%s" }
 
 local function Words(entry, which)
   local words = KIND_WORDS[entry.kind] or DEFAULT_WORDS
@@ -109,6 +113,11 @@ local function EntryResult(entry, itemID)
   if done then
     return R.Result(V.DONE, Words(entry, "part") .. "; you already have "
       .. (entry.reward or "its reward") .. ", so this copy is left over")
+  end
+  local enough = tonumber(entry.any)
+  if enough and enough > 1 then
+    return R.Result(V.USEFUL, ("One of the %s for %s; any %d different ones count"):format(
+      entry.what or "items", Words(entry, "name"), enough))
   end
   local need = tonumber(entry.parts[itemID]) or 1
   local held = Held(itemID)
@@ -131,8 +140,9 @@ R.Register({
     if #entries == 0 then return nil end
     local results = {}
     for _, entry in ipairs(entries) do results[#results + 1] = EntryResult(entry, ctx.stack.itemID) end
-    -- Any use still needed wins, then any unreadable one, else every use is done
-    for _, verdict in ipairs({ V.NEEDED, V.UNKNOWN }) do
+    -- Any use still needed wins, then one that is useful (any N parts count),
+    -- then any unreadable one, else every use is done
+    for _, verdict in ipairs({ V.NEEDED, V.USEFUL, V.UNKNOWN }) do
       for _, result in ipairs(results) do
         if result.verdict == verdict then return result end
       end

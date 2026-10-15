@@ -24,8 +24,12 @@
 --                             without "+s" when the data doesn't know the stack
 --   m:<input>:x<n>            what combining n of an item made, "<item>x<n>"
 --   p:<npc>                   where an NPC stands, "<map>:<x>,<y>" (0 to 1)
+--   op:<object>               where the player stood looting an object alone,
+--                             "<map>:<x>,<y>": approximate, so it confirms a
+--                             near place or adds one for an object the data
+--                             names with none, never a conflict (Task #423)
 -- Stamps: "v:<npc>" (positions in the shipped vendor index), "m:<input>"
--- (positions among the item's shipped combines), "p:<npc>".
+-- (positions among the item's shipped combines), "p:<npc>", "op:<object>".
 -- Every item a vendor lists is also handed to the items-with-no-information
 -- recorder as seen at "v:<npc>" (SawItem, Recorders/NoInfo.lua: the fact
 -- ni:<item>).
@@ -160,18 +164,48 @@ local function DiscountedCosts(costs, percent)
   return out
 end
 
+-- A route is judged by its faction and race only, never its class (Task
+-- #435): with its filter on All a vendor lists every class's goods, so a
+-- class condition says who the good is for, not who sees it sold (Task #390:
+-- a Hunter at a Trial of Style vendor; /recollect-data judges a listing the
+-- same way). The same holds for a listed good's price (Task #436): a route's
+-- (a seller code's or a purchase's) source carries serves and flags. true,
+-- false, or nil when the character's record can't answer
+local function ListingServes(source, context)
+  if source.serves == true then return true end
+  local flags = source.flags
+  if not flags then return source.serves end
+  if flags:find("x", 1, true) then return false end
+  local faction = flags:match("f(%d)")
+  if faction then
+    if type(context) ~= "table" or context.faction == nil then return nil end
+    if tonumber(faction) ~= context.faction then return false end
+  end
+  local races = flags:match("R([%d%.]+)")
+  if races then
+    local raceID = type(context) == "table" and context.raceID or nil
+    if raceID == nil then return nil end
+    for id in races:gmatch("%d+") do
+      if tonumber(id) == raceID then return true end
+    end
+    return false
+  end
+  return true
+end
+
 -- A listing's shipped price at this vendor with no item cost: this vendor's
--- priced seller codes (V) on a route that serves the character. A gold-only
--- one, whole or less a reputation discount (keyed by the shipped price's
--- text, so a discounted match names it); a price in a currency (data format
--- 8, 2026-09-29) as one entry of priced, { costs = { [text] = true } whole
--- and with its gold part discounted, stack (nil when the data says "?") },
+-- priced seller codes (V) on a route that serves the character by faction
+-- and race (ListingServes). A gold-only one, whole or less a reputation
+-- discount (keyed by the shipped price's text, so a discounted match names
+-- it); a price in a currency (data format 8, 2026-09-29) as one entry of
+-- priced, { costs = { [text] = true } whole and with its gold part
+-- discounted, stack (nil when the data says "?") },
 -- its text in named for a conflict to name. A V whose price is only partly
 -- known makes partial true
 local function ShippedPriced(npc, itemID, context, named, discounted, priced)
   local partial = false
   for _, source in ipairs(Host.Sources(itemID, "soldBy", context)) do
-    if source.id == npc and source.serves == true then
+    if source.id == npc and ListingServes(source, context) == true then
       if source.price then
         local text = Compare.GoldText(source.price, source.count)
         named[text] = true
@@ -211,8 +245,9 @@ end
 
 -- The shipped prices of a listing at this vendor: with no item cost, this
 -- vendor's V codes (ShippedPriced), else the purchase codes of its item
--- costs. Only a route that serves this character counts (one that doesn't,
--- or can't be told, says nothing about what this character sees): named = {
+-- costs. Only a route that serves this character by faction and race
+-- counts (ListingServes; one that doesn't, or can't be told, says nothing
+-- about what this character sees): named = {
 -- [costText] = true } for routes naming this vendor, vendorless likewise
 -- for routes naming none, partial when a counted route's price is only
 -- partly known, priced the shipped prices in a currency (PricedMatch)
@@ -224,7 +259,7 @@ local function ShippedPrices(npc, itemID, listing, context)
   for _, cost in ipairs(listing.costs) do
     if cost.kind == "item" then
       for _, purchase in ipairs(Host.PurchasesOf(cost.id, itemID, context)) do
-        if purchase.serves == true then
+        if ListingServes(purchase, context) == true then
           local here = Contains(purchase.vendors, npc)
           if here or #purchase.vendors == 0 then
             if purchase.unlisted ~= nil then
@@ -307,7 +342,8 @@ local function Item(visit, itemID, listings, shippedHere, ctx)
 end
 
 -- Whether a shipped item's absence here may be recorded: a seller code must
--- name this vendor on a route that serves this character. With none (the
+-- name this vendor on a route that serves this character by faction and race
+-- (ListingServes). With none (the
 -- pair known only from a purchase route, or the vendor past the seller cap)
 -- or only ones that can't be told, eligibility is unknown and nothing is
 -- recorded.
@@ -318,7 +354,7 @@ end
 -- /recollect-data's event_seller: every seller code there an event route)
 local function MayBeMissing(visit, itemID)
   for _, source in ipairs(Host.Sources(itemID, "soldBy", visit.context)) do
-    if source.id == visit.npc and not source.event and source.serves == true then return true end
+    if source.id == visit.npc and not source.event and ListingServes(source, visit.context) == true then return true end
   end
   return false
 end
@@ -395,7 +431,13 @@ end
 -- among the item's shipped combines), one whose product is unconfirmed
 -- ("mx") gets the addition that settles it, one making another item a
 -- conflict. Returns "confirmed", "addition", "conflict" or nil.
+-- Other items gone down beside it (seen.also) make it no simple combine
+-- when the container use recorder keeps the whole use as a transformation
+-- (seen.transform: the spell is one held item's alone; tf:, Task #423):
+-- nothing is recorded here then. Parts sharing one Use spell open no such
+-- window, so their combine is recorded here as before
 function Compare.Combine(seen, ctx)
+  if seen.also and seen.transform then return nil end
   local shipped = Host.Combines(seen.input)
   local fact = "m:" .. seen.input .. ":x" .. seen.inCount
   local observed = seen.output .. "x" .. seen.outCount
@@ -547,5 +589,27 @@ function Compare.Position(npc, mapID, x, y, ctx, questRef, addWhenUnshipped, fal
     Curator.Store.Record("conflict", fact, observed, PlaceText(nearest), ctx, { quests = questRef or Curator.Context.QuestRef() })
   else
     Curator.Store.Record("addition", fact, observed, PlaceText(places[1]), ctx)
+  end
+end
+
+-- ObjectPosition(object, mapID, x, y, ctx): where the player stood when a
+-- loot window opened on this object alone (Recorders/Loot.lua). Looting
+-- reaches a few yards, so it is approximate evidence of the object's place,
+-- never a precise one: near the shipped place on that map (within
+-- POSITION_TOLERANCE) it confirms ("op:<object>" stamp); a shipped place
+-- elsewhere, or far, records nothing, since it never contradicts a place the
+-- data has; with no shipped place, an object the data names (Host.Unplaced,
+-- its unplaced-object index) is an addition "op:<object>" = "<map>:<x>,<y>",
+-- which the pipeline clusters by object and map (Task #423)
+function Compare.ObjectPosition(object, mapID, x, y, ctx)
+  if not (object and mapID and x and y) then return end
+  local fact = "op:" .. object
+  local place = Host.ObjectPlace(object)
+  if place then
+    if place.mapID == mapID and Near(place, x, y) then Curator.Store.Confirm(fact, { 1 }, 1, ctx) end
+    return
+  end
+  if Host.Unplaced("object", object) then
+    Curator.Store.Record("addition", fact, ("%d:%.2f,%.2f"):format(mapID, Round(x), Round(y)), nil, ctx)
   end
 end

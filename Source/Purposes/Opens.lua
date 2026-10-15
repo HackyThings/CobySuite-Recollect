@@ -14,6 +14,11 @@
 --                                                  NPC
 --   no loot quest to read, or history loading      Unknown, the same headline
 --   only NPCs it is used at                        Unknown, "Used at Name"
+--                                                  ("Used at an NPC" or "Used
+--                                                  at 4 NPCs" while no name has
+--                                                  loaded); optional = "event"
+--                                                  when every one is an event
+--                                                  route (Your call, Task #384)
 -- An object with no known position still counts; it just names no place.
 -- A route no longer in the game, or of another faction or class
 -- (Relations.Applies), never counts. The loot quest is this character's, so
@@ -53,6 +58,15 @@ local function Holds(object)
     return (", which can hold %s or %s"):format(table.concat(names, ", ", 1, n - 1), names[n])
   end
   return (", which can hold any of %d items"):format(n)
+end
+
+-- Whether every route is an event route (AllTheThings' holiday or event
+-- flag): an item such as the Darkmoon Game Token that no other NPC takes
+local function EveryEvent(routes)
+  for _, relation in ipairs(routes) do
+    if not (relation.flags and relation.flags.event) then return false end
+  end
+  return #routes > 0
 end
 
 -- Shared with the details window's explanation (UI.DetailWindow)
@@ -111,7 +125,13 @@ R.Register({
       return R.Unknown(headline .. "; whether you've looted it can't be read", headline)
     end
     local who = Recollect.Facts.Vendors.Describe(usedAt[1] and usedAt[1].id, "an NPC")
-    if who then return R.Unknown("Used at " .. who, "Used at " .. who) end
-    return R.Unknown("What it opens can't be read")
+    -- an NPC whose name and place haven't loaded is still a use: count them
+    if not who and #usedAt > 0 then who = #usedAt == 1 and "an NPC" or ("%d NPCs"):format(#usedAt) end
+    if not who then return R.Unknown("What it opens can't be read") end
+    local result = R.Unknown("Used at " .. who, "Used at " .. who)
+    -- only holiday or event NPCs take it, and nothing here reads their state:
+    -- the answer is the player's to make, the band reads Your call
+    if #opens == 0 and EveryEvent(usedAt) then result.optional = "event" end
+    return result
   end,
 })

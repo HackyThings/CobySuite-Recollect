@@ -4,8 +4,9 @@
 --
 -- Every read happens inside the event that shows it (an offer from an item
 -- or an area trigger closes itself during QUEST_DETAIL), and needs only IDs,
--- which the game gives before an item is cached; the comparison runs in a
--- later frame (recorder contract rule 1):
+-- which the game gives before an item is cached, and the context block of
+-- that moment (Task #421); the comparison runs in a later frame (recorder
+-- contract rule 1):
 --   QUEST_DETAIL    the offer: rewards and choices, the item that started it
 --                   (the event's questStartItemID), who gives it, and daily
 --                   or weekly (QuestIsDaily / QuestIsWeekly, U20)
@@ -52,9 +53,7 @@ Quest.seams = {
 local QUEST_UNIT = "questnpc"
 
 local function Seam(name, ...)
-  local ok, a, b = pcall(Quest.seams[name], ...)
-  if not ok or Host.IsSecret(a) or Host.IsSecret(b) then return nil end
-  return a, b
+  return CobySuite_Recollect.Utilities.SafeCall(Host.IsSecret, 2, Quest.seams[name], ...)
 end
 
 local function Wanted(kind, index)
@@ -93,8 +92,8 @@ function Quest.OnDetail(startItemID)
   local giver = not fromItem and NpcPosition.CurrentNpc(QUEST_UNIT) or nil
   local place = not fromItem and NpcPosition.Capture(QUEST_UNIT) or nil
   local daily, weekly = Seam("IsDaily"), Seam("IsWeekly")
+  local ctx = Curator.Context.Current()
   Curator.Main.Defer(function()
-    local ctx = Curator.Context.Current()
     Curator.Compare.QuestRewards(visit, ctx)
     if fromItem then Curator.Compare.QuestStarter(startItemID, questID, ctx) end
     if giver then Curator.Compare.QuestGiver(questID, giver, ctx) end
@@ -110,7 +109,8 @@ function Quest.OnProgress()
   local questID = Curator.Main.MayRecord() and QuestID()
   if not questID or Seam("RequiredHidden") then return false end
   local required = Items("required", Seam("NumRequired"))
-  Curator.Main.Defer(function() Curator.Compare.QuestRequired(questID, required, Curator.Context.Current()) end)
+  local ctx = Curator.Context.Current()
+  Curator.Main.Defer(function() Curator.Compare.QuestRequired(questID, required, ctx) end)
   return true
 end
 
@@ -121,8 +121,8 @@ function Quest.OnComplete()
   local visit = Rewards(questID)
   local taker = NpcPosition.CurrentNpc(QUEST_UNIT)
   local place = NpcPosition.Capture(QUEST_UNIT)
+  local ctx = Curator.Context.Current()
   Curator.Main.Defer(function()
-    local ctx = Curator.Context.Current()
     Curator.Compare.QuestRewards(visit, ctx)
     if taker then Curator.Compare.QuestTurnIn(questID, taker, ctx) end
   end)

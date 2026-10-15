@@ -267,7 +267,7 @@ function Gear.OlderWords(ctx)
   end
   local age, expansion, source, patch = R.Age(ctx)
   if age ~= "older" then return nil end
-  return Recollect.Purposes.UseEffect.From(expansion, source, patch) .. ", an older expansion"
+  return Recollect.Purposes.UseEffect.Older(expansion, source, patch)
 end
 
 -- Below what is worn there: Outdated when it is from before this season,

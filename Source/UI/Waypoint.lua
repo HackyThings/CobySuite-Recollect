@@ -7,8 +7,8 @@
 -- takes it or that it buys from, then a source such as a seller, a creature
 -- or a spot), the key
 -- is bound to a hidden button with SetOverrideBindingClick, and the binding
--- is cleared when the panel hides: CobySniper's pattern
--- (CobySniper/Source/Buy/Main.lua). Binding calls are blocked in combat, so
+-- is cleared when the panel hides, as the details key's binding is
+-- (UI.DetailWindow). Binding calls are blocked in combat, so
 -- none is made there: a panel first shown in combat has no key (its hint
 -- says "after combat") until PLAYER_REGEN_ENABLED binds it for the panel
 -- still showing, and a clear that falls in combat waits for that event. A
@@ -64,6 +64,15 @@ local seams = {
     return type(info) == "table" and info.name or nil
   end,
   QuestTitle = function(questID) return C_QuestLog.GetTitleForQuestID(questID) end,
+  -- Whether the item's G code on this creature (data format 22) is Pick
+  -- Pocket: true, false for another spell, nil when none names it
+  Pickpocket = function(itemID, npcID)
+    local Relations = Recollect.Facts.Relations
+    for _, relation in ipairs(Relations.Of(itemID, "gatheredBy")) do
+      if relation.npc == npcID then return relation.id == Relations.PICK_POCKET end
+    end
+    return nil
+  end,
 }
 
 local target = nil        -- the waypoint the key sets now
@@ -93,6 +102,9 @@ local ROLE_WORDS = {
   soldBy = "sells %s",
   dropsFrom = "drops %s",
   skinnedFrom = "skin it for %s",
+  -- a G on a creature (data format 22, Task #449): a profession or spell on
+  -- it; Title words Pick Pocket's as "pick its pocket for"
+  gatheredBy = "gather %s from it",
   payment = "takes %s as payment",
   spend = "spend %s here",
   opens = "open it with %s",
@@ -126,6 +138,10 @@ function Waypoint.Title(waypoint)
   end
   local words = waypoint.role and ROLE_WORDS[waypoint.role]
   if not words then return head end
+  if waypoint.role == "gatheredBy" and waypoint.npcID and waypoint.itemID then
+    local ok, pick = Try(seams.Pickpocket, waypoint.itemID, waypoint.npcID)
+    if ok and pick == true then words = "pick its pocket for %s" end
+  end
   local subject
   if waypoint.role == "spend" then
     subject = Named(seams.CurrencyName, waypoint.currencyID)   -- the currency, not the item worth it

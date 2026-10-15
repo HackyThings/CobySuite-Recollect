@@ -123,7 +123,7 @@ function QuestInfo.Want(questID)
 end
 
 -- Get(questID, budget): the quest's facts, or nil and why ("loading", "no
--- quest ID", "waiting"). budget (optional, BA-13/14) is { left = n }: a
+-- quest ID", "waiting", "unavailable"). budget (optional, BA-13/14) is { left = n }: a
 -- quest not loaded yet is asked for only while left is above 0, each request
 -- taking one, so one list of quest lines asks the server for a batch at a
 -- time; one past the batch is "waiting" (asked for by a later build, which

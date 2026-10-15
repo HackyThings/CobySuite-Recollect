@@ -103,12 +103,14 @@ local function StatCount(client, link)
 end
 
 -- The expansion a player would say the item is from: Facts.Item.Expansion
--- when it is there, else the game's own expansionID
+-- when it is there, else the game's own expansionID. Its nil is an answer
+-- (rule 45: a later item the game files under Classic names no expansion),
+-- and so is a read that fails: neither falls back to the game's own
 local function ExpansionOf(ctx)
   local Expansion = Recollect.Facts.Item.Expansion
   if type(Expansion) == "function" then
     local ok, expansion = pcall(Expansion, ctx.facts, ctx.stack.itemID)
-    if ok and IsFiniteNumber(expansion) then return expansion end
+    return ok and IsFiniteNumber(expansion) and expansion or nil
   end
   return ctx.facts.expansionID
 end

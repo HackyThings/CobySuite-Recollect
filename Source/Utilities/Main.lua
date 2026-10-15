@@ -69,7 +69,8 @@ end
 ---------------------------------------------------------------------------
 -- Count(n): a count or cost as the player reads it, with the game's own
 -- thousands separators ("4,119"; Task #232); for display only, never for a
--- sort key or a sentence the suites read whole
+-- sort key; a suite that reads a sentence with a count builds its expectation
+-- with Count too (Task #438)
 ---------------------------------------------------------------------------
 function Utilities.Count(n)
   if type(n) ~= "number" then return tostring(n) end

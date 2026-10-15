@@ -90,7 +90,5 @@ end
 Sharing.OnPromptLink = function() TransferWindow.Open() end
 Sharing.OnChanged = function() TransferWindow.Refresh() end
 
-Host.OnLoaded(function() C_Timer.After(0, Build) end)
-local frame = CreateFrame("Frame")
-frame:RegisterEvent("PLAYER_REGEN_ENABLED")
-frame:SetScript("OnEvent", Build)
+-- built just after load, or when combat ends if it began in combat
+Host.OnLoaded(function() C_Timer.After(0, function() CobySuite_Recollect.Utilities.RunOutOfCombat(Build) end) end)

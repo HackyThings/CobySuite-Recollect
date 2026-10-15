@@ -268,7 +268,7 @@ function Panel.Compact(model)
   if Take(out.uses, candidates, MAX_USES) then out.trimmed = true end
 
   -- COMES FROM: its lines in order; a note ("2 ways to get it are no longer
-  -- in the game") only when there is nothing else to say
+  -- available") only when there is nothing else to say
   local regular, notes = {}, {}
   for _, line in ipairs(type(model.comesFrom) == "table" and model.comesFrom or {}) do
     if line.more then
@@ -319,6 +319,25 @@ local function PaintHeader(model, y)
   return y - ICON - GAP
 end
 
+-- A reason's words painted: each "[SECRET: name]" span as the secret's link
+-- painted (no hyperlink: the panel is never clicked; Task #411), the rest
+-- with the names links holds colored
+function Panel.ReasonText(part, links)
+  local SP = Recollect.UI.SecretPanel
+  part = tostring(part)
+  if not (SP and part:find("[SECRET: ", 1, true)) then return Panel.Linked(part, links) end
+  local out, at = {}, 1
+  while true do
+    local first, last, name = part:find("%[SECRET: ([^%]]+)%]", at)
+    if not first then break end
+    out[#out + 1] = Panel.Linked(part:sub(at, first - 1), links)
+    out[#out + 1] = SP.PaintedLink(name)
+    at = last + 1
+  end
+  out[#out + 1] = Panel.Linked(part:sub(at), links)
+  return table.concat(out)
+end
+
 -- The reason's facts, one a block, REASON_LINES lines in all, the names
 -- links holds colored and the done words in the done color with their check
 -- (UI.Icons.MarkDone, as the details window's band); returns the height used
@@ -330,7 +349,7 @@ local function ReasonBlocks(parts, x, y, width, links, done)
       break
     end
     if i > 1 then y = y - SEGMENT_GAP end
-    local text = Recollect.UI.Icons.MarkDone(Panel.Linked(part, links), done, true)
+    local text = Recollect.UI.Icons.MarkDone(Panel.ReasonText(part, links), done, true)
     local height, fs = Block(U.Fonts.BODY, U.Colors.LIGHT_GRAY, text, x, y, width,
       math.min(LINE_LINES, left))
     y = y - height
@@ -418,8 +437,25 @@ function Panel.LineText(line)
   local text = tostring(line.text)
   local head, state = text:match("^(.-)(%b())$")
   local color = line.color
-  if not head or type(color) ~= "table" then return Panel.Linked(text, line.links) end
-  return ("%s|cFF%s%s|r"):format(Panel.Linked(head, line.links), Hex(color), state)
+  local out
+  if not head or type(color) ~= "table" then
+    out = Panel.Linked(text, line.links)
+  else
+    out = ("%s|cFF%s%s|r"):format(Panel.Linked(head, line.links), Hex(color), state)
+  end
+  -- a secret's line: the word "secret" in its rainbow, and its name in the
+  -- secret links' color (painted only; never clicked here, Task #407)
+  if line.secret and Recollect.UI.SecretPanel then
+    local SP = Recollect.UI.SecretPanel
+    local name = line.secretName
+    if type(name) == "string" and name ~= "" then
+      out = out:gsub('"' .. name:gsub("%p", "%%%0") .. '"', function(quoted)
+        return ("|cFF%s%s|r"):format(Hex(SP.LINK_COLOR), quoted)
+      end, 1)
+    end
+    out = SP.Styled(out)
+  end
+  return out
 end
 
 -- A titled list of the summary's lines (USED FOR, COMES FROM), each

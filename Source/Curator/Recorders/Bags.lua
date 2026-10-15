@@ -45,6 +45,7 @@ local casts = {}          -- [spellID] = when the player last cast it (seams.Clo
 local lastCast = nil      -- { spellID, at }: the most recent cast
 local spellOf = {}        -- [itemID] = its Use spell, or false for none
 local subscribers = {}    -- { fn(before, after) }
+local dispatch = nil      -- { before, after, down, up }: the change OnBagsChanged hands its subscribers
 local castListeners = {}  -- { fn(spellID, castGUID) }
 
 local function PositiveID(value)
@@ -90,10 +91,12 @@ function Bags.RecentCast()
 end
 
 -- The items in the bags (at the last good read, which combat keeps) whose
--- Use spell is spellID
-function Bags.ItemsForSpell(spellID)
+-- Use spell is spellID; with totals, the items those counts hold (a
+-- subscriber's before: held is already the read after the change, review
+-- CUR-02)
+function Bags.ItemsForSpell(spellID, totals)
   local out = {}
-  for itemID in pairs(held or {}) do
+  for itemID in pairs(totals or held or {}) do
     if Bags.ItemSpell(itemID) == spellID then out[#out + 1] = itemID end
   end
   table.sort(out)
@@ -117,9 +120,9 @@ function Bags.OnCast(unit, castGUID, spellID)
   end
 end
 
--- Changes(before, after): the items gone down and gone up, each { id, n },
--- by item ID
-function Bags.Changes(before, after)
+-- BuildChanges(before, after): the items gone down and gone up, each
+-- { id, n }, by item ID, built fresh
+function Bags.BuildChanges(before, after)
   local down, up = {}, {}
   -- every ID once: those held before, then those only held after
   local function Compare(id)
@@ -134,6 +137,18 @@ function Bags.Changes(before, after)
   table.sort(down, function(a, b) return a.id < b.id end)
   table.sort(up, function(a, b) return a.id < b.id end)
   return down, up
+end
+
+-- Changes(before, after): the same lists. While OnBagsChanged hands a change
+-- to its subscribers, that change's own pair gets the lists built once, on
+-- the first subscriber's call (inside its protection), shared read-only by
+-- the rest (Task #429: Combine, Recipe, ContainerUse and NoInfo each built
+-- them); any other call builds fresh lists
+function Bags.Changes(before, after)
+  local d = dispatch
+  if not (d and before == d.before and after == d.after) then return Bags.BuildChanges(before, after) end
+  if not d.down then d.down, d.up = Bags.BuildChanges(before, after) end
+  return d.down, d.up
 end
 
 -- Subscribe(fn): fn(before, after) on every compared bag change
@@ -159,10 +174,13 @@ function Bags.OnBagsChanged()
   local before = last
   last, held = now, now
   if not before then return end
+  local outer = dispatch
+  dispatch = { before = before, after = now }
   for _, fn in ipairs(subscribers) do
     local okFn, err = pcall(fn, before, now)
     if not okFn then Host.Log("Bag change subscriber failed: %s", tostring(err)) end
   end
+  dispatch = outer
 end
 
 -- Forgets the last read, the casts and the kept Use spells (a test starts

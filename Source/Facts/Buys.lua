@@ -99,7 +99,7 @@ end
 
 READERS.d = function(id)
   -- nil: no catalog entry for it, or a count unreadable (no gate says when
-  -- the housing catalog has loaded; see the audit report)
+  -- the housing catalog has loaded)
   local owned = Registry().DecorOwned(id)
   local state = owned == nil and "unread" or (owned > 0 and "have" or "missing")
   return { key = "decor:" .. id, what = "decor", id = id, collectible = true, state = state, failed = owned == nil }

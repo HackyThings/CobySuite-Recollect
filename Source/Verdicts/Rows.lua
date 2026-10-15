@@ -303,6 +303,11 @@ local USED_FOR_WORDS = {
   opens = "Opens something", usedAt = "Used at an NPC", reagentOf = "Crafting reagent", teaches = "Recipe",
   linked = "Linked achievement",   -- a link, never a need (B10)
   holds = "Opens into items",      -- what opening it can give (data format 10), informational
+  gives = "Gives an item when used", -- what using it gives (data format 14), informational
+  -- data format 15 (Task #395), informational
+  customizes = "Mount customization", reputation = "Reputation", lure = "Fishing lure",
+  -- data format 16 (Task #396), informational; its q (a quest it comes from) is a source
+  givesByClass = "Gives a piece by class",
 }
 -- The words an item's data gives, kept per parsed list (weakly: they go when
 -- the parse does), so a list redraw reads each item's relations once

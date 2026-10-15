@@ -48,12 +48,22 @@ local UseEffect = {}
 Recollect.Purposes.UseEffect = UseEffect
 
 -- "from Shadowlands (added in patch 9.1.0)", or "from Dragonflight" when the
--- game's own expansion stands
+-- game's own expansion stands; "from an older expansion" when Facts.Item.Age
+-- found it older with no expansion to name (rule 45: a later item the game
+-- files under Classic, Task #448)
 function UseEffect.From(expansion, source, patch)
+  if expansion == nil then return "from an older expansion" end
   local text = "from " .. R.ExpansionName(expansion)
   local patchText = source == "added" and Recollect.Facts.Item.PatchText(patch)
   if patchText then text = ("%s (added in patch %s)"):format(text, patchText) end
   return text
+end
+
+-- "from Shadowlands, an older expansion", or "from an older expansion" when
+-- no expansion is named: the words every age check's older reason uses
+function UseEffect.Older(expansion, source, patch)
+  if expansion == nil then return UseEffect.From(nil) end
+  return UseEffect.From(expansion, source, patch) .. ", an older expansion"
 end
 
 -- For Facts.Item.Age's "disagree": "the game tags it as from Dragonflight,
@@ -386,7 +396,7 @@ R.Register({
     end
     if age == "older" or age == "disagree" then
       local result = age == "older"
-        and UseEffect.Info(("An item with a Use effect, %s, an older expansion"):format(UseEffect.From(expansion, source, patch)),
+        and UseEffect.Info(("An item with a Use effect, %s"):format(UseEffect.Older(expansion, source, patch)),
           UseEffect.Describe(ctx))
         or UseEffect.Info("An item with a Use effect; " .. UseEffect.Disagree(facts, expansion, patch)
           .. ", so whether it's of the current expansion can't be told", UseEffect.Describe(ctx))

@@ -14,15 +14,42 @@
 -------------------------------------------------------------------------------
 Recollect.Data.Changelog = {
   {
+    version = "1.0.4",
+    title = "Secrets, and where things come from",
+    date = "2026-10-15",
+    new = {
+      "Secrets: 22 of the game's secrets explained step by step",
+      "Secret tab: steps, what you need, waypoints and your own checkmarks",
+      "New items: where they come from, even before the database knows them",
+      "More ways to get things: trades, missions, events and pickpocketing",
+      "More uses: customizations, reputation items, tokens, combines",
+      "No longer obtainable: said even when the removal patch isn't known",
+    },
+    changed = {
+      "Patch 12.1.5 in the database: renown vendors, decor, quests, Delves",
+      "How to get more walks a chain back to what you need",
+      "A bigger, more complete database from curators' findings",
+      "Curator mode: records more, more precisely, in fewer messages",
+      "Performance improvements",
+      "Many smaller look and wording improvements",
+    },
+    fixed = {
+      "Wrong facts removed: later items no longer read 'from Classic'",
+      "Older items: gone recipes and parts no longer say Keep it",
+      "Another character's copy describes that character",
+      "Several smaller bug fixes",
+    },
+  },
+  {
     version = "1.0.3",
     title = "Where mounts, pets and toys come from",
     date = "2026-10-11",
     new = {
-      "Mounts, pets and toys: far more say where they come from, shop and promotions included",
-      "Comes from: disenchanting, skinning, gathering, Delve rewards and other qualities",
+      "Mounts, pets and toys: where far more come from, shop and promos too",
+      "Comes from: disenchanting, skinning, gathering, Delves and more",
       "{/rec} addons: every addon by Cobanyte, with CurseForge links",
       "{/rec} reset windows: every window back to its default place and size",
-      "Newer version notice: a chat line when someone in your guild or group has a newer version",
+      "Newer version notice: when your guild or group has a newer one",
     },
     changed = {
       "Still needed?: Just for fun, Your call or Replaced for far more items",

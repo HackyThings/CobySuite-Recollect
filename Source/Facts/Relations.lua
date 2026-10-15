@@ -87,6 +87,68 @@
 --   Y<item>            comes from opening the container item <item> (a source)
 --   H<item>            opening it can give <item> (a use, informational: the
 --                      reverse of Y, which the build writes from every Y)
+-- Since data format 14 (Task #394), from the game's own Use text ("Take a
+-- page from the libram, granting you a Glyph of the Matriarch's Wings."):
+--   I<item>x<n>        using it gives <n> of <item> (a use, informational:
+--                      "Using it gives X", with X's own state)
+--   J<item>            comes from using <item> (a source, the reverse of I)
+-- Since data format 15 (Task #395), uses from the game's own Use text, each
+-- information only, never a need:
+--   B<spell>           unlocks a customization option for the mount whose
+--                      summon spell is <spell> (the Rostrum of Transformation's
+--                      drakes, the Delver's Dirigible): one B per mount a
+--                      line names; a target the Mount Journal doesn't list
+--                      (a warlock's demon, a disguise) gets no code
+--   W<faction>x<n>     using it gives <n> reputation with <faction>; x0 when
+--                      the amount isn't one number (a contract's per-quest
+--                      gain, "the perfect amount", a bonus to reputation gains)
+--   T<item>            a fishing lure: it makes <item> (a fish) bite more often
+-- Since data format 16 (Task #396):
+--   q<quest>           comes from doing <quest> (a source, the mirror of u): a
+--                      quest item the game's own objectives or AllTheThings'
+--                      quest items tie to the quest, picked up while doing it;
+--                      the quest's own conditions as flags
+--   C<item>            using it gives one of the items its C codes name, by the
+--                      class or specialization of whoever uses it (a use,
+--                      informational: a token whose pieces carry no class of
+--                      their own, one per armor type, a spec's set, or a few
+--                      rings or trinkets); one C per item it can give
+-- Since data format 17 (Task #397), sources:
+--   K<item>x<n>[+<cost>...][@<npcs>|#<map>]  it is bought with <n> of <item>
+--                      (the mirror of that item's b code: the same costs,
+--                      vendors or place, written as b writes them); costs
+--                      lists every cost, <item>'s own first (Costs)
+--   E<map>             a reward from activities in zone <map> (AllTheThings'
+--                      Zone Rewards header under the map)
+--   X<currency>[x<n>]  solved through Archaeology: an artifact of the race
+--                      whose fragments are <currency>, taking <n> of them
+-- Since data format 18 (Task #398), a source:
+--   Z<n>               given to new characters (AllTheThings' New Character
+--                      header; n is always 0, reserved): the classes and
+--                      races it is for ride as route flags (c, R)
+-- Since data format 19 (Task #401), a source:
+--   Q<t><id>           a reward for completing an event no zone holds (Prey
+--                      hunts, garrison invasions, Ritual Sites; AllTheThings'
+--                      Event Completion header with no map), the event named
+--                      by what the game holds for it: <t> q a quest, a an
+--                      achievement, c a currency (event = "quest",
+--                      "achievement" or "currency", id); never a quest of
+--                      QuestAppliesOf, since the item isn't used in it
+-- Since data format 20 (Task #403), a source:
+--   M<mission>.<type>[+c<currency>x<n>]  a reward of a mission followers or
+--                      champions are sent on: <mission> the game's mission ID
+--                      (0: missions of that system, which one not known),
+--                      <type> the game's Enum.GarrisonFollowerType (1 the
+--                      garrison, 2 its shipyard, 4 a class hall, 22 Battle for
+--                      Azeroth's mission table, 123 covenant adventures; id =
+--                      mission, system = type), then what the mission costs, as
+--                      a b code writes a currency cost (costs; x0 when how
+--                      much isn't known)
+-- Since data format 21 (Task #405), a source:
+--   h<set>             its look comes with the ensemble <set> (a transmog set
+--                      ID, as a b code's e thing; the T table's e gives the
+--                      ensemble's item): buying or using the ensemble collects
+--                      this piece's appearance, never the item itself
 -- Since data format 11:
 --   G<spell>           comes from casting a profession's gathering or extracting
 --                      spell <spell> (Disenchant, Skinning, Mining, Herb
@@ -94,6 +156,15 @@
 --                      what each gives under the spell, inside its profession; the
 --                      route carries that profession as its display-only P
 --                      condition since data format 12: "G13262|P333")
+--   G<spell>@<npc>     since data format 22 (Task #447): comes from casting
+--   G<spell>#<map>     <spell> on creature <npc> (npc), or on enemies in zone
+--                      <map> (mapID): Pick Pocket (921, PICK_POCKET, with the
+--                      route's c4); G0@<npc> a profession on a creature whose
+--                      spell isn't known (id 0, P naming the profession:
+--                      Herbalism on a creature, "G0@169838|P182")
+--   G<spell>.1         since data format 22: made by casting <spell>, a spell
+--                      no profession teaches (made = true; "Made by the spell
+--                      Get Shavings")
 --   S<npc>             skinned from creature <npc> (accepted curator findings:
 --                      a corpse looted right after a Skinning cast)
 --   P<quest>           a seasonal drop: it comes from many of the season's
@@ -103,7 +174,12 @@
 -- Since data format 12:
 --   L<n>               completing a Delve can give it (AllTheThings files it under
 --                      its Delve Completion header; n is always 0, reserved)
--- F, Y, H, G, S, P and L are number-only, like D (no "x<n>").
+-- Since data format 13:
+--   R<kind>            the in-game shop or a promotion (storePromotion: 1 the
+--                      in-game shop, 2 a promotion, 3 a Trading Card Game loot
+--                      card, 4 a Recruit-A-Friend reward; any other body reads
+--                      as nothing)
+-- F, Y, H, G, S, P, L, R, J, B, T, q, C, E, Z and h are number-only, like D (no "x<n>").
 -- Any code may end in "|" and flags, the route's conditions (flags):
 --   x unavailable (no longer available), f0 / f1 faction (Horde / Alliance
 --   only, as PvPFaction), c<id.id> classes (class IDs), h event (only
@@ -127,11 +203,13 @@
 -- plus, costs, costText, unlisted, mapID, seller, unresolved, parts, price,
 -- flags, shows } }, uses first (objective, questItem, starts, opens, usedAt,
 -- criterion, linked, buysDecor, buys, partOf, makes, reagentOf, currency,
--- recipeFor, teaches, holds), then where it comes from (Relations.SOURCE:
--- madeFrom, craftedBy, taughtBy, reward, choice, achievementReward, soldBy,
--- renownReward, blackMarket, tradingPost, openedFrom, seasonDrop, dropsFrom,
+-- recipeFor, teaches, holds, gives, givesByClass, customizes, reputation, lure), then where it comes from
+-- (Relations.SOURCE: madeFrom, craftedBy, archaeology, taughtBy, reward, choice, duringQuest, achievementReward,
+-- soldBy, boughtWith, ensembleLook,
+-- renownReward, blackMarket, tradingPost, openedFrom, givenBy, seasonDrop, dropsFrom,
 -- skinnedFrom, journalDrop, foundIn, zoneDrop, fishedIn, gatheredBy,
--- delveReward, storePromotion; ORDER lists every kind, since the sort compares by it), parsed
+-- delveReward, zoneReward, eventReward, missionReward, newCharacter, storePromotion; ORDER lists every kind, since
+-- the sort compares by it), parsed
 -- when first asked for and kept while recently used (Keep: two generations,
 -- the newer one rotated out once it would pass CACHE_RELATIONS relations, so
 -- both together can hold up to about twice that, and one larger item's list
@@ -179,7 +257,10 @@ local KIND = {
   l = "linked", r = "teaches", i = "foundIn", z = "zoneDrop", y = "craftedBy", e = "partOf",
   A = "achievementReward", V = "soldBy", D = "journalDrop", N = "renownReward", O = "blackMarket", U = "tradingPost",
   F = "fishedIn", Y = "openedFrom", H = "holds", G = "gatheredBy", S = "skinnedFrom", P = "seasonDrop",
-  L = "delveReward", R = "storePromotion",
+  L = "delveReward", R = "storePromotion", I = "gives", J = "givenBy",
+  B = "customizes", W = "reputation", T = "lure", q = "duringQuest", C = "givesByClass",
+  K = "boughtWith", E = "zoneReward", X = "archaeology", Z = "newCharacter", Q = "eventReward",
+  M = "missionReward", h = "ensembleLook",
 }
 -- Every kind must be here: Less compares ORDER[kind], and a kind missing
 -- from it would throw in the sort (build_data.py's KIND_RANK ships the codes
@@ -189,17 +270,46 @@ local ORDER = { objective = 1, questItem = 2, starts = 3, opens = 4, usedAt = 5,
   holds = 16, madeFrom = 17, craftedBy = 18, taughtBy = 19, reward = 20, choice = 21, achievementReward = 22,
   soldBy = 23, renownReward = 24, blackMarket = 25, tradingPost = 26, openedFrom = 27, seasonDrop = 28, dropsFrom = 29,
   skinnedFrom = 30, journalDrop = 31, foundIn = 32, zoneDrop = 33, fishedIn = 34, gatheredBy = 35,
-  delveReward = 36, storePromotion = 37 }
+  delveReward = 36, storePromotion = 37,
+  -- data format 14 (Task #394): placed between the kinds above without
+  -- renumbering them (build_data.py's KIND_RANK gives I 16.5 and J 27.5)
+  gives = 16.5, givenBy = 27.5,
+  -- data format 15 (Task #395), uses after gives the same way (KIND_RANK B 16.6, W 16.7, T 16.8)
+  customizes = 16.6, reputation = 16.7, lure = 16.8,
+  -- data format 16 (Task #396): what a class token gives after what using it gives, and the
+  -- quest an item comes from after the quests that reward it (KIND_RANK C 16.55, q 21.5)
+  givesByClass = 16.55, duringQuest = 21.5,
+  -- data format 17 (Task #397): Archaeology after a recipe that crafts it, what buys it after its
+  -- sellers, a zone's activities after a Delve (KIND_RANK X 18.5, K 23.5, E 36.5)
+  archaeology = 18.5, boughtWith = 23.5, zoneReward = 36.5,
+  -- data format 18 (Task #398): given to new characters, after a zone's activities (KIND_RANK Z 36.7)
+  newCharacter = 36.7,
+  -- data format 19 (Task #401): an event's reward, after a zone's activities (KIND_RANK Q 36.6)
+  eventReward = 36.6,
+  -- data format 20 (Task #403): a mission's reward, after an event's (KIND_RANK M 36.65)
+  missionReward = 36.65,
+  -- data format 21 (Task #405): an ensemble's look, after what buys it (KIND_RANK h 23.6)
+  ensembleLook = 23.6 }
 
 -- Kinds that say where an item comes from, not what it is for
 Relations.SOURCE = { madeFrom = true, taughtBy = true, reward = true, choice = true, soldBy = true, dropsFrom = true,
   foundIn = true, zoneDrop = true, craftedBy = true, achievementReward = true, journalDrop = true, renownReward = true,
   blackMarket = true, tradingPost = true, fishedIn = true, openedFrom = true, gatheredBy = true, skinnedFrom = true,
-  seasonDrop = true, delveReward = true, storePromotion = true }
+  seasonDrop = true, delveReward = true, storePromotion = true, givenBy = true, duringQuest = true,
+  boughtWith = true, zoneReward = true, archaeology = true, newCharacter = true, eventReward = true,
+  missionReward = true, ensembleLook = true }
+
+-- Data format 22's G codes on a creature or a zone: the Pick Pocket spell (a Rogue's; AllTheThings' own header ID)
+Relations.PICK_POCKET = 921
+
+-- Data format 19's Q code: what names the event (q a quest, a an achievement, c a currency)
+Relations.EVENT_NAMED_BY = { q = "quest", a = "achievement", c = "currency" }
 
 -- Kinds whose body is a number alone (no "x<n>")
 local NUMBER_ONLY = { journalDrop = true, blackMarket = true, tradingPost = true, fishedIn = true, openedFrom = true,
-  holds = true, gatheredBy = true, skinnedFrom = true, seasonDrop = true, delveReward = true, storePromotion = true }
+  holds = true, gatheredBy = true, skinnedFrom = true, seasonDrop = true, delveReward = true, storePromotion = true,
+  givenBy = true, customizes = true, lure = true, duringQuest = true, givesByClass = true, zoneReward = true,
+  newCharacter = true, ensembleLook = true }
 
 -- Data format 13's R code: the store or promotion kinds (1 the in-game shop, 2 a promotion, 3 a Trading
 -- Card Game loot card, 4 a Recruit-A-Friend reward); any other body is not read
@@ -381,9 +491,11 @@ local function ParseBuys(body, itemID)
 end
 
 -- Every cost of a buys relation, this item's own first ({ kind, id, count };
+-- a boughtWith relation's, the buying item first, are its own costs;
 -- see the b code above), for a relation parsed without its item; nil for
 -- any other kind
 function Relations.Costs(relation, itemID)
+  if type(relation) == "table" and relation.kind == "boughtWith" then return relation.costs end
   if type(relation) ~= "table" or relation.kind ~= "buys" then return nil end
   local costs = relation.costs
   if costs then return costs end
@@ -476,6 +588,15 @@ end
 
 local function ParseBody(kind, body, itemID)
   if kind == "buys" then return ParseBuys(body, itemID) end
+  if kind == "boughtWith" then
+    -- K: a b code's body read from the side of what it buys, with no thing
+    -- letter; its costs are the buying item's, that item first
+    if not body:match("^%d") then return nil end
+    local relation = ParseBuys(body)
+    if not relation then return nil end
+    relation.kind, relation.thing = kind, nil
+    return setmetatable(relation, CostsMeta(relation.id, relation.count, relation.costText or ""))
+  end
   if kind == "partOf" then return ParseParts(body) end
   if kind == "criterion" then
     local ach, crit, n = body:match("^(%d+)%.(%d+)x(%d+)$")
@@ -495,6 +616,51 @@ local function ParseBody(kind, body, itemID)
     local faction, level = body:match("^(%d+)%.(%d+)$")
     if not faction then return nil end
     return { kind = kind, id = tonumber(faction), level = tonumber(level) }
+  end
+  if kind == "reputation" then
+    -- W<faction>x<n>: always how much, x0 when it isn't one number (data format 15)
+    local faction, n = body:match("^(%d+)x(%d+)$")
+    return faction and { kind = kind, id = tonumber(faction), count = tonumber(n) } or nil
+  end
+  if kind == "eventReward" then
+    local named, id = body:match("^(%l)(%d+)$")
+    local event = named and Relations.EVENT_NAMED_BY[named]
+    return event and { kind = kind, event = event, id = tonumber(id) } or nil
+  end
+  if kind == "missionReward" then
+    -- M<mission>.<type>[+c<currency>x<n>...]: only currency costs, each read as a b code's (shared, read-only)
+    local mission, system, text = body:match("^(%d+)%.(%d+)(.*)$")
+    if not mission or tonumber(system) == 0 then return nil end
+    local relation = { kind = kind, id = tonumber(mission), system = tonumber(system) }
+    if text ~= "" then
+      local costs = OtherCosts(text)
+      if not costs or #costs == 0 or costs.unlisted then return nil end
+      for _, cost in ipairs(costs) do
+        if cost.kind ~= "currency" then return nil end
+      end
+      relation.costs = costs
+    end
+    return relation
+  end
+  if kind == "gatheredBy" then
+    -- G<spell>; since data format 22 also G<spell>.1 (made by casting it), G<spell>@<npc> and G<spell>#<map> (one
+    -- target, never a list), and G0@<npc> (a profession on a creature, the spell not known: id 0, read for nothing)
+    local spell = body:match("^(%d+)$")
+    if spell then
+      return tonumber(spell) > 0 and { kind = kind, id = tonumber(spell) } or nil
+    end
+    spell = body:match("^(%d+)%.1$")
+    if spell then
+      return tonumber(spell) > 0 and { kind = kind, id = tonumber(spell), made = true } or nil
+    end
+    local mark, target
+    spell, mark, target = body:match("^(%d+)([@#])(%d+)$")
+    if not spell then return nil end
+    spell, target = tonumber(spell), tonumber(target)
+    if target == 0 or (spell == 0 and mark ~= "@") then return nil end
+    local relation = { kind = kind, id = spell }
+    if mark == "@" then relation.npc = target else relation.mapID = target end
+    return relation
   end
   if kind == "storePromotion" then
     local only = body:match("^([1-9])$")
@@ -738,19 +904,40 @@ end
 -- A reward code's "x" can also mean only that reward is no longer given by
 -- a quest still in the game (the Dilated Time Pod, w77236|x); the data build refuses such a
 -- code beside a live use code of the same quest (a release gate, review F10).
-local QUEST_KINDS = { objective = true, questItem = true, starts = true, reward = true, choice = true }
+-- A quest an item comes from (q, data format 16) names the quest too: the data
+-- gives it the quest's own conditions, the ones its u code carries.
+local QUEST_KINDS = { objective = true, questItem = true, starts = true, reward = true, choice = true, duringQuest = true }
 local APPLIES_RANK = { [true] = 1, unknown = 2, other = 3, unavailable = 4 }
--- QuestAppliesOf(relations, owner): the same, over a list already parsed
+local function FoldQuest(out, relation, owner)
+  if QUEST_KINDS[relation.kind] and relation.id then
+    local applies = Relations.Applies(relation, owner)
+    if applies == nil then applies = "unknown" end
+    local kept = out[relation.id]
+    if kept == nil or APPLIES_RANK[applies] > APPLIES_RANK[kept] then out[relation.id] = applies end
+  end
+end
+
+local function ByStart(a, b) return a[1] < b[1] end
+
+-- QuestAppliesOf(relations, owner): the same, over a list already parsed. A
+-- list For indexed by kind is read only in its quest kinds' ranges, in list
+-- order (Task #429: an item with thousands of purchase codes was scanned
+-- whole for a few quest codes); any other list is scanned
 function Relations.QuestAppliesOf(relations, owner)
   local out = {}
-  for _, relation in ipairs(relations) do
-    if QUEST_KINDS[relation.kind] and relation.id then
-      local applies = Relations.Applies(relation, owner)
-      if applies == nil then applies = "unknown" end
-      local kept = out[relation.id]
-      if kept == nil or APPLIES_RANK[applies] > APPLIES_RANK[kept] then out[relation.id] = applies end
+  local ranges = kindRanges[relations]
+  if ranges then
+    local quest = {}
+    for kind in pairs(QUEST_KINDS) do
+      if ranges[kind] then quest[#quest + 1] = ranges[kind] end
     end
+    table.sort(quest, ByStart)
+    for _, range in ipairs(quest) do
+      for i = range[1], range[2] do FoldQuest(out, relations[i], owner) end
+    end
+    return out
   end
+  for _, relation in ipairs(relations) do FoldQuest(out, relation, owner) end
   return out
 end
 
@@ -945,13 +1132,24 @@ function Relations.RemovedIn(itemID)
   return Recollect.Utilities.IsPositiveID(removed) and removed or nil
 end
 
+-- Removed(itemID): RemovedIn's patch, or 0 when every way to get the item is
+-- gone but no patch is known (an X record "0", data format 18: AllTheThings'
+-- World Events Remix and Class Trial gear), nil when the data says neither.
+-- RemovedIn keeps answering nil for 0, so a reader that needs a patch never
+-- takes "unknown" for one
+function Relations.Removed(itemID)
+  local removed = Removal(itemID)
+  if removed == 0 or Recollect.Utilities.IsPositiveID(removed) then return removed end
+  return nil
+end
+
 -- The patch an item was added in (the same numbers), or nil: known for an
 -- item RemovedIn answers for (when AllTheThings gives it), and for an item
 -- still in the game that was added in a later expansion than the game files
 -- it under (the A table); nil means the game's own expansion stands
 function Relations.AddedIn(itemID)
   local removed, added = Removal(itemID)
-  if Recollect.Utilities.IsPositiveID(removed) then
+  if removed == 0 or Recollect.Utilities.IsPositiveID(removed) then
     return Recollect.Utilities.IsPositiveID(added) and added or nil
   end
   if not Recollect.Utilities.IsPositiveID(itemID) then return nil end
@@ -1021,3 +1219,13 @@ Relations._test = {
   IndexKinds = IndexKinds,
   ORDER = ORDER,   -- read only
 }
+
+-- SecretUse(itemID): whether the item is used in a secret still in the game,
+-- as pcall answers (ok, inSecret), for the checks and lines that ask whether
+-- any use is left (Purposes.Buys' removed check, UsedFor.LiveUse); (true,
+-- false) when the secrets reader (Facts/Secrets.lua) isn't loaded
+function Recollect.Facts.SecretUse(itemID)
+  local Secrets = Recollect.Facts.Secrets
+  if not Secrets then return true, false end
+  return pcall(Secrets.LiveUse, itemID)
+end

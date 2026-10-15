@@ -57,7 +57,6 @@ local sortKey, sortAscending = "verdictRank", true
 local searchText = ""
 local filters = {}   -- [key] = true, for this session
 local rowsMade = false         -- a row frame exists (the first ones are made out of combat)
-local openAfterCombat = false  -- a first open asked for in combat is waiting
 
 -------------------------------------------------------------------------------
 -- Filters
@@ -341,9 +340,7 @@ function UI.RefreshList()
   scrollBox:SetDataProvider(provider, ScrollBoxConstants.RetainScrollPosition)
   window.Summary:SetText(UI.ListSummary(rows, #allRows))
   window.Hint:SetText(UI.ListHintText())
-  local empty = UI.ListEmptyText(TabDef(activeTab), #allRows, #rows)
-  window.Empty:SetText(empty or "")
-  window.Empty:SetShown(empty ~= nil)
+  window.Empty:SetText(UI.ListEmptyText(TabDef(activeTab), #allRows, #rows))
 end
 
 local refreshFold = U.Coalesce(0.3, function() UI.RefreshList() end)
@@ -375,8 +372,9 @@ local function BuildHeader()
     end,
     onColumnResize = function()
       if not scrollBox then return end
+      local bounds = header:GetColumnBounds()
       scrollBox:ForEachFrame(function(row)
-        if row._cells then Columns.Layout(row, header:GetColumns()) end
+        if row._cells then Columns.Layout(row, header, bounds) end
       end)
     end,
   })
@@ -400,31 +398,22 @@ local function InitRow(row, entry)
       if self._entry and UI.DetailWindow then UI.DetailWindow.OpenRow(self._entry) end
     end)
   end
-  Columns.Layout(row, columns)
+  Columns.Layout(row, header)
   Columns.Paint(row, entry, columns, entry._index)
 end
 
 local function BuildList()
-  scrollBox = CreateFrame("Frame", nil, window, "WowScrollBoxList")
+  -- The shared list shell: the box, its scroll bar 4 pixels to the right
+  -- and the view of ROW_HEIGHT rows
+  scrollBox = CobySuite_Recollect.UI.CreateScrollList(window, { initializeRow = InitRow, rowHeight = ROW_HEIGHT }).box
   scrollBox:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -2)
   scrollBox:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -PAD - SCROLLBAR_WIDTH - 4, 40)
-  local scrollBar = CreateFrame("EventFrame", nil, window, "MinimalScrollBar")
-  scrollBar:SetPoint("TOPLEFT", scrollBox, "TOPRIGHT", 4, 0)
-  scrollBar:SetPoint("BOTTOMLEFT", scrollBox, "BOTTOMRIGHT", 4, 0)
-  local view = CreateScrollBoxListLinearView()
-  view:SetElementExtent(ROW_HEIGHT)
-  view:SetElementInitializer("Button", InitRow)
-  ScrollUtil.InitScrollBoxListWithScrollBar(scrollBox, scrollBar, view)
 
-  -- Said over the empty list: why nothing shows (UI.ListEmptyText)
-  window.Empty = window:CreateFontString(nil, "OVERLAY", U.Fonts.BODY)
-  window.Empty:SetPoint("TOPLEFT", scrollBox, "TOPLEFT", 20, -40)
-  window.Empty:SetPoint("TOPRIGHT", scrollBox, "TOPRIGHT", -20, -40)
-  window.Empty:SetJustifyH("CENTER")
-  window.Empty:SetWordWrap(true)
-  local gray = U.Colors.LABEL_GRAY
-  window.Empty:SetTextColor(gray[1], gray[2], gray[3])
-  window.Empty:Hide()
+  -- Said over the empty list: why nothing shows (UI.ListEmptyText); hidden
+  -- while there is nothing to say
+  window.Empty = CobySuite_Recollect.UI.CreateEmptyLabel(window, {
+    points = { { "TOPLEFT", scrollBox, "TOPLEFT", 20, -40 }, { "TOPRIGHT", scrollBox, "TOPRIGHT", -20, -40 } },
+  })
 end
 
 -- The search box, the funnel and Refresh, right of the intro
@@ -555,20 +544,19 @@ local function Build()
   Recollect.EventBus:Register(listener, { Recollect.Events.InventoryChanged, Recollect.Events.ConfigChanged })
 end
 
+local function OpenAfterCombat()
+  if not window:IsShown() then window:Toggle() end
+end
+
 function UI.ToggleList()
   if not window then
     Recollect.Utilities.Message.Warn("The Recollect Audit opens once login finishes; try again in a moment.")
     return
   end
-  -- The first show makes the row frames, which never happens in combat
+  -- The first show makes the row frames, which never happens in combat: it
+  -- waits for combat to end, once however often it was asked
   if not rowsMade and not window:IsShown() and InCombatLockdown() then
-    if not openAfterCombat then
-      openAfterCombat = true
-      EventUtil.RegisterOnceFrameEventAndCallback("PLAYER_REGEN_ENABLED", function()
-        openAfterCombat = false
-        if not window:IsShown() then window:Toggle() end
-      end)
-    end
+    U.RunOutOfCombat(OpenAfterCombat)
     Recollect.Utilities.Message("The Recollect Audit opens when combat ends.")
     return
   end
@@ -576,9 +564,5 @@ function UI.ToggleList()
 end
 
 EventUtil.RegisterOnceFrameEventAndCallback("PLAYER_LOGIN", function()
-  if InCombatLockdown() then
-    EventUtil.RegisterOnceFrameEventAndCallback("PLAYER_REGEN_ENABLED", Build)
-  else
-    Build()
-  end
+  U.RunOutOfCombat(Build)
 end)

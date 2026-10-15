@@ -36,7 +36,7 @@ end
 function Provider.IsMember()
   if not (C_Club and C_Club.GetSubscribedClubs) then return nil end
   local ok, clubs = pcall(C_Club.GetSubscribedClubs)
-  if not ok or type(clubs) ~= "table" or (issecrettable and issecrettable(clubs)) then return nil end
+  if not ok or type(clubs) ~= "table" or CobySuite_Recollect.Utilities.IsSecretTable(clubs) then return nil end
   local const = Curator.Const
   for _, club in ipairs(clubs) do
     if const.CLUB_ID and tostring(club.clubId) == tostring(const.CLUB_ID) then return true end
@@ -106,8 +106,8 @@ function Provider.Status()
   if not main then return "" end
   if not main.Available() then return Provider.REGION_TEXT end
   local member = Provider.IsMember()
-  local memberText = member == true and "this character is in the curator community"
-    or member == false and "this character is not in the curator community yet"
+  local memberText = member == true and "this character is in the Recollect Curators community"
+    or member == false and "this character is not in the Recollect Curators community yet"
     or "the community list can't be read right now"
   local versions = Host.Versions()
   return ("Curator mode is %s; %s. Database %s."):format(main.IsEnabled() and "on" or "off", memberText,

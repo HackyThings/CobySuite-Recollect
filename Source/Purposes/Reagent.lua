@@ -32,7 +32,10 @@
 --   of your crafting professions read, none of
 --   them uses it                                  Outdated (with the binding:
 --                                                 a tradeable or warbound copy
---                                                 could still serve someone)
+--                                                 could still serve someone);
+--                                                 Unknown when it has a Use
+--                                                 spell of its own, or that
+--                                                 can't be read (Task #442)
 --   the same for any other class                  Unknown: such reagents (item
 --                                                 class 15: Protoform Synthesis,
 --                                                 Mechagon tinkering, covenant
@@ -323,8 +326,19 @@ local function Judge(ctx, index, data)
     return R.Unknown(("%s; none of your recipes (%s) use it; it may belong to another crafting system (such as Protoform Synthesis), which isn't checked"):format(
       what, table.concat(index.names, ", ")))
   end
-  return R.Result(V.OUTDATED, ("%s; none of your recipes (%s) use it%s"):format(what,
-    table.concat(index.names, ", "), R.BindNote(ctx)))
+  -- Rule 16's Outdated speaks only for the recipes: trade goods with a Use
+  -- spell of their own (a seed to plant, food to eat) have another use no
+  -- check reads, and rule 3 keeps an unread use from reading as replaced
+  -- (Task #442, audit R11: 195 items, Dreamleaf Seed and Smoked Seaviper)
+  local none = ("%s; none of your recipes (%s) use it"):format(what, table.concat(index.names, ", "))
+  if ctx.facts.hasSpell == nil then return R.Unknown(none .. "; whether it has a Use effect can't be read", nil, "unreadable") end
+  if ctx.facts.hasSpell then
+    local described = Recollect.Purposes.UseEffect.Describe(ctx)
+    local result = R.Unknown(none .. (described and described.text or "") .. "; it has a Use effect of its own, which isn't checked")
+    if described and described.headline then result.headline = described.headline end
+    return result
+  end
+  return R.Result(V.OUTDATED, none .. R.BindNote(ctx))
 end
 
 R.Register({

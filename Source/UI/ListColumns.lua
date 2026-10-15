@@ -45,12 +45,6 @@ local VERDICT_COLORS = {
 }
 Recollect.UI.VerdictColors = VERDICT_COLORS
 
-local function QualityColor(quality)
-  local color = quality and ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[quality]
-  if color then return color.r, color.g, color.b end
-  return 1, 1, 1
-end
-
 -- Builds the row's regions once
 function Columns.EnsureRow(row, columns)
   if row._cells then return end
@@ -66,31 +60,22 @@ function Columns.EnsureRow(row, columns)
   CobySuite_Recollect.UI.AddHoverHighlight(row)
 end
 
--- Places each cell under its column. The stretch column (Reason) runs to the
--- row's right edge, as its header does: the header never changes its width,
--- so anchoring both edges is what keeps the cell as wide as the header
--- through window and column resizes.
-function Columns.Layout(row, columns)
-  local x = 0
-  for i, col in ipairs(columns) do
-    local text = row._cells[i]
-    if not text then break end
-    local width = col.width or 50
-    text:ClearAllPoints()
-    if col.key == "name" then
-      row.Icon:ClearAllPoints()
-      row.Icon:SetPoint("LEFT", row, "LEFT", x + 4, 0)
-      text:SetPoint("LEFT", row, "LEFT", x + ICON_SIZE + 8, 0)
-      text:SetWidth(math.max(width - ICON_SIZE - 12, 10))
-    elseif col.stretch then
-      text:SetPoint("LEFT", row, "LEFT", x + 4, 0)
-      text:SetPoint("RIGHT", row, "RIGHT", -4, 0)
-    else
-      text:SetPoint("LEFT", row, "LEFT", x + 4, 0)
-      text:SetWidth(math.max(width - 8, 10))
-    end
-    x = x + width
-  end
+-- Places each cell under its header's column (CobySuite.UI.LayoutRowCells).
+-- The stretch column (Reason) runs to the row's right edge, as its header
+-- does: the header never changes its width, so anchoring both edges is what
+-- keeps the cell as wide as the header through window and column resizes.
+-- bounds: the header's GetColumnBounds() taken once for many rows, or nil.
+local LAYOUT = {
+  cell = function(row, _, index) return row._cells[index], row.Icon end,
+  iconKey = "name",
+  iconSize = ICON_SIZE,
+  stretchInset = 4,
+}
+
+function Columns.Layout(row, header, bounds)
+  LAYOUT.bounds = bounds
+  CobySuite_Recollect.UI.LayoutRowCells(row, header, LAYOUT)
+  LAYOUT.bounds = nil
 end
 
 local function AsOfText(entry)
@@ -148,7 +133,7 @@ function Columns.Paint(row, entry, columns, index)
     local white = U.Colors.HIGHLIGHT_WHITE
     text:SetTextColor(white[1], white[2], white[3])
     if col.key == "name" then
-      text:SetTextColor(QualityColor(entry.quality))
+      text:SetTextColor(U.QualityColor(entry.quality))
     elseif col.key == "usedForText" or col.key == "reason" then
       local c = U.Colors.LIGHT_GRAY
       text:SetTextColor(c[1], c[2], c[3])

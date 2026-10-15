@@ -214,7 +214,7 @@ Recollect.Data.Notes = {
   },
   {
     items = { 271424 },   -- Diver's Key Fragment
-    text = "Three fragments combine into a Diver's Key for the Sunken Diver's Chest, which holds a mask toy.",
+    text = "Three fragments combine into a Diver's Key for the Sunken Diver's Chest, which holds the Ancient Amani Mask, a toy.",
     howMany = "3 per key",
     where = "The Coiled Isle: the chest at 65.4, 5.6",
     from = "Glittering Grouper Brinetail along the north shore of the Coiled Isle (61.2, 14.0; 63.6, 13.2; 65.4, 5.6; 67.2, 5.0)",

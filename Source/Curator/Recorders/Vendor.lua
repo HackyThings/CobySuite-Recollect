@@ -62,9 +62,7 @@ local staged    -- the window's last finished read, or nil
 
 -- A seam's returns, or nil when the call fails or any return is secret
 local function Seam(name, ...)
-  local ok, a, b, c, d = pcall(Vendor.seams[name], ...)
-  if not ok or Host.IsSecret(a) or Host.IsSecret(b) or Host.IsSecret(c) or Host.IsSecret(d) then return nil end
-  return a, b, c, d
+  return CobySuite_Recollect.Utilities.SafeCall(Host.IsSecret, 4, Vendor.seams[name], ...)
 end
 
 -- The NPC ID from a creature GUID (NpcPosition's helper)
@@ -125,13 +123,16 @@ local function StillReading(visit)
   return pending == visit and Compare.StillValid("merchant", visit.generation) and Curator.Main.StillCurrent(visit.epoch)
 end
 
--- A finished read: where the player stands, then it becomes the staged read
+-- A finished read: where the player stands and the context block of that
+-- moment (Task #431: a zone or difficulty change before the deferred commit
+-- never becomes the visit's), then it becomes the staged read
 local function Finish(visit)
   local mapID = Seam("Map")
   if type(mapID) == "number" then
     visit.mapID = mapID
     visit.x, visit.y = Seam("Position", mapID)
   end
+  visit.ctx = Curator.Context.Current()
   pending, staged = nil, visit
 end
 
@@ -162,12 +163,12 @@ function Vendor.Read()
   Step(visit, 1)
 end
 
--- The staged read's comparison, a slice of items per deferred job; the
--- context block is read in each job right before it writes
+-- The staged read's comparison, a slice of items per deferred job, every
+-- slice under the context block its read finished in
 local function Commit(visit)
   local state
+  local ctx = visit.ctx
   local function Slice(from)
-    local ctx = Curator.Context.Current()
     if from == 1 then state = Compare.VendorStart(visit) end
     Compare.VendorItems(state, visit, ctx, from, from + SLICE - 1)
     if from + SLICE <= #state.items then

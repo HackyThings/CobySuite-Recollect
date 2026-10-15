@@ -19,8 +19,12 @@
 -- read in the event, compared in a later frame. A secret GUID or
 -- position records nothing, and neither does an NPC that travels with a
 -- player (Traveling: a listed ID, a vendor mount ridden, or an NPC the
--- game says a player controls or owns). Client reads go through
--- NpcPosition.seams.
+-- game says a player controls, owns or has in the party as a computer-run
+-- member),
+-- nor does a creature this character captured in one session on two maps
+-- the data doesn't place it on (Companion: a story companion walks with the
+-- player, Tasks #393 and #423). Client
+-- reads go through NpcPosition.seams.
 -------------------------------------------------------------------------------
 local Curator = Recollect.Curator
 local Host = Curator.Host
@@ -48,21 +52,22 @@ NpcPosition.seams = {
   Controlled = function(unit)
     return UnitPlayerControlled(unit), UnitIsOtherPlayersPet(unit), UnitIsBattlePetCompanion(unit)
   end,
+  -- whether the unit is a computer-run member of the player's party (a delve or story
+  -- companion; 12.1.5's UnitDocumentation lists UnitInPartyIsAI, but how it
+  -- answers for each kind of companion is unmeasured, so Companion's map
+  -- rule below stands behind it)
+  InPartyAI = function(unit) return UnitInPartyIsAI(unit) end,
 }
 
 local function Read(name, ...)
-  local ok, a, b = pcall(NpcPosition.seams[name], ...)
-  if not ok or Host.IsSecret(a) or Host.IsSecret(b) then return nil end
-  return a, b
+  return CobySuite_Recollect.Utilities.SafeCall(Host.IsSecret, 2, NpcPosition.seams[name], ...)
 end
 
 -- The NPC ID from a creature GUID ("Creature-0-<server>-<instance>-<zone>-
 -- <npcID>-<spawn>"), or nil for a player, an object or anything unreadable
 function NpcPosition.NpcID(guid)
-  if type(guid) ~= "string" or Host.IsSecret(guid) then return nil end
-  local kind, _, _, _, _, id = strsplit("-", guid)
-  if kind ~= "Creature" and kind ~= "Vehicle" then return nil end
-  return tonumber(id)
+  if Host.IsSecret(guid) then return nil end
+  return CobySuite_Recollect.Utilities.NpcIDFromGUID(guid)
 end
 
 -- The NPC in a unit ("npc" for gossip and trainers, "questnpc" for quest
@@ -103,8 +108,47 @@ function NpcPosition.Traveling(npc, unit)
   if unit then
     local ok, controlled, pet, companion = pcall(NpcPosition.seams.Controlled, unit)
     if ok and (Yes(controlled) or Yes(pet) or Yes(companion)) then return true end
+    local botOk, bot = pcall(NpcPosition.seams.InPartyAI, unit)
+    if botOk and Yes(bot) then return true end
   end
   return false
+end
+
+local seenMaps = {}     -- [npc] = { [mapID] = true }, the maps this NPC was captured on this session
+local companions = {}   -- [npc] = true once a travelling companion
+
+-- Companion(npc, mapID): notes the NPC on a map and says whether it is a
+-- travelling companion: captured this session on two maps or more that the
+-- shipped data doesn't place it on (a story companion walks with the
+-- player; Task #423: an NPC the data places in two cities is seen on both
+-- maps and stays an NPC, so a map it is placed on never counts). An NPC
+-- with no shipped place is one on its second map, as before. Once one,
+-- always, so nothing more is recorded for it until the next session.
+function NpcPosition.Companion(npc, mapID)
+  if companions[npc] then return true end
+  local maps = seenMaps[npc] or {}
+  seenMaps[npc] = maps
+  maps[mapID] = true
+  local placed = {}
+  for _, place in ipairs(Host.NpcPlaces(npc)) do placed[place.mapID] = true end
+  local unplaced, seen = 0, {}
+  for map in pairs(maps) do
+    seen[#seen + 1] = tostring(map)
+    if not placed[map] then unplaced = unplaced + 1 end
+  end
+  if unplaced >= 2 then
+    companions[npc] = true
+    table.sort(seen)
+    Host.Log("NPC %d seen on maps %s, two of them not its shipped places: a travelling companion, no more positions this session",
+      npc, table.concat(seen, ", "))
+    return true
+  end
+  return false
+end
+
+function NpcPosition.Reset()
+  wipe(seenMaps)
+  wipe(companions)
 end
 
 -- Where the player stands: mapID, x, y (0 to 1), or nil
@@ -116,25 +160,27 @@ function NpcPosition.Here()
   return mapID, x, y
 end
 
--- Capture(unit): the NPC and where the player stands, read now (they end
--- with the interaction), as { npc, mapID, x, y }, or nil
+-- Capture(unit): the NPC, where the player stands and the context block of
+-- that moment, read now (they end with the interaction; Task #431: a zone or
+-- difficulty change before the deferred comparison never becomes the
+-- sighting's), as { npc, mapID, x, y, ctx }, or nil
 function NpcPosition.Capture(unit)
   if not Curator.Main.MayRecord() or Read("InCombat") then return nil end
   local npc, from = NpcPosition.CurrentNpc(unit)
   if not npc or NpcPosition.Traveling(npc, from) then return nil end
   local mapID, x, y = NpcPosition.Here()
-  if not mapID then return nil end
-  return { npc = npc, mapID = mapID, x = x, y = y }
+  if not mapID or NpcPosition.Companion(npc, mapID) then return nil end
+  return { npc = npc, mapID = mapID, x = x, y = y, ctx = Curator.Context.Current() }
 end
 
 -- Commit(capture, addWhenUnshipped, fallback): the comparison, in a later
--- frame; fallback (optional, Host.QuestPlace) is where the quest being
--- handled starts, for a giver the data has no place for
+-- frame, under the capture's context; fallback (optional, Host.QuestPlace)
+-- is where the quest being handled starts, for a giver the data has no place for
 function NpcPosition.Commit(capture, addWhenUnshipped, fallback)
   if not capture then return end
+  local ctx = capture.ctx or Curator.Context.Current()
   Curator.Main.Defer(function()
-    Curator.Compare.Position(capture.npc, capture.mapID, capture.x, capture.y, Curator.Context.Current(), nil,
-      addWhenUnshipped, fallback)
+    Curator.Compare.Position(capture.npc, capture.mapID, capture.x, capture.y, ctx, nil, addWhenUnshipped, fallback)
   end)
 end
 

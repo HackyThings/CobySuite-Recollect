@@ -7,7 +7,10 @@
 -- Any collectible still to get: Needed, naming a few with their cost. All of
 -- them collected: Unknown, since the journals list only mounts and pets and
 -- the item may buy other things. A collectible that a confirmed Data.Uses
--- entry already links to this item is left to that check. Until the index is
+-- entry already links to this item is left to that check, and so is one a
+-- live use of a secret serving this character answers for (Secret.Covered:
+-- the rewards that use's step serves, never a gone secret's, another
+-- faction's or a weekly step's). Until the index is
 -- built (a moment after login) every item is Unknown here, so no item shows
 -- Outdated or Purpose done before its costs are known.
 -- An index with entries that couldn't be read (Facts.Journals.Incomplete,
@@ -21,18 +24,28 @@ local V = R.Verdict
 local NAMED = 2   -- collectibles named in the reason
 
 -- Targets a confirmed known use already covers for this item
-local function Covered(itemID)
+local function Covered(itemID, owner)
   local covered = {}
   for _, entry in ipairs(Recollect.Purposes.KnownUse.EntriesFor(itemID)) do
     local target = entry.target or {}
     if target.mount then covered["mount:" .. target.mount] = true end
     if target.pet then covered["pet:" .. target.pet] = true end
   end
+  -- a secret the item is used in covers the rewards its own check answers
+  -- for: those a use still in the game and serving the owner serves (the
+  -- overnight review's finding 2), read as the journal keys them: a mount by
+  -- its journal ID, a pet by its species
+  local Secret = Recollect.Purposes.Secret
+  for _, thing in ipairs(Secret and Secret.Covered(itemID, owner) or {}) do
+    if thing and (thing.what == "mount" or thing.what == "pet") then covered[thing.what .. ":" .. thing.id] = true end
+  end
   return covered
 end
 
 local function Tally(ctx, targets)
-  local covered = Covered(ctx.stack.itemID)
+  local Secret = Recollect.Purposes.Secret
+  local owner = Secret and Secret.OwnerOf(ctx) or Recollect.Verdicts.Rows.Owner()
+  local covered = Covered(ctx.stack.itemID, owner)
   local t = { have = 0, missing = 0, unavailable = 0, unread = 0, names = {} }
   for _, target in ipairs(targets) do
     if not covered[target.kind .. ":" .. target.id] then

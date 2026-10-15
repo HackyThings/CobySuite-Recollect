@@ -99,7 +99,7 @@ local function Build()
   -- button runs the macro on the secure path, once, on release, never with
   -- a modifier
   dialog = CobySuite_Recollect.UI.CreateClickPrompt({
-    name = "RecollectAchievementPrompt", title = "Show achievement", icon = Recollect.ICON,
+    name = "RecollectAchievementPrompt", title = "Show Achievement", icon = Recollect.ICON,
     macro = Prompt.MACRO, buttonText = "Open Achievements",
     onPostClick = function()
       if Prompt.seams.InCombat() then

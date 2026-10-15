@@ -157,11 +157,33 @@ function Season.RemovedIn(itemID)
   return patch
 end
 
--- "; it can no longer be obtained (removed in patch 12.1.0)", or ""
-function Season.RemovedWords(itemID)
+-- Whether every way to obtain the item is gone: RemovedIn's patch, or 0 when
+-- the data says so with no patch known (Relations.Removed, data format 18),
+-- which counts as passed (AllTheThings says it is gone now); else nil
+function Season.Removed(itemID)
   local patch = Season.RemovedIn(itemID)
-  if not patch then return "" end
-  return ("; it can no longer be obtained (removed in patch %s)"):format(Season.PatchText(patch))
+  if patch then return patch end
+  local Relations = Recollect.Facts.Relations
+  if type(Relations.Removed) ~= "function" then return nil end
+  local ok, removed = Try(Relations.Removed, itemID)
+  return ok and removed == 0 and 0 or nil
+end
+
+-- "Can no longer be obtained (removed in patch 12.1.0)", "Can no longer be
+-- obtained" with no patch known, or nil
+function Season.RemovedText(itemID)
+  local patch = Season.Removed(itemID)
+  if not patch then return nil end
+  if patch == 0 then return "Can no longer be obtained" end
+  return ("Can no longer be obtained (removed in patch %s)"):format(Season.PatchText(patch))
+end
+
+-- "; it can no longer be obtained (removed in patch 12.1.0)", "; it can no
+-- longer be obtained" with no patch known, or ""
+function Season.RemovedWords(itemID)
+  local text = Season.RemovedText(itemID)
+  if not text then return "" end
+  return "; it c" .. text:sub(2)
 end
 
 -- What gear power the item is: "gear", "reagent", "upgrade" (its Use line

@@ -26,6 +26,6 @@ R.Register({
       return R.Unknown(("A gem; %s, so whether a newer one replaces it can't be told"):format(
         UseEffect.Disagree(ctx.facts, expansion, patch)))
     end
-    return R.Result(V.OUTDATED, ("A gem %s, an older expansion"):format(UseEffect.From(expansion, source, patch)))
+    return R.Result(V.OUTDATED, ("A gem %s"):format(UseEffect.Older(expansion, source, patch)))
   end,
 })

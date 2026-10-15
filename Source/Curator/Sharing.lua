@@ -15,15 +15,21 @@
 --      their check); a challenge's checksum is Protocol.Challenge over this
 --      character's own name. While curator mode is on, R ends with the kind
 --      of instance this character is in and, while Const.SEND_ZONE is on,
---      its zone; with it off, R stops after the waiting list (Task #299)
---   Q  a pull: refused with S (busy, off, nodata, empty, declined, pack, large)
+--      its zone, then the codecs it can send (Protocol.Caps, Task #419);
+--      with it off, R stops after the waiting list (Task #299)
+--   Q  a pull: refused with S (busy, off, nodata, empty, declined, pack, large,
+--      codec)
 --      or started: one block of the pending records, stamps and notes (at
 --      most Protocol.OBSERVATIONS, fewer until it packs within BLOCK_RAW
 --      bytes, or LARGE_RAW when Q asks for a large pull; a frozen block or
 --      a quest base that fits only a large pull refuses "large") with the
 --      contexts and quest entries they name is packed, the S announces the
 --      chunk count, size, checksum and how many observations are left for
---      the next pull, and the D chunks follow at the adaptive rate. Q also
+--      the next pull, and the D chunks follow at the adaptive rate. A Q
+--      naming a codec (Task #419) gets the block Deflated, its S a sixth
+--      field (the CBOR's size), its parts D in Base64 ("z") or B in the
+--      binary form ("b"); a Q without one, exactly a released curator's
+--      answer. Q also
 --      hands out the store token the payload carries back, and the
 --      author's pin hint (Store.SetPinned). A
 --      new Q replaces a transfer only waiting for its K. With "Ask me
@@ -133,7 +139,7 @@ end
 -------------------------------------------------------------------------------
 -- H and R
 -------------------------------------------------------------------------------
--- Where this character is, for R's last two fields (Task #299; Cobanyte,
+-- Where this character is, for R's instance and zone fields (Task #299; Cobanyte,
 -- 2026-10-06: the author's side pulls nobody inside an instance by itself).
 -- The calls are Blizzard's generated docs' (12.1.0, 69933): IsInInstance
 -- (InstanceDocumentation), C_PartyInfo.IsDelveInProgress (PartyInfo),
@@ -188,21 +194,24 @@ function Sharing.OnHello(msg)
     Transport.Activity(), counts.pending + Curator.Notes.Counts().pending, counts.pendingBytes }
   -- where this character is, only while curator mode is on (Task #299; the
   -- consent text says so): an answer with curator mode off stays the basic
-  -- one, which stops after the waiting list, sending neither field
+  -- one, which stops after the waiting list, sending neither field. The
+  -- codecs it can send follow the zone (Task #419), so they too ride only
+  -- with curator mode on, when a pull can start
   local where = Curator.Main.IsEnabled()
   local instance, zone = where and Sharing.Instance() or nil, where and Sharing.Zone() or ""
+  local caps = where and Protocol.Caps() or nil
   -- the requests waiting for V, as many as fit the message (a dozen made
   -- the R too long to send), in ID order; the rest ride the next R, once V
-  -- has settled these; measured as Send builds it, addressee, the instance
-  -- and the zone included (an empty list keeps its separator). A zone that
-  -- leaves no room at all is left out
+  -- has settled these; measured as Send builds it, addressee, the instance,
+  -- the zone and the codecs included (an empty list keeps its separator). A
+  -- zone that leaves no room at all is left out
   local function Base(withZone)
     if not where then
       return Protocol.Encode("R", msg.mode, Protocol.AUTHOR, f[1], fields[1], fields[2], fields[3], fields[4], fields[5],
         fields[6], fields[7], fields[8], fields[9], fields[10], "")
     end
     return Protocol.Encode("R", msg.mode, Protocol.AUTHOR, f[1], fields[1], fields[2], fields[3], fields[4], fields[5],
-      fields[6], fields[7], fields[8], fields[9], fields[10], "", instance, withZone)
+      fields[6], fields[7], fields[8], fields[9], fields[10], "", instance, withZone, caps)
   end
   local base = Base(zone)
   if not base and zone ~= "" then
@@ -219,6 +228,7 @@ function Sharing.OnHello(msg)
   if where then
     fields[#fields + 1] = instance
     fields[#fields + 1] = zone
+    fields[#fields + 1] = caps
   end
   SendTo(msg.sender, false, "R", msg.mode, f[1], unpack(fields, 1, #fields))
 end
@@ -243,12 +253,7 @@ end
 -------------------------------------------------------------------------------
 -- The snapshot
 -------------------------------------------------------------------------------
-local function Copy(value)
-  if type(value) ~= "table" then return value end
-  local out = {}
-  for k, v in pairs(value) do out[k] = Copy(v) end
-  return out
-end
+local Copy = Curator.Main.Copy
 
 local function AddQuest(db, out, index)
   local entry = db.quests[index]
@@ -400,7 +405,8 @@ end
 local function SendChunk(seq)
   if not transfer or not transfer.chunks[seq] then return end
   local current = transfer
-  local text = Protocol.Encode("D", current.mode, Protocol.AUTHOR, current.request, seq, current.chunks[seq])
+  -- D parts, or B parts in the binary form (codec "b", Task #419)
+  local text = Protocol.Encode(current.kind or "D", current.mode, Protocol.AUTHOR, current.request, seq, current.chunks[seq])
   local function OnSent()
     if transfer ~= current then return end
     current.sent = current.sent + 1
@@ -415,20 +421,26 @@ local function SendChunk(seq)
   end
 end
 
--- PackBlock(opts): the snapshot, what it holds, how many are left and its
--- payload, halving the observations until it packs within the block's
--- bytes (LARGE_RAW for a large pull); nil and the refusal's word otherwise.
--- Start calls it through the module, so a development timing probe reaches
--- it (Task #294)
+-- PackBlock(opts): the snapshot, what it holds, how many are left, its
+-- payload and its size in CBOR bytes, halving the observations until it
+-- packs within the block's bytes (LARGE_RAW for a large pull); nil and the
+-- refusal's word otherwise. A compressed pull (opts.codec, Task #419) packs
+-- the same block: the CBOR's size decides as in a plain one, and the payload
+-- as sent must also fit what the author receives for such a block (the
+-- binary form's worst case is twice the size). Start calls it through the
+-- module, so a development timing probe reaches it (Task #294)
 function Sharing.PackBlock(opts)
   local maxRaw = opts.large and Protocol.LARGE_RAW or Protocol.BLOCK_RAW
+  local wireMax = Protocol.EncodedSize(maxRaw)
   local limit = Protocol.OBSERVATIONS
   while true do
     local snapshot, pending, left = Sharing.Snapshot(limit, opts.store)
     if not next(snapshot.records) and not next(snapshot.confirms) and not next(snapshot.notes) then return nil, "empty" end
-    local payload, raw = Protocol.Pack(snapshot)
-    if not payload then return nil, "pack" end
-    if raw <= maxRaw then return snapshot, pending, left, payload end
+    local payload, raw = Protocol.Pack(snapshot, opts.codec)
+    -- a codec that failed here is the codec's, which the author retries
+    -- (plain after a few), never a reason to stop the collection
+    if not payload then return nil, (opts.codec and raw == "compress failed") and "codec" or "pack" end
+    if raw <= maxRaw and #payload <= wireMax then return snapshot, pending, left, payload, raw end
     -- a frozen block goes whole, and one observation is as small as it gets:
     -- what's left needs a large pull
     if pending.block or limit <= 1 then return nil, "large" end
@@ -436,9 +448,6 @@ function Sharing.PackBlock(opts)
   end
 end
 
--- Starts sending a pull's collection (in a later frame: packing a big
--- store is the costliest step); localOnly: the author is this very
--- character, so nothing is whispered; opts = { store, large } from Q
 -- TakeCancelled(request, sender): whether the author cancelled that pull
 -- before it started (its X came while the start waited its frame); the
 -- mark is used up
@@ -453,26 +462,38 @@ local function TakeCancelled(request, sender)
   return false
 end
 
+-- Starts sending a pull's collection (in a later frame: packing a big
+-- store is the costliest step); localOnly: the author is this very
+-- character, so nothing is whispered; opts = { store, large, codec } from Q
 function Sharing.Start(request, mode, sender, localOnly, opts)
   if TakeCancelled(request, sender) then
     Host.Log("Curator collection %s not started: the author cancelled it first", tostring(request))
     Remember("Cancelled", request, "author")
     return false
   end
-  local snapshot, pending, left, payload = Sharing.PackBlock(opts or {})
+  opts = opts or {}
+  local snapshot, pending, left, payload, raw = Sharing.PackBlock(opts)
   if not snapshot then
     Refuse(request, mode, pending, localOnly, sender)
     return false
   end
+  local codec = Protocol.IsCodec(opts.codec) and opts.codec or nil
   transfer = { request = request, mode = mode, sender = sender, pending = pending, payload = payload,
-    chunks = Protocol.Chunks(payload, request), checksum = Protocol.Checksum(payload), sent = 0, localOnly = localOnly }
+    chunks = Protocol.Chunks(payload, request), checksum = Protocol.Checksum(payload), sent = 0, localOnly = localOnly,
+    kind = Protocol.DataKind(codec), codec = codec }
   Remember("Started", request, sender, mode, snapshot, #payload, #transfer.chunks, localOnly)
-  Host.Log("Curator collection %s for %s: %d findings, %d stamps, %d notes, %d bytes in %d parts%s", tostring(request),
+  Host.Log("Curator collection %s for %s: %d findings, %d stamps, %d notes, %d bytes in %d parts%s%s", tostring(request),
     tostring(sender), Count(snapshot.records), Count(snapshot.confirms), Count(snapshot.notes), #payload, #transfer.chunks,
-    localOnly and " (on this client)" or "")
-  SendTo(sender, localOnly, "S", mode, request, #transfer.chunks, #payload, transfer.checksum,
-    ("records:%d,confirms:%d,notes:%d,more:%d"):format(Count(snapshot.records), Count(snapshot.confirms),
-      Count(snapshot.notes), left))
+    codec and (" (compressed, %s, from %d bytes)"):format(codec, raw) or "", localOnly and " (on this client)" or "")
+  local info = ("records:%d,confirms:%d,notes:%d,more:%d"):format(Count(snapshot.records), Count(snapshot.confirms),
+    Count(snapshot.notes), left)
+  -- a plain pull's S is today's five fields; a compressed one adds the
+  -- CBOR's size before compression (Task #419)
+  if codec then
+    SendTo(sender, localOnly, "S", mode, request, #transfer.chunks, #payload, transfer.checksum, info, raw)
+  else
+    SendTo(sender, localOnly, "S", mode, request, #transfer.chunks, #payload, transfer.checksum, info)
+  end
   for seq = 1, #transfer.chunks do SendChunk(seq) end
   if mode == Protocol.LIVE and not localOnly then
     Host.Print(("Sending curator findings (%d KB). /rec curator to watch or cancel."):format(
@@ -485,7 +506,8 @@ end
 function Sharing.OnRequest(msg)
   if not Curator.Main.Available() or not FromAuthor(msg) then return end
   local request = msg.fields[1]
-  local opts = { store = msg.fields[3], large = msg.fields[5] == "1" }
+  -- codec: Q's sixth field (Task #419), nil from a plain pull's five
+  local opts = { store = msg.fields[3], large = msg.fields[5] == "1", codec = msg.fields[6] ~= "" and msg.fields[6] or nil }
   -- the author's hint that he pinned this character (Trusted stamps; Store.Wanted)
   Curator.Store.SetPinned(msg.fields[4] == "1")
   local localOnly = Transport.IsLocalPull(msg.mode, msg.sender)
@@ -501,6 +523,11 @@ function Sharing.OnRequest(msg)
   local state = Sharing.State()
   if state == "off" or state == "nodata" then
     Refuse(request, msg.mode, state, localOnly, msg.sender)
+    return
+  end
+  -- a codec this client can't send (the author picks only from R's caps)
+  if opts.codec and not Protocol.Caps():find(opts.codec, 1, true) then
+    Refuse(request, msg.mode, "codec", localOnly, msg.sender)
     return
   end
   Host.Log("Curator collection %s requested by %s (%s)", tostring(request), tostring(msg.sender), state)

@@ -25,7 +25,7 @@ local Try = Recollect.Utilities.Try
 -- colored category ("Use: |cn...:Earthen Enhancements - Wondrous Weapons|r
 -- Permanently enchants a weapon ...", The War Within's scrolls)
 local function IsPermanent(useText)
-  local plain = useText:gsub("|cn[%w_]*:", ""):gsub("|c........", ""):gsub("|[rR]", "")
+  local plain = CobySuite_Recollect.Utilities.StripColors(useText)
   return (" " .. plain .. " "):find("[%s:]Permanently%s") ~= nil
 end
 
@@ -52,7 +52,7 @@ R.Register({
     if age ~= "current" then
       local UseEffect = Recollect.Purposes.UseEffect
       -- " from Shadowlands, an older expansion", or both expansions named
-      local from = age == "older" and (" " .. UseEffect.From(expansion, source, patch) .. ", an older expansion")
+      local from = age == "older" and (" " .. UseEffect.Older(expansion, source, patch))
         or ("; " .. UseEffect.Disagree(ctx.facts, expansion, patch))
       if not R.EnglishClient() then return R.Info("An item enhancement" .. from) end
       if type(tip.useText) ~= "string" then

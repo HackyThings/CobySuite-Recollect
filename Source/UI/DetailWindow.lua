@@ -17,7 +17,9 @@
 --                       then its groups of uses (with the endeavor's tasks
 --                       that name it, and, when every use is gone, what they
 --                       were: the No longer available tab summed up as the
---                       panel sums it), ACHIEVEMENTS (with their metas),
+--                       panel sums it; one line per Warcraft secret it is
+--                       used in, whose name is a link to the Secret tab),
+--                       ACHIEVEMENTS (with their metas),
 --                       HOW TO GET MORE (the season tag and the patch that
 --                       removed it first; what crafting it takes), GUIDE NOTES (UI.
 --                       UsedFor.NoteLines), WHAT YOU HAVE; every check with
@@ -33,11 +35,14 @@
 --                       the Overview, below; items 4a and 10). An older
 --                       system's line (Purposes.Legacy) leads WHAT IT'S FOR's
 --                       lines, under the explanation
---   Buys, Quests & achievements, Crafting, Comes from, What it takes, No
+--   Secret              a panel of its own, not a table (UI.SecretPanel;
+--                       Tasks #407 and #430): its own compact header in
+--                       place of the window's, a step explorer and a reader
+--   Buys, Quests and achievements, Crafting, Comes from, What it takes, No
 --   longer available    one table each (UI.DataTable over UI.DetailData's
 --                       rows): sortable columns, a search box, a filter for
 --                       what you still need, have, can't use, and by kind
--- A tab shows only when it has rows, with how many. The rows are built a
+-- A tab shows only when it has rows, with how many (the Secret tab has no number). The rows are built a
 -- slice at a time (UI.DetailData), with a loading bar, so an item with
 -- thousands of uses never stalls a frame; names load for the rows on screen,
 -- then for the rest in the background.
@@ -321,7 +326,9 @@ end
 -- The kinds of source a new player looks for first
 local SOURCE_ORDER = { ["Drops from"] = 1, ["Boss loot"] = 2, ["Zone drop"] = 3, ["World drop"] = 4, ["Sold by"] = 5,
   ["Crafted by"] = 6, ["Found at"] = 7, Reward = 8, Achievement = 9, Renown = 10, ["Choice reward"] = 11,
-  ["Trading Post"] = 12, ["Made from"] = 13, ["Recipe item"] = 14, ["Black Market"] = 15 }
+  ["Trading Post"] = 12, ["Made from"] = 13, ["Recipe item"] = 14, ["Black Market"] = 15, ["During quest"] = 8.5,
+  ["Bought with"] = 5.5, Archaeology = 6.5, ["Zone activity"] = 7.5, Event = 7.6, Mission = 7.7, ["New character"] = 16,
+  ["Ensemble look"] = 5.6 }
 local MAX_SUMMARY = 5
 
 -------------------------------------------------------------------------------
@@ -550,6 +557,9 @@ local function RowLine(row, withPlace)
     text = Recollect.UI.UsedFor.parts.BLACK_MARKET_TEXT
   elseif row.kind == "tradingPost" then
     text = Recollect.UI.UsedFor.parts.TradingPostText(row.month)
+  elseif row.kind == "secretReward" then
+    text = tostring(row.name or name)
+    links = Detail.SecretLink(row.sid, row.secretName, links, true)
   end
   local place = withPlace and data.Place(row) or nil
   local before = #text
@@ -583,7 +593,7 @@ local function RowLine(row, withPlace)
     end
   end
   return { text = text, color = row.stateColor or U.Colors.LIGHT_GRAY, place = place, links = links, cut = cut,
-    icon = Recollect.UI.Icons.FromRow(row) }
+    icon = Recollect.UI.Icons.FromRow(row), secret = row.kind == "secretReward" and row.sid or nil }
 end
 
 -- A reagent (Cobanyte, 2026-09-24): which professions use it and in how
@@ -801,6 +811,9 @@ function FOR.IsAchievement(row) return row.what == "achievement" end
 function FOR.Counted(row) return row.kind ~= "reagentOf" and row.kind ~= "index" end
 function FOR.RowLine(row) return RowLine(row, true) end
 
+-- Each group's word in the short summary ("Leads to 1 collectible; crafting 1; uses 1")
+FOR.SHORT = { buys = "buys", quests = "quests and places", crafting = "crafting", takes = "uses" }
+
 FOR.GROUPS = {
   { key = "buys", tab = "buys", label = "Buys" },
   { key = "quests", tab = "quests", label = "Quests and places", keep = function(row) return not FOR.IsAchievement(row) end },
@@ -834,7 +847,7 @@ function FOR.Group(lines, rows, key, tab, label)
   local named, nextIndex = Fold.Take(ordered, 1, MAX_SUMMARY, FOR.RowLine)
   for _, line in ipairs(named) do lines[#lines + 1] = line end
   Fold.Container(lines, key, ordered, nextIndex, tab, FOR.RowLine, n)
-  return ("%s: %d%s"):format(label, n, missing > 0 and (" (%d still to get or do)"):format(missing) or "")
+  return ("%s: %d%s"):format(label, n, missing > 0 and (" (%d still to get or do)"):format(missing) or ""), n
 end
 
 -- The uses a new player asks about first, spelled out when there are few
@@ -844,8 +857,55 @@ end
 -- use takes together with it. Returns the sentences and which kinds they
 -- covered (treasures and NPCs), so UseWords doesn't count those again.
 FOR.SPELLED = 2
-function FOR.Specific(j)
-  local sentences, handled = {}, {}
+
+-- The items a treasure holds as links, when Opens.Holds names them (up to 3,
+-- all of their names loaded), so a player can click what a key opens
+-- (a curator's note on Vile Essence: "it talks about what you can loot, but
+-- doesn't give me a link to it")
+function FOR.HeldLinks(object, into)
+  into = into or {}
+  local contents = type(object) == "table" and object.contents or {}
+  if #contents == 0 or #contents > 3 then return into end
+  local names = {}
+  for i, itemID in ipairs(contents) do
+    names[i] = Recollect.Facts.Item.Name(itemID)
+    if not names[i] then return into end
+  end
+  for i, itemID in ipairs(contents) do HeardLinks({ { kind = "item", id = itemID, text = names[i] } }, into) end
+  return into
+end
+
+-- "Combining it leads to Ancient Amani Mask, a toy you don't have." for the
+-- first end UI.UsedFor.CombineLeads names (none for a plain end), with the
+-- names it used ({ text, links }), or nil
+-- Whether the item's curated description (Data/Descriptions.lua) already
+-- names a thing: its name inside the text, whole (Task #439: "the chest holds
+-- the Ancient Amani Mask, a toy" and then "Combining it leads to Ancient Amani
+-- Mask" said it twice)
+function FOR.Described(described, name)
+  if type(described) ~= "string" or type(name) ~= "string" or name == "" then return false end
+  local s, e = described:lower():find(name:lower(), 1, true)
+  if not s then return false end
+  local before, after = described:sub(s - 1, s - 1), described:sub(e + 1, e + 1)
+  return not before:find("%w") and not after:find("%w")
+end
+
+function FOR.LeadSentence(j, described)
+  if not Recollect.UI.UsedFor.CombinesIn(j.relations) then return nil end
+  local Chains = Recollect.Facts.Chains
+  local okS, summary = pcall(Chains.Summary, j.itemID, j.owner or Recollect.Verdicts.Rows.Owner(),
+    Recollect.Facts.QuestInfo.FrameBudget(), nil, function(entry) return entry.via[1] ~= nil and entry.via[1].kind == "makes" end)
+  if not okS or type(summary) ~= "table" then return nil end
+  local read = summary.first.open or summary.first.done or summary.first.unread
+  if not read or not read.thing then return nil end
+  -- the description names the end already: the Leads to line below carries its state
+  if FOR.Described(described, Recollect.Facts.Buys.Name(read.thing)) then return nil end
+  local text, heard = Data().Heard(Chains.ThingWords, read.thing)
+  return { text = ("Combining it leads to %s."):format(text), links = heard }
+end
+
+function FOR.Specific(j, described)
+  local sentences, handled, links = {}, { described = described }, {}
   local objects, npcs = {}, {}
   for _, row in ipairs(j.tabs.quests or {}) do
     if not row.restricted then
@@ -863,6 +923,7 @@ function FOR.Specific(j)
       local object = Recollect.Facts.Vendors.Object(row.objectID)
       local holds = object and Opens and Opens.Holds(object) or ""
       sentences[#sentences + 1] = ("It opens %s%s%s."):format(Lowered(Data().DisplayName(row)), holds, State(row))
+      FOR.HeldLinks(object, links)
     end
   end
   if #npcs > 0 and #npcs <= FOR.SPELLED then
@@ -873,6 +934,13 @@ function FOR.Specific(j)
       sentences[#sentences + 1] = (place and place.zone and not name:find(place.zone, 1, true))
         and ("It is used at %s in %s."):format(name, place.zone) or ("It is used at %s."):format(name)
     end
+  end
+  -- where combining it leads, the end named as a link (Task #438: the
+  -- explanation named "a mask toy", never the Ancient Amani Mask)
+  local okLead, lead = pcall(FOR.LeadSentence, j, described)
+  if okLead and lead then
+    sentences[#sentences + 1] = lead.text
+    HeardLinks(lead.links, links)
   end
   -- what a use takes, one sentence per use (its record: a known use, a
   -- combine), never parts of two uses joined; "you have them all" only when
@@ -909,16 +977,19 @@ function FOR.Specific(j)
       end
     end
   end
-  return sentences, handled
+  return sentences, handled, links
 end
 
 -- "is used in 3 quests, counts toward 1 achievement and buys 12 things": the
 -- item's uses counted in words, for the explanation (without the kinds
 -- FOR.Specific spelled out); nil when it has none
+FOR.MADE_VERBS = { makes = "makes", partOf = "combines into", recipeFor = "teaches how to make", teaches = "teaches",
+  gives = "gives, when used," }
 function FOR.UseWords(j, handled)
   handled = handled or {}
   local counts = { quest = 0, place = 0, achievement = 0, linked = 0, buys = 0, reagent = 0, makes = 0, endeavor = 0,
-    currency = 0 }
+    currency = 0, pieces = 0 }
+  local made   -- the one row it makes, teaches or combines into, when it is only one
   for _, row in ipairs(j.tabs.buys or {}) do if FOR.Counted(row) then counts.buys = counts.buys + 1 end end
   for _, row in ipairs(j.tabs.quests or {}) do
     if row.kind == "linked" then counts.linked = counts.linked + 1
@@ -931,8 +1002,11 @@ function FOR.UseWords(j, handled)
   end
   for _, row in ipairs(j.tabs.crafting or {}) do
     if row.kind == "reagentOf" then counts.reagent = counts.reagent + 1
-    elseif row.kind == "makes" or row.kind == "partOf" or row.kind == "recipeFor" or row.kind == "teaches" then
+    elseif row.kind == "makes" or row.kind == "partOf" or row.kind == "recipeFor" or row.kind == "teaches" or row.kind == "gives" then
       counts.makes = counts.makes + 1
+      made = row
+    elseif row.kind == "givesByClass" then
+      counts.pieces = counts.pieces + 1
     end
   end
   local function N(n, one, many) return ("%d %s"):format(n, n == 1 and one or many) end
@@ -944,11 +1018,28 @@ function FOR.UseWords(j, handled)
   if counts.endeavor > 0 then parts[#parts + 1] = "is named by " .. N(counts.endeavor, "neighborhood endeavor task", "neighborhood endeavor tasks") end
   if counts.buys > 0 then parts[#parts + 1] = "buys " .. N(counts.buys, "thing", "things") .. FOR.BuyKinds(j) end
   if counts.reagent > 0 then parts[#parts + 1] = "is a reagent in " .. N(counts.reagent, "recipe", "recipes") end
-  if counts.makes > 0 then parts[#parts + 1] = "makes or teaches " .. N(counts.makes, "thing", "things") end
+  local links = {}
+  if counts.makes > 0 then
+    -- exactly one: say which, as a link ("combines into Amani Warrior's Spear"),
+    -- not "makes or teaches 1 thing" (a curator's note on the Toughened Amani Leather Wrap)
+    local verb = counts.makes == 1 and FOR.MADE_VERBS[made.kind]
+    local name = verb and Data().DisplayName(made)
+    if type(name) == "string" and name ~= "" and FOR.Described(handled.described, name) then
+      -- the description says what it makes already (Task #439)
+    elseif type(name) == "string" and name ~= "" then
+      parts[#parts + 1] = verb .. " " .. name
+      RowLink(made, name, links)
+    else
+      parts[#parts + 1] = "makes or teaches " .. N(counts.makes, "thing", "things")
+    end
+  end
   if counts.currency > 0 then parts[#parts + 1] = "is worth a currency" end
+  -- a class token's pieces (data format 16): one of them, by class
+  if counts.pieces > 1 then parts[#parts + 1] = ("gives one of %d items, chosen by class"):format(counts.pieces) end
+  if counts.pieces == 1 then parts[#parts + 1] = "gives an item when used" end
   if #parts == 0 then return nil end
-  if #parts == 1 then return parts[1] end
-  return table.concat(parts, ", ", 1, #parts - 1) .. " and " .. parts[#parts]
+  if #parts == 1 then return parts[1], links end
+  return table.concat(parts, ", ", 1, #parts - 1) .. " and " .. parts[#parts], links
 end
 
 -- What its purchases are, by kind in BUY_ORDER: " (2 pets, 1 toy, 4 decor
@@ -1037,7 +1128,7 @@ function FOR.Explain(model, j, itemID)
       from = okN and name or nil
     end
   end
-  local sentences = {}
+  local sentences, explainLinks = {}, {}
   if what then
     sentences[#sentences + 1] = from and ("%s, from %s."):format(what, from) or (what .. ".")
   elseif from then
@@ -1047,6 +1138,9 @@ function FOR.Explain(model, j, itemID)
   if pvp then
     sentences[#sentences + 1] = ("It's PvP gear: in Arenas and Battlegrounds it counts as item level %d."):format(pvp)
   end
+  -- collected or not, for a toy, a mount or a pet (Task #439)
+  local okC, _, collected = pcall(Detail.CollectionWords, itemID, model)
+  if okC and collected then sentences[#sentences + 1] = collected end
   -- what the item does, in our own words, where its tooltip leaves a new
   -- player guessing (Data/Descriptions.lua, written from the game's own text)
   local described = Recollect.Data.Descriptions and Recollect.Data.Descriptions[itemID]
@@ -1057,8 +1151,10 @@ function FOR.Explain(model, j, itemID)
   local crafted = FOR.CraftedBy(j)
   if crafted then sentences[#sentences + 1] = ("Crafted with %s."):format(crafted) end
   if j then
-    local specific, handled = FOR.Specific(j)
-    local uses = FOR.UseWords(j, handled)
+    local specific, handled, specificLinks = FOR.Specific(j, described)
+    local uses, useLinks = FOR.UseWords(j, handled)
+    for _, link in ipairs(specificLinks or {}) do explainLinks[#explainLinks + 1] = link end
+    for _, link in ipairs(useLinks or {}) do explainLinks[#explainLinks + 1] = link end
     for _, sentence in ipairs(specific) do sentences[#sentences + 1] = sentence end
     if uses then
       sentences[#sentences + 1] = ("%s %s."):format(#specific > 0 and "It also" or "It", uses)
@@ -1077,6 +1173,7 @@ function FOR.Explain(model, j, itemID)
   if #sentences > 0 then
     local line = Plain(table.concat(sentences, " "), U.Colors.HIGHLIGHT_WHITE)
     line.explain, line.lead = true, true
+    if #explainLinks > 0 then line.links = explainLinks end
     lines[#lines + 1] = line
   end
   -- the item's own Use line, quoted, so it needn't be hovered (Cobanyte,
@@ -1177,8 +1274,43 @@ end
 local function ForLines(j)
   local lines, live = {}, 0
   lines.tallies = {}   -- each group's count, for the section's summary
+  lines.short = {}     -- the same counts only, for a summary that would be cut (Task #439)
   local tiles = FOR.Tiles(j)
   if tiles then lines.tiles = { text = "", tiles = tiles, lead = true } end   -- painted with the section's lead
+  -- a line per Warcraft secret it is used in, before the groups (a line
+  -- after a group's title sits under it); the steps are the Secret tab's (Task #407)
+  local okSecrets, secretUses = pcall(FOR.SecretUses, j)
+  if not okSecrets then
+    Recollect.Debug.Warn("UI", "Detail secret uses failed: %s", tostring(secretUses))
+    secretUses = {}
+  end
+  for _, line in ipairs(secretUses) do lines[#lines + 1] = line end
+  if #secretUses == 1 then
+    lines.tallies[1] = secretUses[1].text
+  elseif #secretUses > 1 then
+    lines.tallies[1] = ("Used in %d Warcraft secrets"):format(#secretUses)
+  end
+  if #secretUses > 0 then lines.short[1] = ("%d Warcraft %s"):format(#secretUses, #secretUses == 1 and "secret" or "secrets") end
+  -- where combining it leads, before the groups (Task #438)
+  local okLeads, leads = pcall(FOR.LeadLines, j)
+  if not okLeads then
+    Recollect.Debug.Warn("UI", "Detail combine leads failed: %s", tostring(leads))
+    leads = {}
+  end
+  local ends, collectibles = 0, 0
+  for _, line in ipairs(leads) do
+    lines[#lines + 1] = line
+    if line.leadEnd then
+      ends = ends + 1
+      if line.collectible then collectibles = collectibles + 1 end
+    end
+  end
+  if leads[1] then lines.tallies[#lines.tallies + 1] = leads[1].text end
+  if ends > 0 then
+    local word = collectibles == ends and (ends == 1 and "collectible" or "collectibles") or (ends == 1 and "thing" or "things")
+    lines.short[#lines.short + 1] = ("leads to %d %s"):format(ends, word)
+    lines.chained = true
+  end
   for _, key in ipairs({ "buys", "quests", "crafting", "takes" }) do
     for _, row in ipairs(j.tabs[key] or {}) do
       -- what crafting the item takes is how to make it, not a use of it (the
@@ -1191,8 +1323,11 @@ local function ForLines(j)
     if group.key == "crafting" then
       for _, line in ipairs(ReagentLines(rows)) do lines[#lines + 1] = line end
     end
-    local tally = FOR.Group(lines, rows, "for:" .. group.key, group.tab, group.label)
-    if tally then lines.tallies[#lines.tallies + 1] = tally end
+    local tally, n = FOR.Group(lines, rows, "for:" .. group.key, group.tab, group.label)
+    if tally then
+      lines.tallies[#lines.tallies + 1] = tally
+      lines.short[#lines.short + 1] = ("%s %d"):format(FOR.SHORT[group.key] or group.key, n)
+    end
   end
   -- one group: the section's summary is its count ("Buys: 1 (1 still to get
   -- or do)"), so its title would say it again (Task #164)
@@ -1206,6 +1341,62 @@ local function ForLines(j)
   local every = live == 0 and not Recollect.UI.UsedFor.LiveUse(j.itemID, j.relations, j.owner, j.questApplies)
   for _, line in ipairs(Gone.Lines(j, every)) do lines[#lines + 1] = line end
   return lines
+end
+
+-- WHAT IT'S FOR's lines for where combining the item leads (Task #438: the
+-- Diver's Key Fragment makes the Diver's Key, which opens a treasure holding
+-- the Ancient Amani Mask): UI.UsedFor.CombineLeads' lines, the end's name a
+-- link, each marked by its state, and a treasure on the way with its place
+-- for the Map button
+FOR.LEAD_ICONS = { open = "no", done = "done", other = "na", unread = "wait" }
+function FOR.LeadLines(j)
+  local lines = {}
+  for _, line in ipairs(Recollect.UI.UsedFor.CombineLeads(j.itemID, j.owner, {}, j.relations)) do
+    line.links = HeardLinks(line.links)
+    line.icon = FOR.LEAD_ICONS[line.leadState] or false
+    lines[#lines + 1] = line
+  end
+  return lines
+end
+
+-- WHAT IT'S FOR's line for each Warcraft secret the item is used in (Tasks
+-- #406 and #407; Cobanyte, 2026-10-14: "the what's it for section should
+-- simple say it's used for a warcraft secret", then "make things like that
+-- linkable so it takes us directly to the secrets tab"): the audit panel's
+-- own line (UI.UsedFor.SecretUseText: the secret named, the item's role and
+-- its step's state), marked by that state, the name a link that opens the
+-- Secret tab on that secret, and the word "secret" in its rainbow
+function FOR.SecretUses(j)
+  local lines, seen = {}, {}
+  for _, row in ipairs(j.tabs.secret or {}) do
+    if row.own and row.sid and not seen[row.sid] then
+      seen[row.sid] = true
+      local read = Data().SecretStepsOf(row.sid, j.owner, j.itemID)
+      local mine = read and read.summary.mine
+      if mine then
+        local text, name = Recollect.UI.UsedFor.SecretUseText(read.summary)
+        lines[#lines + 1] = { text = text, color = mine.color, icon = mine.mark or false, secret = row.sid,
+          links = Detail.SecretLink(row.sid, name, nil, true) }
+      end
+    end
+  end
+  return lines
+end
+
+-- SecretLink(sid, name, into, bracketed): a link on the secret's name that opens
+-- the Secret tab on it (Hyper.Enter and Hyper.Click read row.secretTab), added
+-- to into; into unchanged when there is no name. bracketed: the line's text
+-- holds "[SECRET: name]" (UI.SecretPanel.PlainLink) and the link is that whole
+-- span, painted by Hyper.Text as one link with its rainbow word (Cobanyte,
+-- 2026-10-14); otherwise it is the bare name, as a reason's words hold it
+function Detail.SecretLink(sid, name, into, bracketed)
+  into = into or {}
+  if type(name) == "string" and name ~= "" and sid then
+    local SP = Recollect.UI.SecretPanel
+    into[#into + 1] = { text = bracketed and SP.PlainLink(name) or name, secretName = bracketed and name or nil,
+      row = { secretTab = sid, name = name }, color = SP.LINK_COLOR }
+  end
+  return into
 end
 
 -- ACHIEVEMENTS (Cobanyte, 2026-09-28: a section of its own): each
@@ -1315,11 +1506,10 @@ end
 local function RemovedLine(itemID)
   local Season = Recollect.Purposes.Season
   if not Season or not Recollect.Utilities.IsPositiveID(itemID) then return nil end
-  local ok, patch = pcall(Season.RemovedIn, itemID)
-  if not ok or not patch then return nil end
+  local ok, text = pcall(Season.RemovedText, itemID)
+  if not ok or not text then return nil end
   local colors, V = Recollect.UI.VerdictColors, Recollect.Purposes.Registry.Verdict
-  return { text = ("Can no longer be obtained (removed in patch %s)"):format(Season.PatchText(patch)),
-    color = colors[V.OUTDATED] or U.Colors.LABEL_GRAY }
+  return { text = text, color = colors[V.OUTDATED] or U.Colors.LABEL_GRAY }
 end
 
 -- HOW TO GET MORE's one-line summary: how many ways, by kind, most first
@@ -1341,6 +1531,19 @@ local KIND_NOUNS = {
   ["Black Market"] = { "the Black Market", "the Black Market", "Black Market offer", "Black Market offers" },
   Fishing = { "fishing", "fishing", "fishing zone", "fishing zones" },
   ["Opened from"] = { "a container", "containers" },
+  ["From using"] = { "using an item", "using items", "item use", "item uses" },   -- data format 14's J
+  ["During quest"] = { "doing a quest", "doing quests", "quest", "quests" },        -- data format 16's q
+  -- data format 17's K, E and X
+  ["Bought with"] = { "an item that buys it", "items that buy it", "trade", "trades" },
+  ["Zone activity"] = { "a zone's activities", "zone activities", "zone", "zones" },
+  Event = { "an event", "events" },   -- format 19's Q
+  Mission = { "a mission", "missions" },   -- format 20's M
+  ["Ensemble look"] = { "an ensemble", "ensembles" },   -- format 21's h
+  Archaeology = { "Archaeology", "Archaeology", "artifact", "artifacts" },
+  ["New character"] = { "a new character's start", "new characters' starts", "new character", "new characters" },  -- format 18's Z
+  -- what the game itself says (Task #394, Facts.LiveSources)
+  ["Housing Catalog"] = { "the housing catalog", "the housing catalog", "catalog entry", "catalog entries" },
+  Appearances = { "the appearance collection", "the appearance collection", "appearance source", "appearance sources" },
 }
 Detail.KIND_NOUNS = KIND_NOUNS
 local function GetSummary(rows, removed, goneSources)
@@ -1369,6 +1572,8 @@ local function GetSummary(rows, removed, goneSources)
   if #order == 1 then
     local noun = KIND_NOUNS[order[1]]
     parts[1] = noun and noun[#rows == 1 and 1 or 2] or Lowered(order[1])
+    -- the game's appearance source alone reads as the row does ("a world drop", Task #394)
+    if order[1] == "Appearances" and #rows == 1 and type(rows[1].name) == "string" then parts[1] = Lowered(rows[1].name) end
   end
   if #order > SUMMARY_KINDS then parts[#parts + 1] = "and more" end
   local words
@@ -1389,9 +1594,14 @@ local SOURCE_ICONS = {
   ["Sold by"] = "Interface\\Icons\\INV_Misc_Coin_01", ["Drops from"] = "Interface\\Icons\\INV_Misc_Bone_HumanSkull_01",
   ["Boss loot"] = "Interface\\Icons\\INV_Misc_Bone_HumanSkull_01", Reward = "Interface\\Icons\\INV_Misc_Note_01",
   ["Choice reward"] = "Interface\\Icons\\INV_Misc_Note_01", ["Found at"] = "Interface\\Icons\\INV_Box_01",
+  ["During quest"] = "Interface\\Icons\\INV_Misc_Note_01", ["Bought with"] = "Interface\\Icons\\INV_Misc_Coin_01",
+  ["Zone activity"] = "Interface\\Icons\\INV_Misc_Map_01", Archaeology = "Interface\\Icons\\Trade_Archaeology",
+  Event = "Interface\\Icons\\Achievement_General", Mission = "Interface\\Icons\\INV_Misc_Note_01",
+  ["Ensemble look"] = "Interface\\Icons\\INV_Chest_Cloth_17",
   ["Crafted by"] = "Interface\\Icons\\Trade_BlackSmithing", ["Made from"] = "Interface\\Icons\\Trade_Engineering",
   ["Zone drop"] = "Interface\\Icons\\INV_Misc_Map_01", ["World drop"] = "Interface\\Icons\\INV_Misc_Map_01",
   Achievement = "Interface\\Icons\\Achievement_General", Renown = "Interface\\Icons\\Achievement_Reputation_01",
+  ["Housing Catalog"] = "Interface\\Icons\\INV_Misc_Book_09", Appearances = "Interface\\Icons\\INV_Chest_Cloth_17",
 }
 local function GetTiles(rows)
   local counts, order = {}, {}
@@ -1459,11 +1669,80 @@ function Detail.NoSourceLines(itemID)
   if provider and type(provider.FlagState) == "function" then
     local okState, state = pcall(provider.FlagState, itemID)
     if okState and type(state) == "table" and state.noInfo then
-      lines[#lines + 1] = Plain("As a curator, press Request Info (top right) to ask Recollect's author to find out where it comes from.",
+      lines[#lines + 1] = Plain("As a curator, press Request info (top right) to ask Recollect's author to find out where it comes from.",
         U.Colors.STATUS_GOLD)
     end
   end
   return lines
+end
+
+-- The way back under a source row (UI.UsedFor.SourcePath), as sub lines
+-- whose names are links; {} for a row that needs nothing first
+function Detail.PathLines(row, owner)
+  if row.restricted or row.gone or (row.kind ~= "foundIn" and row.kind ~= "madeFrom") then return {} end
+  local relation = { kind = row.kind, id = row.kind == "foundIn" and row.objectID or row.itemID }
+  owner = owner or row.owner
+  local ok, lines = pcall(Recollect.UI.UsedFor.SourcePath, relation, owner, owner ~= nil and owner.isViewer == false)
+  local out = {}
+  for _, line in ipairs(ok and lines or {}) do
+    out[#out + 1] = { text = line.text, color = line.color or U.Colors.LIGHT_GRAY, links = HeardLinks(line.links), sub = true }
+  end
+  return out
+end
+
+-- CollectionWords(itemID, model): whether a toy, a mount or a pet the item
+-- teaches is collected, in short words and as a sentence, and true or false
+-- for collected (Task #439: an item not held never said, its verdict being
+-- what told it): read as the Toy, Mount and Pet checks read it, the
+-- collection and the item's own tooltip agreeing (rule 5), behind their
+-- ready gates; nil while either can't be read or they disagree. Collections
+-- are the account's (rule 6), so another character's copy reads the same
+Detail.COLLECTION_WORDS = {
+  toy = { have = { "In your Toy Box", "It's in your Toy Box." },
+    missing = { "Not in your Toy Box yet", "It isn't in your Toy Box yet." } },
+  mount = { have = { "Mount collected", "Your account has this mount." },
+    missing = { "Mount not collected yet", "You haven't collected this mount yet." } },
+  pet = { missing = { "Pet not collected yet", "You haven't collected this pet yet." } },
+}
+function Detail.CollectionWords(itemID, model)
+  if not Recollect.Utilities.IsPositiveID(itemID) then return nil end
+  local client, Try, IsPositiveID, Ready = Recollect.Purposes.client, Recollect.Utilities.Try,
+    Recollect.Utilities.IsPositiveID, Recollect.Facts.Ready
+  local W = Detail.COLLECTION_WORDS
+  local okToy, toy = Try(client.GetToyInfo, itemID)
+  if okToy and IsPositiveID(toy) then
+    if not Ready.Toys() then return nil end
+    local okHas, has = Try(client.PlayerHasToy, itemID)
+    local tip = ItemTip(model, itemID)
+    if not okHas or type(has) ~= "boolean" or not tip or tip.known ~= has then return nil end
+    local w = W.toy[has and "have" or "missing"]
+    return w[1], w[2], has
+  end
+  local okMount, mountID = Try(client.GetMountFromItem, itemID)
+  if okMount and IsPositiveID(mountID) then
+    if not Ready.Mounts() then return nil end
+    local okInfo, _, _, _, _, _, _, _, _, _, _, isCollected = Try(client.GetMountInfoByID, mountID)
+    local tip = ItemTip(model, itemID)
+    -- (the other faction's mount never shows Already known: say nothing, rule 22)
+    if not okInfo or type(isCollected) ~= "boolean" or not tip or tip.known ~= isCollected then return nil end
+    local w = W.mount[isCollected and "have" or "missing"]
+    return w[1], w[2], isCollected
+  end
+  local okPet, _, _, _, _, _, _, _, _, _, _, _, _, species = Try(client.GetPetInfoByItemID, itemID)
+  if okPet and IsPositiveID(species) then
+    if not Ready.Pets() then return nil end
+    local okCount, collected, limit = Try(client.GetNumCollectedInfo, species)
+    local tip = ItemTip(model, itemID)
+    local IsFinite = CobySuite_Recollect.Utilities.IsFiniteNumber
+    if not okCount or not IsFinite(collected) or not IsFinite(limit) or collected < 0 or not tip then return nil end
+    if collected > 0 then
+      if tip.petCollected ~= collected then return nil end
+      return ("Pet: %d of %d collected"):format(collected, limit), ("You have %d of %d of this pet."):format(collected, limit), true
+    end
+    if tip.petCollected ~= nil and tip.petCollected ~= 0 then return nil end
+    return W.pet.missing[1], W.pet.missing[2], false
+  end
+  return nil
 end
 
 -- HOW TO GET MORE: the season tag and the patch that removed it first, then
@@ -1509,6 +1788,10 @@ local function GetLines(j, model, itemID)
         lines[#lines + 1] = sub
       end
     end
+    -- a spot a key opens, or a combine: the way back, each item with how you
+    -- get it (Task #439: the Ancient Amani Mask's chest, its key, the key's
+    -- fragments and where they drop)
+    for _, sub in ipairs(row and Detail.PathLines(row, j.owner) or {}) do lines[#lines + 1] = sub end
   end
   Fold.Container(lines, "get", rows, nextIndex, "sources", FOR.RowLine)
   -- what crafting it takes, under its own title (Cobanyte, 2026-09-28: it
@@ -1630,7 +1913,7 @@ end
 
 -- WHAT YOU HAVE (Cobanyte, 2026-09-28): every place this character's copies
 -- can be, as tiles (the icon, the count, the place); then, while
--- "Include your other characters" is on, each other character holding it,
+-- the Other characters setting is on, each other character holding it,
 -- as last seen ("Tanklite has 1 in their bank (as of Sep 24)"). The
 -- section's summary names only the places that hold it.
 local function HaveLines(itemID)
@@ -1718,6 +2001,12 @@ function Detail.ReasonLinks(model)
         end
       end
     end
+    -- a secret's name opens its Secret tab (Task #407): the reason names it
+    -- "[SECRET: Name]" (Purposes.Secret), one link with its rainbow word (Task #411)
+    if purpose.key == "secret" and Recollect.Utilities.IsPositiveID(itemID) then
+      local ok, list = pcall(Recollect.UI.SecretPanel.Secrets, itemID)
+      for _, entry in ipairs(ok and list or {}) do Detail.SecretLink(entry.sid, entry.name, links, true) end
+    end
   end
   return links
 end
@@ -1803,6 +2092,11 @@ function Detail.Content(model, j)
     local forLines = Safely(ForLines, j)
     for _, line in ipairs(forLines) do uses[#uses + 1] = line end
     tallies = forLines.tallies or {}
+    -- counts only once a chain or three kinds join, so the line isn't cut (Task #439)
+    if forLines.short and #forLines.short > 0 and (forLines.chained or #tallies >= 3) then
+      tallies = { (forLines.short[1]:gsub("^%l", string.upper)) }
+      for i = 2, #forLines.short do tallies[i] = forLines.short[i] end
+    end
     -- under the explanation, above the quote; first when there is no explanation
     if forLines.tiles then table.insert(lead, explained and 2 or 1, forLines.tiles) end
     -- the band says a short why (Detail.Brief, Task #262); WHAT IT'S FOR
@@ -1877,7 +2171,7 @@ function Detail.Content(model, j)
       elseif reason:sub(1, #label + 1) == label .. " " then
         reason = reason:sub(#label + 2)
       end
-      checks[#checks + 1] = { text = ("%s: %s"):format(label, reason),
+      checks[#checks + 1] = { text = ("%s: %s"):format(label, reason), secret = purpose.key == "secret" or nil,
         color = colors[purpose.verdict] or U.Colors.LABEL_GRAY, links = reasonLinks,
         done = done, icon = done and "done" or nil }
       labels[#labels + 1] = tostring(purpose.label)
@@ -1899,7 +2193,8 @@ end
 -------------------------------------------------------------------------------
 local Hex = U.ColorToHex
 
-local Hyper = { rows = { h = {}, o = {} } }
+-- prefixes: "o" the Overview, "h" the header, "s" the Secret tab (Task #411)
+local Hyper = { rows = { h = {}, o = {}, s = {} } }
 
 -- Whether a name found at first..last stands alone, not inside a longer word
 local function Alone(text, first, last)
@@ -1911,18 +2206,24 @@ end
 -- longer names first, never one inside another or inside a longer word, in
 -- brackets as the game's chat links are (Cobanyte, 2026-09-25), dropping
 -- quotes that wrap the name; each link's row kept under prefix for the
--- handlers
-function Hyper.Text(text, links, prefix)
+-- handlers. With once, each name is a link only where it first stands (the
+-- Secret tab's rule, Task #430: a name said again in a section stays plain)
+function Hyper.Text(text, links, prefix, once)
   text = tostring(text)
   if type(links) ~= "table" or #links == 0 then return text end
   local order = {}
   for _, link in ipairs(links) do
     local row = link.row or (link.kind and Data().LinkRow(link.kind, link.id))
     if row and type(link.text) == "string" and link.text ~= "" then
-      order[#order + 1] = { text = link.text, color = link.color, row = row }
+      order[#order + 1] = { text = link.text, color = link.color, row = row, secretName = link.secretName }
     end
   end
-  table.sort(order, function(a, b) return #a.text > #b.text end)
+  -- longer names first; of two the same length, a secret's link (its reward
+  -- may share its name; the secret's words are what the line says)
+  table.sort(order, function(a, b)
+    if #a.text ~= #b.text then return #a.text > #b.text end
+    return (a.row.secretTab and 1 or 0) > (b.row.secretTab and 1 or 0)
+  end)
   local spans = {}
   for _, link in ipairs(order) do
     local from = 1
@@ -1934,6 +2235,7 @@ function Hyper.Text(text, links, prefix)
         if free and first <= span[2] and last >= span[1] then free = false end
       end
       if free then spans[#spans + 1] = { first, last, link } end
+      if free and once then break end
       from = last + 1
     end
   end
@@ -1947,8 +2249,14 @@ function Hyper.Text(text, links, prefix)
     -- quest chain read "[A Mech in Need]" in quotes)
     local quoted = span[1] - 1 >= at and text:sub(span[1] - 1, span[1] - 1) == "\"" and text:sub(span[2] + 1, span[2] + 1) == "\""
     out[#out + 1] = text:sub(at, span[1] - (quoted and 2 or 1))
-    out[#out + 1] = ("|cFF%s|Haddon:Recollect:%s:%d|h[%s]|h|r"):format(Hex(span[3].color or U.Colors.HIGHLIGHT_WHITE),
-      prefix or "o", #rows, text:sub(span[1], span[2]))
+    local data = ("addon:Recollect:%s:%d"):format(prefix or "o", #rows)
+    if span[3].secretName then
+      -- "[SECRET: name]" as one link, the whole span its hit area (Task #410)
+      out[#out + 1] = Recollect.UI.SecretPanel.PaintedLink(span[3].secretName, data)
+    else
+      out[#out + 1] = ("|cFF%s|H%s|h[%s]|h|r"):format(Hex(span[3].color or U.Colors.HIGHLIGHT_WHITE), data,
+        text:sub(span[1], span[2]))
+    end
     at = span[2] + (quoted and 2 or 1)
   end
   out[#out + 1] = text:sub(at)
@@ -1963,11 +2271,16 @@ function Hyper.Line(line, prefix)
   if line.display then return line.display end
   local text = tostring(line.text)
   local head, state = text:match("^(.-)(%b())$")
+  local out
   if not head or type(line.color) ~= "table" then
-    return Recollect.UI.Icons.MarkDone(Hyper.Text(text, line.links, prefix), line.done)
+    out = Recollect.UI.Icons.MarkDone(Hyper.Text(text, line.links, prefix), line.done)
+  else
+    out = ("%s|cFF%s%s|r"):format(Recollect.UI.Icons.MarkDone(Hyper.Text(head, line.links, prefix), line.done),
+      Hex(line.color), state)
   end
-  return ("%s|cFF%s%s|r"):format(Recollect.UI.Icons.MarkDone(Hyper.Text(head, line.links, prefix), line.done),
-    Hex(line.color), state)
+  -- a secret's line: the word "secret" in its rainbow (painted text only)
+  if line.secret then out = Recollect.UI.SecretPanel.Styled(out) end
+  return out
 end
 
 -- Row(link): the row a link's data names, or nil
@@ -2469,9 +2782,8 @@ local function Gray() return U.Colors.LIGHT_GRAY end
 local function NameColor(row)
   -- dimmed: a display-only condition the owner misses (D34), still sorted as it was
   if row.gone or row.restricted or row.dimmed then return U.Colors.LABEL_GRAY end
-  local quality = Data().Quality(row)
-  local color = quality and ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[quality]
-  if color then return { color.r, color.g, color.b } end
+  local r, g, b = U.QualityColor(Data().Quality(row), false)
+  if r then return { r, g, b } end
   return U.Colors.HIGHLIGHT_WHITE
 end
 
@@ -2659,14 +2971,29 @@ local KIND_WORDS = {
   ["Recipe item"] = "Recipe items that teach it", ["Black Market"] = "Black Market",
   Use = "What using it takes", Combine = "What combining it takes", ["To craft"] = "What crafting it takes",
   Item = "Other items",
+  -- what using it gives and the Use text's uses (data formats 14 and 15), and the game's own sources (Task #394)
+  ["Using it gives"] = "What using it gives", Customizes = "Mount customizations", Reputation = "Reputation it gives",
+  ["Lure for"] = "Fish it lures", ["From using"] = "Items whose use gives it",
+  -- data format 16 (Task #396)
+  ["Gives one of"] = "Pieces it gives, by class", ["During quest"] = "Quests it comes from",
+  -- data format 17 (Task #397)
+  ["Bought with"] = "Items that buy it", ["Zone activity"] = "Zone activities", Archaeology = "Archaeology",
+  ["New character"] = "Given to new characters",
+  Event = "Events it's a reward of",   -- data format 19 (Task #401)
+  Mission = "Follower missions that give it",   -- data format 20 (Task #403)
+  ["Ensemble look"] = "Ensembles that give its look",   -- data format 21 (Task #405)
+  Secret = "Secrets whose reward it is",
 }
 local KIND_DEFS = {
   buys = { "Toy", "Mount", "Pet", "Decor", "Ensemble", "Heirloom", "Recipe", "Illusion", "Item" },
   quests = { "Objective", "Used in", "Starts", "Achievement", "Linked", "Treasure", "Spot", "Used at", "Takes it as payment",
     "Currency", "Endeavor" },
-  crafting = { "Combines into", "Makes", "Reagent", "Teaches", "Teaches how to make", "Your recipes", "Alt's scan" },
+  crafting = { "Combines into", "Makes", "Reagent", "Teaches", "Teaches how to make", "Your recipes", "Alt's scan",
+    "Using it gives", "Customizes", "Reputation", "Lure for", "Gives one of" },
   sources = { "Drops from", "Boss loot", "Zone drop", "World drop", "Sold by", "Crafted by", "Found at", "Reward",
-    "Achievement", "Renown", "Choice reward", "Trading Post", "Made from", "Recipe item", "Black Market" },
+    "Achievement", "Renown", "Choice reward", "Trading Post", "Made from", "Recipe item", "Black Market", "From using",
+    "Housing Catalog", "Appearances", "During quest", "Bought with", "Zone activity", "Archaeology", "New character",
+    "Event", "Mission", "Ensemble look", "Secret" },
   takes = { "Use", "Combine", "To craft" },
 }
 
@@ -2764,7 +3091,11 @@ local function UpdateTabs()
     local show = tab.key == "overview" or (n and n > 0) or tab.key == activeTab
     button:SetShown(show and true or false)
     if show then
-      button:SetText(n and ("%s (%d)"):format(tab.label, n) or tab.label)
+      -- the label counts recipes, not the index notes beside them (Data.TabCount)
+      -- (a tab holding only those notes has no number); the Secret tab none
+      -- (Task #411: "Secret (57)" daunts more than it tells)
+      local label = n and tab.key ~= "secret" and Data().TabCount(job, tab.key)
+      button:SetText(label and (label > 0 or n == 0) and ("%s (%d)"):format(tab.label, label) or tab.label)
       PanelTemplates_TabResize(button, 0)
       button:ClearAllPoints()
       if previous then
@@ -2790,25 +3121,75 @@ local function ShowProgress(done, total, words)
   bar:Show()
 end
 
+-- The Secret tab draws its own compact header (Task #430: the item, its
+-- answer, the item history and the curator's action fold into it), so on
+-- that tab the window's header, its answer band and the toolbar's note
+-- step aside; every other tab keeps them. PaintBand still runs while the
+-- band is hidden, so its answer (Band.keep) stays current for the
+-- Secret header's hover. (A field, not a local: this file's main chunk is
+-- at Lua 5.1's 200 locals)
+function Detail.HeaderMode()
+  local secret = activeTab == "secret"
+  for _, region in ipairs({ window.IconButton, window.Name, window.Kind, window.Back, window.Forward, window.Band,
+    window.TabNote }) do
+    region:SetShown(not secret)
+  end
+  window.Flag:SetShown(not secret and window.Flag.itemID ~= nil)
+end
+
 function Detail.SetTab(key)
   if not window then return end
   activeTab = key
   PanelTemplates_SetTab(window, TabIndex(key))
   local isTable = COLUMNS[key] ~= nil
-  window.Overview:SetShown(not isTable)
+  local isSecret = key == "secret"
+  window.Overview:SetShown(not isTable and not isSecret)
+  window.SecretPanel:SetShown(isSecret)
   window.Table.frame:SetShown(isTable)
   window.Search:SetShown(isTable)
   window.Count:SetShown(isTable)
   for tab, filter in pairs(window.Filters) do filter:SetShown(tab == key) end
   window.TabNote:SetText(Detail.TabNote(key, shown))
+  Detail.HeaderMode()
+  if key == "secret" and Detail.SecretPoll then Detail.SecretPoll() end
   if isTable then
     window.Search:SetText(searches[key] or "")
     window.Table:ShowView(key)
     ApplyView(key)
+  elseif isSecret then
+    Detail.PaintSecret()
   else
     PaintOverview()
   end
   UpdateTabs()
+end
+
+-- The Secret tab's panel painted for the shown item, on the secret chosen
+-- (Detail.secretSid: a link's or the selector's), else its first; returns
+-- whether it painted and the model it painted
+Detail.secretSid = nil
+function Detail.PaintSecret()
+  if not window or not window.SecretPanel or activeTab ~= "secret" or not shown then return nil end
+  local source = shown.source or {}
+  local ok, err = pcall(Recollect.UI.SecretPanel.Show, window.SecretPanel, source.itemID,
+    source.owner or Recollect.Verdicts.Rows.Owner(), Detail.secretSid, Detail.ShowSecret)
+  if not ok then Recollect.Debug.Warn("UI", "Secret tab failed: %s", tostring(err)) end
+  return ok, ok and err or nil
+end
+
+-- ShowSecret(sid, jump): the Secret tab on that secret (a secret link's click,
+-- the Secret dropdown); with jump (a link's click), the item's own step shown
+-- and lit a frame later, once the tab has laid out (Task #411: "jump to my step")
+function Detail.ShowSecret(sid, jump)
+  Detail.secretSid = sid
+  if not (window and shown) then return end
+  Detail.SetTab("secret")
+  if not jump then return end
+  seams.After(0, function()
+    local panel = window.SecretPanel
+    local mine = panel and panel.model and panel.model.mine and panel.model.mine[1]
+    if mine and activeTab == "secret" then Recollect.UI.SecretPanel.RevealStep(panel, mine.step) end
+  end)
 end
 
 -------------------------------------------------------------------------------
@@ -2893,7 +3274,7 @@ end
 local FLAG_WIDTH = 96
 local JOIN_WIDTH = 150    -- "Want to be a curator?"
 local JOIN_TIP = "Help improve Recollect's data: curator mode notes what the game shows that the database gets "
-  .. "wrong or lacks, as game IDs only. Click for the Curator settings."
+  .. "wrong or lacks, as game IDs and map positions, never names or chat. Click for the Curator settings."
 local FLAG_TIPS = {
   pending = "Your flag isn't sent yet: click to change it.",
   sent = "Your flag was sent; the author hasn't saved it yet. Click to add more information.",
@@ -2925,7 +3306,7 @@ function Detail.FlagButton(model, provider)
     return { text = "Flagged", tooltip = FLAG_TIPS[state.state] or FLAG_TIPS.delivered, itemID = itemID }
   end
   if state.noInfo then
-    return { text = "Request Info", itemID = itemID,
+    return { text = "Request info", itemID = itemID,
       tooltip = "Recollect's database knows nothing about this item yet. Ask the author to look into it; your own words are optional." }
   end
   return { text = "Curator Flag", itemID = itemID,
@@ -2938,7 +3319,8 @@ end
 
 local function PaintFlag()
   local flag = Detail.FlagButton(shown, CuratorProvider())
-  window.Flag:SetShown(flag ~= nil)
+  -- (the Secret tab has its own header: the action is in its More, Task #430)
+  window.Flag:SetShown(flag ~= nil and activeTab ~= "secret")
   window.Flag.itemID = flag and flag.itemID or nil
   window.Flag.tip = flag and flag.tooltip or nil
   window.Flag.join = flag and flag.join or nil
@@ -2949,6 +3331,23 @@ local function PaintFlag()
   local right = -PAD - 70 - (flag and (width + 6) or 0)
   window.Name:SetPoint("RIGHT", window, "RIGHT", right, 0)
   window.Verdict:SetPoint("RIGHT", window, "RIGHT", right, 0)
+end
+
+-- SecretCurator(): the curator's action for the shown item ({ text, run }:
+-- Curator Flag, Flagged, Request info, or joining the program), which the
+-- Secret tab's header keeps in its More (Task #430); nil when there is none
+function Detail.SecretCurator()
+  local flag = Detail.FlagButton(shown, CuratorProvider())
+  if not flag then return nil end
+  return { text = flag.text, run = function()
+    if flag.join then
+      local Config = Recollect.Config
+      if Config and Config.OpenSettingsAt then Config.OpenSettingsAt("curator") end
+      return
+    end
+    local provider = CuratorProvider()
+    if flag.itemID and provider and provider.OpenFlag then provider.OpenFlag(flag.itemID) end
+  end }
 end
 
 -------------------------------------------------------------------------------
@@ -3145,9 +3544,20 @@ Detail.OPTIONAL = {
     why = "An older item; nothing Recollect checks needs it", beyond = "beyond that it's an older item",
     detail = "Your call: it's from an older expansion. Its tooltip says what it does, but whether that still matters "
       .. "to you is yours to judge, and nothing Recollect checks needs it." },
+  -- a step item of a secret whose reward you have, when the secret can be done
+  -- again for another copy (Purposes.Secret marks it with optional = "repeat")
+  ["repeat"] = { word = "Your call", icon = "info", neutral = true,
+    why = "Its secret's reward is collected; doing it again gives another", beyond = "beyond that its secret can be done again",
+    detail = "Your call: you have the reward of the secret this item is used in. The secret can be done again for another "
+      .. "copy, so keep it only if you want one." },
+  -- an item only an NPC of a holiday or event takes (the Darkmoon Game Token): a
+  -- check marks it with optional = "event"; nothing else needs it
+  event = { word = "Your call", icon = "info", neutral = true,
+    why = "Used at holiday or event NPCs; nothing else Recollect checks needs it", beyond = "beyond that it's used at event NPCs",
+    detail = "Your call: an NPC of a holiday or event takes it, so keep it if you take part when the event comes round." },
 }
 -- Which kind speaks when several checks mark one
-Detail.OPTIONAL_ORDER = { "drink", "novelty", "petBattle", "buys", "older" }
+Detail.OPTIONAL_ORDER = { "drink", "novelty", "petBattle", "buys", "event", "repeat", "older" }
 
 -- ForFun(result): the kind of optional use the band answers for (a key of
 -- Detail.OPTIONAL), or false, and whether any use was done. A Can't tell
@@ -3167,6 +3577,9 @@ function Detail.ForFun(result)
       kinds[kind] = true
     elseif purpose.settled or purpose.verdict == V.DONE then
       done = true
+    elseif purpose.soft and purpose.verdict == V.UNKNOWN then
+      -- an Unknown that only informs (Registry.Info: "what it's for isn't in its
+      -- tooltip") is no sign of an unchecked use, so it doesn't hold the answer back
     else
       return false
     end
@@ -3325,6 +3738,9 @@ function Detail.KindLine(model, j)
   local okD, what = pcall(Detail.Describe, itemID)
   if okD and what == "A quest item" and FOR.IsToken(j) then what = "A token you spend at vendors" end
   if okD and type(what) == "string" and what ~= "" then parts[#parts + 1] = what end
+  -- collected or not, for a toy, a mount or a pet (Task #439)
+  local okC, collection = pcall(Detail.CollectionWords, itemID, model)
+  if okC and collection then parts[#parts + 1] = collection end
   local facts = Recollect.Utilities.IsPositiveID(itemID) and Recollect.Facts.Item.Get(itemID) or nil
   if type(facts) == "table" then
     local okE, expansion = pcall(Recollect.Facts.Item.Expansion, facts, itemID)
@@ -3413,15 +3829,14 @@ local function PaintHeader()
   window.Icon:SetTexture(shown.icon or (okIcon and icon) or 134400)
   window.Name:SetText(title)
   local okQuality, quality = pcall(C_Item.GetItemQualityByID, source.itemID)
-  quality = okQuality and quality or nil
-  local color = quality and ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[quality]
-  if color then
-    window.Name:SetTextColor(color.r, color.g, color.b)
-    window.IconFrame:SetColorTexture(color.r, color.g, color.b, 1)
+  local r, g, b = U.QualityColor(okQuality and quality or nil, false)
+  if r then
+    window.Name:SetTextColor(r, g, b)
+    window.IconFrame:SetColorTexture(r, g, b, 1)
   else
     window.Name:SetTextColor(unpack(U.Colors.HIGHLIGHT_WHITE))
-    local g = U.Colors.DIVIDER_GRAY
-    window.IconFrame:SetColorTexture(g[1], g[2], g[3], 1)
+    local gray = U.Colors.DIVIDER_GRAY
+    window.IconFrame:SetColorTexture(gray[1], gray[2], gray[3], 1)
   end
   local okK, kind = pcall(Detail.KindLine, shown, job and job.finished and job or nil)
   window.Kind:SetText(okK and kind or "")
@@ -3432,6 +3847,43 @@ local function PaintHeader()
   window.HeaderEnd:ClearAllPoints()
   window.HeaderEnd:SetPoint("TOPLEFT", window.Band, "BOTTOMLEFT", 0, -HEADER_GAP)
   if activeTab == "overview" then PaintOverview() end
+end
+
+-- SecretContext(): the item the Secret tab was opened for, for its header
+-- (Task #430): its icon, name and quality color (whose copy, when another
+-- character's), and its answer: a held copy's (Keep it and the like, the
+-- band's whole explanation on hover), else how many you have and that a
+-- copy gives the answer
+function Detail.SecretContext()
+  if not shown then return nil end
+  local source = shown.source or {}
+  local itemID = source.itemID
+  local name = TitleAndWhere(shown)
+  local owner = source.owner
+  if type(owner) == "table" and owner.isViewer == false and owner.name then name = ("%s's %s"):format(owner.name, name) end
+  local okQ, quality = pcall(C_Item.GetItemQualityByID, itemID)
+  local r, g, b = U.QualityColor(okQ and quality or nil, false)
+  local okI, icon = pcall(C_Item.GetItemIconByID, itemID)
+  local ctx = { itemID = itemID, name = name, color = r and { r, g, b } or nil, icon = shown.icon or (okI and icon) or nil }
+  local keep = Detail.Keep(shown)
+  if keep then
+    ctx.answer, ctx.answerColor, ctx.answerTip = keep.word, keep.color, Detail.FillBandTip
+    return ctx
+  end
+  local okH, held = pcall(Recollect.UI.Tooltip.HeldCounts, itemID)
+  held = okH and held or nil
+  if held and held.total > 0 then
+    local found = {}
+    for _, place in ipairs(held.places) do
+      if place.count > 0 then found[#found + 1] = (place.words:gsub("%%d", Recollect.Utilities.Count(place.count))) end
+    end
+    ctx.answer = table.concat(found, "; ") .. ". Hover a copy for its verdict."
+  elseif held then
+    ctx.answer = "You don't have this item."
+  else
+    ctx.answer = "How many you have can't be read."
+  end
+  return ctx
 end
 
 -------------------------------------------------------------------------------
@@ -3506,7 +3958,15 @@ function Detail.MenuEntries(row)
     Add("open", "Show Achievement", function() pcall(seams.ShowAchievement, row.achievementID) end)
   end
   local place = data.Place(row)
-  if place then
+  -- an NPC the data places in several spots (Task #411: a secret's creatures):
+  -- a waypoint to each, the first first
+  local places = place and not row.restricted and row.what == "npc" and Recollect.Utilities.IsPositiveID(row.npcID)
+    and Recollect.UI.SecretModel.NpcPlaces(row.npcID) or {}
+  if #places > 1 then
+    local sub = {}
+    for _, p in ipairs(places) do sub[#sub + 1] = { label = Detail.PlaceText(p), run = function() SetWaypoint(p) end } end
+    Add("map", "Set a Waypoint", nil, sub)
+  elseif place then
     local Waypoint = Recollect.UI.Waypoint
     local tomtom = Waypoint.TomTomLoaded and Waypoint.TomTomLoaded()
     if tomtom then
@@ -3580,6 +4040,7 @@ end
 local function PlaceText(place)
   return ("%s (%.1f, %.1f)"):format(place.zone or ("map " .. tostring(place.mapID)), place.x * 100, place.y * 100)
 end
+Detail.PlaceText = PlaceText
 
 local function WaypointTooltip(owner, place)
   if not place then return end
@@ -3603,7 +4064,7 @@ end
 local function Hints(row, link)
   local hints = {}
   if link then
-    hints[#hints + 1] = row.what == "npc" and "Click: open it in the Adventure Guide" or "Click: open its tooltip"
+    hints[#hints + 1] = (row.what == "npc" or row.what == "encounter") and "Click: open it in the Adventure Guide" or "Click: open its tooltip"
     hints[#hints + 1] = "Shift-click: link in chat"
   elseif row.what == "npc" or row.what == "object" then
     hints[#hints + 1] = "Shift-click: its name, place and map pin in chat"
@@ -3748,6 +4209,8 @@ end
 
 local function OnRowClick(row, column, mouseButton, frame)
   local modified = seams.AnyModifier()
+  -- the reward of a secret: a plain click opens its Secret tab (Task #407)
+  if row.kind == "secretReward" and mouseButton == "LeftButton" and not modified then return Detail.ShowSecret(row.sid) end
   if mouseButton == "LeftButton" and seams.ChatLinkClick() then
     local text = Detail.ChatText(row)
     if text then return PutInChat(text) end
@@ -3756,6 +4219,12 @@ local function OnRowClick(row, column, mouseButton, frame)
   if mouseButton == "LeftButton" and not modified and column == "name" and (row.what == "npc" or row.what == "object")
       and not Data().Link(row) then
     return Detail.ShowRowMenu(row, frame)
+  end
+  -- a zone a secret's step names (Task #411): a click sets the step's waypoint there, when it has one
+  if row.what == "zone" and mouseButton == "LeftButton" and not modified then
+    local place = Data().Place(row)
+    if place then return SetWaypoint(place) end
+    return
   end
   if mouseButton == "LeftButton" and seams.OnlyAlt() and Data().ItemOf(row) then return OpenRowItem(row) end
   if mouseButton == "RightButton" and not modified then return Detail.ShowRowMenu(row, frame) end
@@ -3818,7 +4287,24 @@ end
 function Hyper.Enter(frame, link, _, region)
   Hyper.over = { link = link, region = type(region) == "table" and region or nil }
   local row = Hyper.Row(link)
-  if row then ThingTooltip(frame, row, "ANCHOR_CURSOR") end
+  if row and row.secretTab then
+    local tip = seams.Tooltip()
+    tip:SetOwner(frame, "ANCHOR_CURSOR")
+    local color = Recollect.UI.SecretPanel.LINK_COLOR
+    tip:SetText(tostring(row.name or "A Warcraft secret"), color[1], color[2], color[3])
+    tip:AddLine(Recollect.UI.SecretPanel.TIP, 1, 1, 1)
+    tip:Show()
+  elseif row and row.secretStep then
+    -- a step of the secret shown (Task #411): a click shows it
+    local tip = seams.Tooltip()
+    tip:SetOwner(frame, "ANCHOR_CURSOR")
+    tip:SetText(tostring(row.name or "A step"), 1, 1, 1)
+    local blue = U.Colors.INFO_BLUE
+    tip:AddLine("Click: show that step", blue[1], blue[2], blue[3])
+    tip:Show()
+  elseif row then
+    ThingTooltip(frame, row, "ANCHOR_CURSOR")
+  end
 end
 
 function Hyper.Leave()
@@ -3829,6 +4315,14 @@ end
 function Hyper.Click(frame, link, _, mouseButton, region)
   local row = Hyper.Row(link)
   if not row then return end
+  if row.secretTab then
+    if mouseButton == "LeftButton" then Detail.ShowSecret(row.secretTab, true) end
+    return
+  end
+  if row.secretStep then
+    if mouseButton == "LeftButton" then Detail.RevealSecretStep(row.secretStep) end
+    return
+  end
   if mouseButton == "RightButton" then Hyper.lastRight = seams.Now() end
   local over = Hyper.over
   local at = type(region) == "table" and region or (over and over.link == link and over.region) or frame
@@ -3858,6 +4352,31 @@ local function EnableLinks(frame)
   frame:SetScript("OnHyperlinkClick", Hyper.Click)
   frame:HookScript("OnMouseUp", Hyper.MouseUp)
 end
+Detail.EnableLinks = EnableLinks
+
+-- RevealSecretStep(label): the Secret tab's step shown and lit (a step link's click)
+function Detail.RevealSecretStep(label)
+  if window and window.SecretPanel then Recollect.UI.SecretPanel.RevealStep(window.SecretPanel, label) end
+end
+
+-- SecretMenu(anchor, title, entries): a menu of { label, run } (the Secret
+-- tab's Item steps); SecretPlacesMenu(anchor, title, places): one entry per
+-- place, each setting its waypoint (a pin naming several places, Task #411)
+function Detail.SecretMenu(anchor, title, entries)
+  if type(entries) ~= "table" or #entries == 0 then return end
+  seams.ContextMenu(Detail.MenuOwner(anchor), function(_, root)
+    if type(title) == "string" and title ~= "" then root:CreateTitle(title) end
+    for _, entry in ipairs(entries) do root:CreateButton(entry.label, entry.run) end
+  end)
+end
+
+function Detail.SecretPlacesMenu(anchor, title, places)
+  local entries = {}
+  for _, place in ipairs(type(places) == "table" and places or {}) do
+    entries[#entries + 1] = { label = Detail.PlaceText(place), run = function() SetWaypoint(place) end }
+  end
+  Detail.SecretMenu(anchor, title, entries)
+end
 
 -------------------------------------------------------------------------------
 -- Build: every frame, at login (or when combat ends)
@@ -3876,6 +4395,7 @@ local function BuildHeader()
   icon.Texture:SetAllPoints()
   icon.Texture:SetTexCoord(0.07, 0.93, 0.07, 0.93)
   window.Icon = icon.Texture
+  window.IconButton = icon
   CobySuite_Recollect.UI.AddItemTooltip(icon, function() return shown and shown.source and shown.source.itemID end, "ANCHOR_RIGHT")
   icon:SetScript("OnClick", function()
     local itemID = shown and shown.source and shown.source.itemID
@@ -4048,10 +4568,25 @@ end
 -- What a tab's counts are: the logged-in character's, never the pinned copy's
 -- owner's when that is another character (PI-07, B1)
 function Detail.TabNote(tabKey, model)
+  if tabKey == "secret" then return Detail.SecretNote(model) end
   local owner = model and model.source and model.source.owner
   if tabKey ~= "takes" or type(owner) ~= "table" or owner.isViewer ~= false then return "" end
   return ("Counted for %s, not %s: %s's own copies are under Others, not counted"):format(seams.ViewerName() or "this character",
     owner.name or "its owner", owner.name or "its owner")
+end
+
+-- When the Secret tab's states were last read well (they are read again
+-- every SECRET_POLL seconds while the tab shows, and by Refresh), and when
+-- the latest read failed, that the time is the last good one (Task #411);
+-- the tab's Refresh says it on hover and marks a failed read (Task #430)
+Detail.SECRET_POLL = 5
+Detail.secretReadAt = nil
+Detail.secretReadFailed = nil
+function Detail.SecretNote()
+  if not Detail.secretReadAt then return Detail.secretReadFailed and "Its steps can't be read right now" or "" end
+  local words = "Updated " .. date("%H:%M:%S", Detail.secretReadAt)
+  if Detail.secretReadFailed then words = words .. "; the last read failed" end
+  return words
 end
 
 -- A container's button (Fold): the plus or minus, the words, a hover shade; its
@@ -4175,6 +4710,25 @@ local function BuildBody()
   end)
   overview.Scroll, overview.Child = scroll, child
   window.Overview = overview
+  -- the Secret tab: a panel built for secrets (UI.SecretPanel, Tasks #407, #411 and #430), from the
+  -- window's top: its own header takes the place of the window's on that tab (HeaderMode). Its
+  -- names are the Overview's links (Hyper, prefix "s"), its pins the Overview's, and a pin naming
+  -- several places opens a menu of them; the item history, Refresh, the item's answer and the
+  -- curator's action are the window's own
+  window.SecretPanel = Recollect.UI.SecretPanel.Create(window, {
+    pin = function(parent, size) return WaypointButton(parent, size or LINE_MAP) end,
+    onWaypoint = function(place) SetWaypoint(place) end, waypointTip = WaypointTooltip,
+    placesMenu = Detail.SecretPlacesMenu, menu = Detail.SecretMenu, links = EnableLinks,
+    hyper = function(text, links, once) return Hyper.Text(text, links, "s", once) end,
+    resetLinks = function() wipe(Hyper.rows.s) end,
+    history = function() return { canBack = #back > 0, canForward = #forward > 0 } end,
+    back = function() Detail.Back() end, forward = function() Detail.Forward() end,
+    refresh = function() Detail.SecretReadNow() end,
+    readState = function() return Detail.secretReadAt, Detail.secretReadFailed == true end,
+    context = function() return Detail.SecretContext() end,
+    curator = function() return Detail.SecretCurator() end })
+  window.SecretPanel:SetPoint("TOPLEFT", window, "TOPLEFT", PAD, -TOP)
+  window.SecretPanel:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -PAD, 14)
   for i = 1, MAP_BUTTONS do
     local b = WaypointButton(child, LINE_MAP)
     b:SetScript("OnClick", OnMapClick)
@@ -4261,18 +4815,12 @@ local function Build()
   -- whole content: repaint at most every 0.08 seconds, once the new layout
   -- has settled (the scroll's width read in the event itself is the old
   -- one), the band too, whose wrapped reason changes height with the width
-  local RESIZE_DELAY, resizePending = 0.08, false
-  local function Resized()
-    resizePending = false
+  local resized = U.Coalesce(0.08, function()
     if not window:IsShown() or not shown then return end
     PaintBand()
-    if activeTab == "overview" then PaintOverview() end
-  end
-  window:SetScript("OnSizeChanged", function()
-    if resizePending then return end
-    resizePending = true
-    C_Timer.After(RESIZE_DELAY, Resized)
+    if activeTab == "overview" then PaintOverview() elseif activeTab == "secret" then Detail.PaintSecret() end
   end)
+  window:SetScript("OnSizeChanged", function() resized:Call() end)
   window:SetScript("OnHide", function()
     CancelJobs()
     job = nil   -- its rows (thousands for Mark of Honor) go with it; opening builds them again
@@ -4293,6 +4841,7 @@ function Detail.Open(model, how)
     wipe(forward)
   end
   Fold.ForItem(model)
+  if model ~= shown then Detail.secretSid, Detail.secretReadFailed = nil, nil end
   shown = model
   nameRepaints = 0
   for tab in pairs(filters) do wipe(filters[tab]) end
@@ -4304,7 +4853,10 @@ function Detail.Open(model, how)
   end
   PaintHeader()
   StartJob()
-  Detail.SetTab("overview")
+  -- the Secret header's item history stays on the Secret tab when the item it walks to is in a secret too
+  local stay = how ~= nil and activeTab == "secret" and model.source
+    and #Recollect.UI.SecretPanel.Secrets(model.source.itemID) > 0
+  Detail.SetTab(stay and "secret" or "overview")
   return true
 end
 
@@ -4373,11 +4925,45 @@ local function RefreshShown()
     StartJob()
   elseif job and job.finished then
     Data().Refresh(job, function()
-      if activeTab == "overview" then PaintOverview() else ApplyView(activeTab) end
+      if activeTab == "overview" then PaintOverview() elseif activeTab == "secret" then Detail.PaintSecret() else ApplyView(activeTab) end
     end)
   end
 end
 local refresh = U.Coalesce(0.5, RefreshShown)
+
+-- The Secret tab's guarantee (design 5): a hidden flag set by a step sends
+-- no event Recollect hears, so while the tab shows its rows are read again
+-- every SECRET_POLL seconds (one secret: a few dozen flag reads), and
+-- Refresh reads them at once; the tab note says when they were read
+Detail.secretPolling = false
+function Detail.SecretReadNow()
+  -- the panel reads the steps itself, the rows' job finished or not; only a
+  -- good read moves the time (a failed one says so beside it)
+  local ok, model = Detail.PaintSecret()
+  if ok and model and not model.failed then
+    Detail.secretReadAt, Detail.secretReadFailed = time(), nil
+  elseif ok == false or (model and model.failed) then
+    -- (no model at all is an item in no secret, not a failed read)
+    Detail.secretReadFailed = true
+  end
+  refresh:Call()
+  -- Refresh's warning in the tab's header follows the read at once
+  if window and activeTab == "secret" then Recollect.UI.SecretPanel.PaintRefresh(window.SecretPanel) end
+end
+function Detail.SecretPoll()
+  if Detail.secretPolling then return end
+  Detail.secretPolling = true
+  Detail.SecretReadNow()
+  local function Tick()
+    if not window or seams.Hidden(window) or activeTab ~= "secret" then
+      Detail.secretPolling = false
+      return
+    end
+    Detail.SecretReadNow()
+    seams.After(Detail.SECRET_POLL, Tick)
+  end
+  seams.After(Detail.SECRET_POLL, Tick)
+end
 
 local listener = {}
 function listener:ReceiveEvent()
@@ -4436,16 +5022,19 @@ EventUtil.RegisterOnceFrameEventAndCallback("PLAYER_LOGIN", function()
     local paintOverview = U.Coalesce(0.2, function()
       if window and window:IsShown() and activeTab == "overview" then PaintOverview() end
     end)
+    local paintSecret = U.Coalesce(0.2, function()
+      if window and window:IsShown() then Detail.PaintSecret() end
+    end)
     Data().onItemLoaded = function()
       if not (window and window:IsShown()) then return end
-      if activeTab == "overview" then paintOverview:Call() else window.Table:Paint() end
+      if activeTab == "overview" then paintOverview:Call() elseif activeTab == "secret" then paintSecret:Call() else window.Table:Paint() end
     end
     -- A creature's name not read yet: one repaint a moment later asks again,
     -- at most NAME_REPAINTS times for one shown item (a name that never
     -- comes must not repaint the window forever)
     local repaint = U.Coalesce(2.5, function()
       if not (window and window:IsShown()) then return end
-      if activeTab == "overview" then PaintOverview() else window.Table:Paint() end
+      if activeTab == "overview" then PaintOverview() elseif activeTab == "secret" then Detail.PaintSecret() else window.Table:Paint() end
     end)
     Data().onNameMissed = function()
       if repaint:IsPending() or nameRepaints >= NAME_REPAINTS then return end
@@ -4453,15 +5042,29 @@ EventUtil.RegisterOnceFrameEventAndCallback("PLAYER_LOGIN", function()
       repaint:Call()
     end
   end
-  if InCombatLockdown() then
-    EventUtil.RegisterOnceFrameEventAndCallback("PLAYER_REGEN_ENABLED", Ready)
-  else
-    Ready()
-  end
+  U.RunOutOfCombat(Ready)
 end)
 
 Detail._test = {
   FOR = FOR,
+  -- ExplainLead(itemID, owner): WHAT IT'S FOR's lead lines (FOR.Explain) for
+  -- an item not held, as the window builds them once its rows are read: the
+  -- reference model and a details job run to its end, with the window's own
+  -- queued jobs set aside; for the item audit's offline renderer (Task #445).
+  -- Shows nothing and changes nothing the window holds
+  ExplainLead = function(itemID, owner)
+    local DetailData = Recollect.UI.DetailData
+    local restore = DetailData._test.Isolate()
+    local ok, lines = pcall(function()
+      local model = Recollect.UI.Tooltip.ReferenceModel({ id = itemID }, "detail")
+      local job = DetailData.Build(itemID, nil, owner or Recollect.Verdicts.Rows.Owner())
+      DetailData._test.RunAll()
+      return FOR.Explain(model, job, itemID)
+    end)
+    restore()
+    if not ok then error(lines, 0) end
+    return lines
+  end,
   seams = seams,
   Click = OnClick,
   CombatEnded = OnCombatEnded,

@@ -1,5 +1,5 @@
 -------------------------------------------------------------------------------
--- Curator.Errors: the Recollect errors a curator's client showed, kept as
+-- Curator.Errors: the Recollect errors a curator's client ran into, shown or not, kept as
 -- notes for the author's next pull (Cobanyte, 2026-09-27: "any errors they
 -- encountered we should send upon pull"; Curator.Notes.RecordError)
 --

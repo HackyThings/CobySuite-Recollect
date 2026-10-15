@@ -21,14 +21,26 @@
 --
 -- A collection's payload is the snapshot table, CBOR-serialized and
 -- Base64-encoded (C_EncodingUtil), cut into chunks so every message stays
--- within MAX_MESSAGE bytes. Nothing is compressed: a receiver that
--- decompresses can be handed a small payload that expands without bound
--- (review PAY-02), so a block is at most BLOCK_RAW bytes of CBOR (LARGE_RAW
--- in a pull the author asks to be large), and the author's side scans it
--- before decoding it (Unpack's preflight). The checksum is FNV-1a, 32 bits,
--- as 8 hex digits: over the whole encoded payload for S and K, and over
--- salt .. ownName .. bucketSlice for the handshake (a weak installation
+-- within MAX_MESSAGE bytes. A block is at most BLOCK_RAW bytes of CBOR
+-- (LARGE_RAW in a pull the author asks to be large), and the author's side
+-- scans it before decoding it (Unpack's preflight). The checksum is FNV-1a,
+-- 32 bits, as 8 hex digits: over the whole payload as sent for S and K, and
+-- over salt .. ownName .. bucketSlice for the handshake (a weak installation
 -- check, never trust).
+--
+-- Compressed pulls (Task #419, an addition inside protocol 2): a curator
+-- that can compress lists the codecs it can send in its R (CAPS, the 15th
+-- field), and the author may name one in Q's 6th field: "z", the CBOR
+-- Deflated (CompressString, raw RFC 1951) then Base64 in D parts, or "b",
+-- the Deflated bytes in the binary form (Stuff: every byte but NUL travels
+-- as it is, which game read V1 measured) in B parts. S then carries a 6th
+-- field, the CBOR's size before compression. A Q without a codec is
+-- answered exactly as before, so a curator in a plain pull is byte for byte
+-- a released one, and a released curator never sees a 6-field Q (the author
+-- sends one only after a 15-field R). Only the author decompresses, with
+-- its own bounded inflater, never DecompressString (review PAY-02: a
+-- receiver that decompresses without a bound can be made to expand a small
+-- payload without end).
 --
 -- The encoding calls go through Protocol.seams (the offline suites script
 -- them). Nothing here sends; Transport does.
@@ -42,8 +54,10 @@ Curator.Protocol = Protocol
 -- The transport version (Cobanyte, 2026-09-28): what the author's console
 -- and a curator must share for a pull, whatever their addon versions. It
 -- covers the messages (types, fields, order), the packing (CBOR, Base64,
--- chunking, the checksum; no Deflate since protocol 2) and the payload's shape (records, stamps,
--- contexts, quests, notes). Raise it only when a change breaks an older
+-- chunking, the checksum) and the payload's shape (records, stamps,
+-- contexts, quests, notes). The compressed pull's codecs (Task #419) are
+-- such an addition: offered only by a curator that lists them in its R and
+-- used only when the author's Q names one, so they keep the version. Raise it only when a change breaks an older
 -- client: a field removed, moved or read differently, or the packing
 -- changed. A field added that the other side can do without keeps it (the
 -- author's console is always the newest side, so it reads a payload with or
@@ -77,20 +91,53 @@ end
 -- A message type in words, for what players read (the diagnostic lines, the
 -- dashboard's last message not answered)
 Protocol.KIND_WORDS = { H = "a presence check", R = "a presence answer", O = "an online notice", L = "a leaving notice",
-  Q = "a collection request", S = "a collection start", D = "a data part", N = "a request to send parts again",
+  Q = "a collection request", S = "a collection start", D = "a data part", B = "a data part", N = "a request to send parts again",
   K = "an acknowledgement", V = "a saved report", X = "a cancel" }
 
--- How many fields each type has after the header (a D's payload is last);
--- an R from a curator before Task #299 has 12 (SHAPES.R.older)
-Protocol.FIELDS = { H = 6, R = 14, O = 5, Q = 5, S = 5, D = 3, N = 2, K = 3, V = 5, X = 2, L = 1 }
+-- How many fields each type has after the header (a D's or B's payload is
+-- last); fewer are read too (SHAPES' older): an R of 14 (before Task #419)
+-- or 12 (before Task #299), a Q and an S of 5 (a plain pull)
+Protocol.FIELDS = { H = 6, R = 15, O = 5, Q = 6, S = 6, D = 3, B = 3, N = 2, K = 3, V = 5, X = 2, L = 1 }
+
+-- The codecs (Task #419): "z" Deflate then Base64 in D parts, "b" Deflate
+-- in the binary form in B parts. CAPS is what this client's curator side
+-- advertises in R when it can compress (CanCompress)
+Protocol.CAPS = "bz"
 
 Protocol.seams = {
   Serialize = function(value) return C_EncodingUtil.SerializeCBOR(value) end,
   Deserialize = function(text) return C_EncodingUtil.DeserializeCBOR(text) end,
   Encode64 = function(text) return C_EncodingUtil.EncodeBase64(text) end,
   Decode64 = function(text) return C_EncodingUtil.DecodeBase64(text) end,
+  -- raw Deflate (RFC 1951), which game read V3 measured the author's
+  -- inflater reads (Blizzard's generated docs, 12.1.5:
+  -- EncodingUtilDocumentation, CompressString, Enum.CompressionMethod)
+  Compress = function(text)
+    return C_EncodingUtil.CompressString(text, Enum.CompressionMethod.Deflate, Enum.CompressionLevel.Default)
+  end,
+  CanCompress = function()
+    return C_EncodingUtil ~= nil and C_EncodingUtil.CompressString ~= nil and Enum ~= nil and Enum.CompressionMethod ~= nil
+      and Enum.CompressionMethod.Deflate ~= nil and Enum.CompressionLevel ~= nil and Enum.CompressionLevel.Default ~= nil
+  end,
   Xor = function(a, b) return bit.bxor(a, b) end,
 }
+
+-- Caps(): the codecs this client's curator side can send ("" when it can't
+-- compress)
+function Protocol.Caps()
+  local ok, can = pcall(Protocol.seams.CanCompress)
+  return ok and can == true and Protocol.CAPS or ""
+end
+
+-- IsCodec(codec): a codec a Q may name
+function Protocol.IsCodec(codec)
+  return codec == "z" or codec == "b"
+end
+
+-- DataKind(codec): the type of a pull's data parts: B for the binary form, else D
+function Protocol.DataKind(codec)
+  return codec == "b" and "B" or "D"
+end
 
 -------------------------------------------------------------------------------
 -- Field shapes
@@ -161,9 +208,18 @@ end
 local function Base64(value)
   return #value <= Protocol.MAX_MESSAGE and value:find("^[%w+/=]*$") ~= nil
 end
+-- a B part's payload: any bytes but NUL (the binary form never writes one)
+local function Binary(value)
+  return #value <= Protocol.MAX_MESSAGE and value:find("%z") == nil
+end
+-- R's caps: codec letters, lower-case ASCII spelled out (never %a, which a
+-- C library's locale can stretch), at most 8
+local CAPS = Matches("^[a-z]*$", 8)
+-- Q's codec: none, or one the author picked from the curator's caps
+local CODEC = OneOf("", "z", "b")
 
 -- Where a curator is when it answers (Task #299; Cobanyte, 2026-10-06): an
--- R's last two fields. The kind of instance, from IsInInstance's type, a
+-- R's instance and zone fields. The kind of instance, from IsInInstance's type, a
 -- delve told apart by C_PartyInfo.IsDelveInProgress: "none" outside one,
 -- "home" a house or neighborhood, "other" a type this list doesn't know,
 -- "?" when the client couldn't read it (counted as inside one)
@@ -226,22 +282,29 @@ local TO_CURATOR = Protocol.IsCuratorID
 local function ToAny(to) return to == Protocol.AUTHOR or Protocol.IsCuratorID(to) end
 
 -- SHAPES[kind] = { to = check, fields }: every protocol 2 message, exactly.
--- A shape with older = n is also read with only its first n fields, the
--- shape a curator sent before the fields after them were added
+-- A shape with older = { n, ... } is also read with only its first n
+-- fields, tried in that order, the shapes a curator sent before the fields
+-- after them were added
 Protocol.SHAPES = {
   H = { to = function(to) return to == Protocol.ALL or Protocol.IsCuratorID(to) end,
     NONCE, Digits(3), Optional(Digits(6)), Optional(Digits(9)), Optional(Digits(4)), Optional(NONCE) },
   -- nonce, curator, addon, data, format, protocol, checksum, state,
   -- activity, pending, bytes, awaiting, then (Task #299) the instance kind
-  -- and the zone: an older curator's R stops after awaiting
+  -- and the zone, then (Task #419) the codecs it can send: a curator before
+  -- Task #419 stops after the zone, one before Task #299 after awaiting
   R = { to = TO_AUTHOR, NONCE, Protocol.IsCuratorID, VERSION_TEXT, VERSION_TEXT, FORMAT, Digits(3), Optional(CHECKSUM),
     OneOf("on", "ask", "off", "nodata"), OneOf("idle", "resting", "moving", "combat", "lockdown"), Digits(9), Digits(10),
-    REQUESTS, INSTANCE, Protocol.IsZone, older = 12 },
+    REQUESTS, INSTANCE, Protocol.IsZone, CAPS, older = { 14, 12 } },
   O = { to = TO_AUTHOR, Protocol.IsCuratorID, VERSION_TEXT, VERSION_TEXT, FORMAT, Digits(3) },
   L = { to = TO_AUTHOR, Protocol.IsCuratorID },
-  Q = { to = TO_CURATOR, Protocol.IsRequest, FLAG, Protocol.IsStore, FLAG, FLAG },
-  S = { to = TO_AUTHOR, Protocol.IsRequest, Digits(6), Digits(9), Optional(CHECKSUM), Info },
+  -- request, outdated, store, pinned, large, then (Task #419) the codec: a
+  -- plain pull's Q stops after large
+  Q = { to = TO_CURATOR, Protocol.IsRequest, FLAG, Protocol.IsStore, FLAG, FLAG, CODEC, older = { 5 } },
+  -- request, parts, bytes, checksum, info, then (a compressed pull only)
+  -- the CBOR's size before compression
+  S = { to = TO_AUTHOR, Protocol.IsRequest, Digits(6), Digits(9), Optional(CHECKSUM), Info, Digits(6), older = { 5 } },
   D = { to = TO_AUTHOR, Protocol.IsRequest, Digits(6), Base64 },
+  B = { to = TO_AUTHOR, Protocol.IsRequest, Digits(6), Binary },
   N = { to = TO_CURATOR, Protocol.IsRequest, ListOf(Digits(6), 40) },
   K = { to = TO_CURATOR, Protocol.IsRequest, CHECKSUM, ListOf(KEY, 20) },
   V = { to = TO_CURATOR, REQUESTS, REQUESTS, REQUESTS, REQUESTS, REQUESTS },
@@ -251,13 +314,14 @@ Protocol.SHAPES = {
 -------------------------------------------------------------------------------
 -- Messages
 -------------------------------------------------------------------------------
--- Encode(kind, mode, to, ...): the message text, or nil when a field holds SEP
+-- Encode(kind, mode, to, ...): the message text, or nil when a field holds
+-- SEP (a D's or B's payload, the last field, may)
 function Protocol.Encode(kind, mode, to, ...)
   local parts = { kind, mode, to }
   for i = 1, select("#", ...) do
     local field = select(i, ...)
     field = field == nil and "" or tostring(field)
-    if i < select("#", ...) or kind ~= "D" then
+    if i < select("#", ...) or (kind ~= "D" and kind ~= "B") then
       if field:find(Protocol.SEP, 1, true) then return nil end
     end
     parts[#parts + 1] = field
@@ -312,9 +376,10 @@ function Protocol.Decode(text)
   local fields = Split(rest, count)
   -- fewer separators than the whole shape: an older sender's, read exactly
   -- with its own count (its last field never takes another's)
-  if not fields and shape.older then
-    count = shape.older
+  for _, older in ipairs(not fields and shape.older or {}) do
+    count = older
     fields = Split(rest, count)
+    if fields then break end
   end
   if not fields then return nil end
   for i = 1, count do
@@ -405,38 +470,107 @@ end
 -------------------------------------------------------------------------------
 -- Payloads
 -------------------------------------------------------------------------------
--- Pack(tbl): the encoded payload text and its size in CBOR bytes, or nil
--- and why
-function Protocol.Pack(tbl)
+-- The binary form (codec "b"): the Deflated bytes as they are, but NUL,
+-- which ends a whisper, and the escape byte itself, each written as the
+-- escape and one more byte; nothing else may follow an escape. Its worst
+-- case is twice the size (every byte escaped), so a pull's packing checks
+-- the size as sent too (Sharing.PackBlock)
+local ESC = "\001"
+local STUFFED = { ["\000"] = ESC .. "\002", [ESC] = ESC .. "\003" }
+
+function Protocol.Stuff(bytes)
+  return (bytes:gsub("[%z\001]", STUFFED))
+end
+
+-- Unstuff(text, max): the bytes, or nil and why; read after every part is
+-- in, since a cut may fall inside an escape pair (a byte loop, never a
+-- pattern over the bytes)
+function Protocol.Unstuff(text, max)
+  if type(text) ~= "string" or text:find("%z") then return nil, "binary form" end
+  local out, n, from = {}, 0, 1
+  while true do
+    local at = text:find(ESC, from, true)
+    if not at then
+      n = n + 1
+      out[n] = text:sub(from)
+      break
+    end
+    local code = text:byte(at + 1)
+    if code ~= 2 and code ~= 3 then return nil, "binary form" end
+    out[n + 1], out[n + 2] = text:sub(from, at - 1), code == 2 and "\000" or ESC
+    n, from = n + 2, at + 2
+  end
+  local bytes = table.concat(out)
+  if max and #bytes > max then return nil, "too large" end
+  return bytes
+end
+
+-- Pack(tbl, codec): the payload as sent and its size in CBOR bytes, or nil
+-- and why. No codec (nil or ""): Base64 of the CBOR, as every pull before
+-- Task #419; "z" Base64 of the Deflated CBOR; "b" the Deflated CBOR in the
+-- binary form
+function Protocol.Pack(tbl, codec)
   local seams = Protocol.seams
   local ok, serialized = pcall(seams.Serialize, tbl)
   if not ok or type(serialized) ~= "string" then return nil, "serialize failed" end
-  local okEnc, encoded = pcall(seams.Encode64, serialized)
+  local bytes = serialized
+  if codec ~= nil and codec ~= "" then
+    if not Protocol.IsCodec(codec) then return nil, "codec" end
+    local okZ, compressed = pcall(seams.Compress, serialized)
+    if not okZ or type(compressed) ~= "string" then return nil, "compress failed" end
+    if codec == "b" then return Protocol.Stuff(compressed), #serialized end
+    bytes = compressed
+  end
+  local okEnc, encoded = pcall(seams.Encode64, bytes)
   if not okEnc or type(encoded) ~= "string" then return nil, "encode failed" end
   return encoded, #serialized
 end
 
--- Unpack(text, preflight, maxRaw): the table, or nil and why. The received
--- size is checked before anything is decoded, the CBOR size after Base64,
--- then preflight(raw) (the author's scanner: true, or false and why) runs
--- before the native decoder ever sees it; without a preflight nothing is
--- decoded. maxRaw defaults to BLOCK_RAW
-function Protocol.Unpack(text, preflight, maxRaw)
+-- Wire(text, codec, maxRaw): the bytes a payload as sent carries (Base64
+-- decoded, or the binary form undone), or nil and why; the received size
+-- is checked first. Plain (no codec), they are the CBOR, at most maxRaw
+-- (default BLOCK_RAW); compressed, the Deflate stream, which only the
+-- author's bounded inflater reads
+function Protocol.Wire(text, codec, maxRaw)
   maxRaw = maxRaw or Protocol.BLOCK_RAW
-  if type(text) ~= "string" or #text > Protocol.EncodedSize(maxRaw) then return nil, "too large" end
+  local wireMax = Protocol.EncodedSize(maxRaw)
+  if type(text) ~= "string" or #text > wireMax then return nil, "too large" end
+  if codec == "b" then return Protocol.Unstuff(text, wireMax) end
+  local ok, bytes = pcall(Protocol.seams.Decode64, text)
+  if not ok or type(bytes) ~= "string" then return nil, "decode failed" end
+  if (codec == nil or codec == "") and #bytes > maxRaw then return nil, "block too large" end
+  return bytes
+end
+
+-- Read(raw, preflight, maxRaw): the table from a block's CBOR, or nil and
+-- why: preflight(raw) (the author's scanner: true, or false and why) runs
+-- before the native decoder ever sees it; without a preflight nothing is
+-- decoded
+function Protocol.Read(raw, preflight, maxRaw)
   if type(preflight) ~= "function" then return nil, "no preflight scanner" end
-  local seams = Protocol.seams
-  local ok, raw = pcall(seams.Decode64, text)
-  if not ok or type(raw) ~= "string" then return nil, "decode failed" end
-  if #raw > maxRaw then return nil, "block too large" end
+  if type(raw) ~= "string" or #raw > (maxRaw or Protocol.BLOCK_RAW) then return nil, "block too large" end
   local okScan, scanned, why = pcall(preflight, raw)
   if not okScan or scanned ~= true then return nil, "preflight: " .. tostring(okScan and why or scanned) end
-  local okDes, value = pcall(seams.Deserialize, raw)
+  local okDes, value = pcall(Protocol.seams.Deserialize, raw)
   if not okDes or type(value) ~= "table" then return nil, "deserialize failed" end
   return value
 end
 
--- The chunk size for a request's D messages (the header takes the rest)
+-- Unpack(text, preflight, maxRaw): a plain payload's table, or nil and why
+-- (Wire then Read). maxRaw defaults to BLOCK_RAW. Also the CBOR itself
+function Protocol.Unpack(text, preflight, maxRaw)
+  maxRaw = maxRaw or Protocol.BLOCK_RAW
+  if type(text) ~= "string" or #text > Protocol.EncodedSize(maxRaw) then return nil, "too large" end
+  if type(preflight) ~= "function" then return nil, "no preflight scanner" end
+  local raw, why = Protocol.Wire(text, nil, maxRaw)
+  if not raw then return nil, why end
+  local value, whyRead = Protocol.Read(raw, preflight, maxRaw)
+  if not value then return nil, whyRead end
+  return value, raw
+end
+
+-- The chunk size for a request's D or B messages (the header takes the
+-- rest; both headers are as long)
 function Protocol.ChunkSize(requestID)
   local header = #Protocol.Encode("D", Protocol.LIVE, Protocol.AUTHOR, requestID, "99999", "")
   return Protocol.MAX_MESSAGE - header

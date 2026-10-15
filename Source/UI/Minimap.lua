@@ -12,16 +12,14 @@ local Minimap_Module = {}
 UI.Minimap = Minimap_Module
 
 local function TooltipOpts()
-  local hint = Recollect.PanelKeyHint()
-  return {
-    brandColor = Recollect.BRAND_COLOR,
+  return CobySuite_Recollect.UI.LauncherTooltip({
     title      = "Recollect",
-    body       = hint and { hint } or nil,
-    keys = {
-      { key = "Left-click",  desc = "Open the Recollect Audit" },
-      { key = "Right-click", desc = "Open settings" },
-    },
-  }
+    brandColor = Recollect.BRAND_COLOR,
+    icon       = Recollect.ICON,
+    status     = Recollect.PanelKeyHint(),
+    leftClick  = "Open the Recollect Audit",
+    rightClick = "Open settings",
+  })
 end
 
 local launcher = CobySuite_Recollect.UI.CreateLauncher({

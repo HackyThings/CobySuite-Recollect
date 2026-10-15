@@ -6,38 +6,26 @@
 --
 -- The sections follow a new player's first session (Cobanyte, 2026-09-27):
 -- the first thing to try, what the panel showed, what its verdict means,
--- then the list, one item's details, waypoints, settings, and last the
--- optional curator mode. Each body is short bullets that scan at a glance:
+-- then the list, one item's details, waypoints, settings, the optional
+-- curator mode, and last the list of every addon (AddonsGuideSection). Each body is short bullets that scan at a glance:
 -- keys and commands in gold, the panel's block names in blue, verdicts in
 -- their own colors, and a gray line for a caveat.
 -------------------------------------------------------------------------------
 local Guide = {}
 Recollect.UI.Guide = Guide
 
-local U = CobySuite_Recollect.Utilities
 local V = Recollect.Purposes.Registry.Verdict
 local LABELS = Recollect.Purposes.Registry.VerdictLabel
 local ICONS = "Interface\\Icons\\"
-local BULLET = "\226\128\162 "
 
--- A key or command, in the slash help's gold
-local function Key(text) return U.WrapColor(U.Colors.HELP_COMMAND, text) end
--- One of the panel's block names, in the help's section blue
-local function Block(text) return U.WrapColor(U.Colors.HELP_SECTION, text) end
--- A caveat, in gray
-local function Note(text) return U.WrapColor(U.Colors.LABEL_GRAY, text) end
--- A small icon inside a line, cropped like the section icons
-local function Icon(path) return "|T" .. path .. ":16:16:0:0:64:64:5:59:5:59|t" end
--- Bulleted lines, one paragraph
-local function Bullets(lines)
-  local out = {}
-  for i, line in ipairs(lines) do out[i] = BULLET .. line end
-  return table.concat(out, "\n")
-end
+-- The shared guide's text helpers: keys and commands in gold, the panel's
+-- block names in blue, a caveat in gray, a small icon inside a line, and
+-- bulleted lines
+local T = CobySuite_Recollect.UI.GuideText
+local Key, Block, Note, Icon, Bullets = T.Key, T.Block, T.Note, T.Icon, T.Bullets
 -- A verdict's name in its list color, then what it means
 local function Verdict(key, meaning)
-  local color = Recollect.UI.VerdictColors and Recollect.UI.VerdictColors[key] or U.Colors.HIGHLIGHT_WHITE
-  return U.WrapColor(color, LABELS[key]) .. ": " .. meaning
+  return T.Term(Recollect.UI.VerdictColors and Recollect.UI.VerdictColors[key], LABELS[key], meaning)
 end
 
 -- The keys as the player set them now, read each time the guide shows
@@ -88,14 +76,15 @@ end
 local function Answer(text, neutral)
   local name, meaning = (text or ""):match("^([^:]+): (.+)$")
   if not name then return Note(text or "") end
-  local color = not neutral and Recollect.UI.VerdictColors and Recollect.UI.VerdictColors[V.DONE] or U.Colors.HIGHLIGHT_WHITE
-  return "In the details window, " .. U.WrapColor(color, name) .. ": " .. meaning
+  local color = not neutral and Recollect.UI.VerdictColors and Recollect.UI.VerdictColors[V.DONE] or nil
+  return "In the details window, " .. T.Term(color, name, meaning)
 end
 local JUST_FOR_FUN = "Just for fun: nothing Recollect checks still needs it. It's a drink for roleplay or a "
   .. "novelty, such as a treat that changes a pet's size, a firework or a disguise, so keep it only if you'd like to."
 local function ForFun() return Answer(JUST_FOR_FUN) end
 local YOUR_CALL = "Your call: nothing Recollect checks needs it, and whether you still want what it does is up "
-  .. "to you: something for pet battles, or an item from an older expansion."
+  .. "to you: something for pet battles, a token that only buys things you can still buy, an item only holiday or event "
+  .. "NPCs take, an item for a secret whose reward you have and can earn again, or an item from an older expansion."
 local function YourCall() return Answer(YOUR_CALL, true) end
 Guide.YOUR_CALL = YOUR_CALL
 
@@ -210,14 +199,16 @@ Guide.SECTIONS = {
       Bullets({
         "Overview: what it is, what it's for, how to get more, what you have",
         "Tabs: what it buys, quests, crafting, where it comes from, and more",
+        "An item used in one of the game's secrets gets a Secret tab: the steps on the left, the chosen step's page "
+          .. "on the right, and your own checkmarks for steps the game can't track",
         "Every table sorts, searches and filters",
         "Names are links: hover for the tooltip, click like a chat link",
         Key("Alt-click") .. " an item to open it here; Back and Forward return",
         "Right-click a row for a menu: link it in chat, preview it, set a waypoint, or copy its name or Wowhead link",
         "The " .. Icon(ICONS .. "INV_Misc_Map_01") .. " Map button sets a waypoint",
-        "An achievement's button shows it in the game's achievement window. With that window closed, one more "
-          .. "click on " .. Key("Open Achievements") .. " lets the game open it itself, since an addon opening it "
-          .. "can get your actions blocked",
+        "An achievement's button shows it in the game's achievement window. From the row menu's Show Achievement, "
+          .. "with that window closed, one more click on " .. Key("Open Achievements") .. " lets the game open it "
+          .. "itself, since an addon opening it can get your actions blocked",
       }),
       Note("The details key can be a click instead, such as Alt-click on any item: set it in /rec settings."),
     },

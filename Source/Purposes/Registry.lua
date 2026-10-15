@@ -125,6 +125,51 @@ function Registry.Info(reason)
   return { verdict = Registry.Verdict.UNKNOWN, reason = reason, soft = true }
 end
 
+-- Live(itemID, kind): the item's relations of a kind that are still in the
+-- game, and whether the data names any of that kind at all. A route flagged
+-- no longer available never makes a live purpose (Task #446: a recipe whose
+-- teaching is gone said "learn it", a gone combine's part "still to get");
+-- the removed check (rule 42) speaks for those
+function Registry.Live(itemID, kind)
+  local live, any = {}, false
+  local ok, list = pcall(Recollect.Facts.Relations.Of, itemID, kind)
+  if not ok or type(list) ~= "table" then return live, false end
+  for _, relation in ipairs(list) do
+    any = true
+    if not (relation.flags and relation.flags.unavailable) then live[#live + 1] = relation end
+  end
+  return live, any
+end
+
+-- UsesGone(itemID): true when the data names uses of the item (any relation
+-- that isn't a source) and every one is no longer available: what the
+-- removed check (rule 42) calls every use gone
+function Registry.UsesGone(itemID)
+  local Relations = Recollect.Facts.Relations
+  local ok, list = pcall(Relations.For, itemID)
+  if not ok or type(list) ~= "table" then return false end
+  local any = false
+  for _, relation in ipairs(list) do
+    if not Relations.SOURCE[relation.kind] then
+      if not (relation.flags and relation.flags.unavailable) then return false end
+      any = true
+    end
+  end
+  return any
+end
+
+-- AllGone(itemID, kinds): true when the data names relations of the kinds
+-- for the item and every one is no longer available
+function Registry.AllGone(itemID, kinds)
+  local named = false
+  for _, kind in ipairs(kinds) do
+    local live, any = Registry.Live(itemID, kind)
+    if #live > 0 then return false end
+    named = named or any
+  end
+  return named
+end
+
 -------------------------------------------------------------------------------
 -- The client, as the checks see it
 -------------------------------------------------------------------------------

@@ -2,7 +2,7 @@
 -- Curator.Notes: what a curator writes or runs into, as opposed to what the
 -- recorders observe (curator spec D35, Cobanyte 2026-09-27): a flag on an
 -- item (a reason and, if they like, their own words), general feedback
--- (/rec feedback), and the Recollect errors the game showed on this client.
+-- (/rec feedback), and the Recollect errors this client ran into, shown or not.
 --
 -- RECOLLECT_CURATOR_DB.notes (in the store's table, so Store.Swap covers it):
 --   flags[itemID] = { entries }   one list per item, oldest first

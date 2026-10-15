@@ -36,9 +36,7 @@ Shared.seams = {
 }
 
 local function Seam(name, ...)
-  local ok, value = pcall(Shared.seams[name], ...)
-  if not ok or Host.IsSecret(value) then return nil end
-  return value
+  return CobySuite_Recollect.Utilities.SafeCall(Host.IsSecret, 1, Shared.seams[name], ...)
 end
 
 -- Where an entry stands, in words
@@ -222,7 +220,7 @@ end
 
 local function BuildFlag()
   if flagWindow or InCombatLockdown() then return end
-  local w = BuildWindow("RecollectCuratorFlagDialog", "Curator flag", 400, SaveFlag, RemoveFlag)
+  local w = BuildWindow("RecollectCuratorFlagDialog", "Curator Flag", 400, SaveFlag, RemoveFlag)
   w.ItemIcon = w:CreateTexture(nil, "ARTWORK")
   w.ItemIcon:SetSize(24, 24)
   w.ItemIcon:SetPoint("TOPLEFT", w, "TOPLEFT", PAD, -34)
@@ -250,7 +248,7 @@ function FlagDialog.Open(itemID, reason)
   if not itemID then return false end
   BuildFlag()
   if not flagWindow then
-    Host.Print("The Curator flag window opens when combat ends.")
+    Host.Print("The Curator Flag window opens when combat ends.")
     return false
   end
   flagItem = itemID
@@ -349,7 +347,5 @@ local function BuildBoth()
   BuildFeedback()
 end
 
-Host.OnLoaded(function() C_Timer.After(0, BuildBoth) end)
-local retry = CreateFrame("Frame")
-retry:RegisterEvent("PLAYER_REGEN_ENABLED")
-retry:SetScript("OnEvent", BuildBoth)
+-- built just after load, or when combat ends if it began in combat
+Host.OnLoaded(function() C_Timer.After(0, function() CobySuite_Recollect.Utilities.RunOutOfCombat(BuildBoth) end) end)

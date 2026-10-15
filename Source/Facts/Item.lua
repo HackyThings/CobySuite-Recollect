@@ -230,19 +230,32 @@ local function AddedPatch(itemID)
   return ok and IsPositiveID(patch) and patch or nil
 end
 
+-- The game files tens of thousands of later items under Classic (0): Soleless
+-- Treads (113244, a 6.0.1 item) and Dalaran Rice Pudding (140276, 7.0.3) among
+-- them. The window never names a wrong expansion (the Manager's call, Task
+-- #448), so Classic stands only for an item numbered before The Burning
+-- Crusade's first items (the data build's own boundary, FIRST_ITEM_ID[1]); a
+-- later ID the game calls Classic, with no added patch, names no expansion
+Item.CLASSIC_LAST_ID = 20000
+
 -- Expansion(facts, itemID): expansionID, source, patch
 --   the added patch's expansion, "added", the patch   when it is later than
 --                                                       the game's, or the
 --                                                       game's can't be read
 --   the game's expansionID, "game", nil                otherwise
---   nil                                                neither is known
+--   nil                                                neither is known, or
+--                                                       the game says Classic
+--                                                       for an ID at or past
+--                                                       CLASSIC_LAST_ID
 -- itemID defaults to facts.itemID
 function Item.Expansion(facts, itemID)
   local game = type(facts) == "table" and facts.expansionID or nil
   if not IsFiniteNumber(game) or game < 0 then game = nil end
-  local patch = AddedPatch(itemID or (type(facts) == "table" and facts.itemID or nil))
+  itemID = itemID or (type(facts) == "table" and facts.itemID or nil)
+  local patch = AddedPatch(itemID)
   local added = patch and Item.PatchExpansion(patch)
   if added and (game == nil or added > game) then return added, "added", patch end
+  if game == 0 and not added and (not IsPositiveID(itemID) or itemID >= Item.CLASSIC_LAST_ID) then return nil end
   if game ~= nil then return game, "game", nil end
   return nil
 end
@@ -254,11 +267,27 @@ end
 --   "current"    the game's expansionID is current (or later)
 --   "disagree"   the game says older, the added patch says current
 --   nil          the game's expansionID or current can't be read
+-- The lowest item ID of each expansion's items (the data build's own
+-- FIRST_ITEM_ID, about the 1st percentile of the dump's labels; keep the two
+-- alike). An item numbered below the first ID of the expansion before the
+-- current one was given out a whole expansion before the current began
+Item.FIRST_ITEM_ID = { [1] = 20000, [2] = 33000, [3] = 48000, [4] = 72000, [5] = 106000, [6] = 121000,
+  [7] = 151000, [8] = 171000, [9] = 190000, [10] = 210000 }
+
+--   "older", nil, "unnamed"   the game says Classic for a later item that
+--                             names no expansion (Expansion's nil), whose ID
+--                             lies a whole expansion before the current one
+--                             (the build's far_older margin): older, unnamed
 function Item.Age(facts, itemID, current)
   local game = type(facts) == "table" and facts.expansionID or nil
   if not IsFiniteNumber(game) or game < 0 or not IsFiniteNumber(current) then return nil end
   local expansion, source, patch = Item.Expansion(facts, itemID)
-  if expansion == nil then return nil end
+  if expansion == nil then
+    itemID = itemID or facts.itemID
+    local first = Item.FIRST_ITEM_ID[current - 1]
+    if game == 0 and first and IsPositiveID(itemID) and itemID < first then return "older", nil, "unnamed", nil end
+    return nil
+  end
   if expansion < current then return "older", expansion, source, patch end
   if game >= current then return "current", expansion, source, patch end
   return "disagree", expansion, source, patch

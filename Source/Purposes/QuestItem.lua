@@ -22,6 +22,10 @@
 -- using it gives and where it works (Purposes.UseEffect.Describe: Thunderlord
 -- Grapple works only in Frostfire Ridge). Neither changes the verdict: a
 -- quest not taken yet or a later step may still name it (rule 10).
+-- When the data names the item for quests (an objective or a quest's item)
+-- and every one is done, with none coming back, that Unknown is settled: a
+-- quest may still return for the item, but nothing here is left to check
+-- (Probably done, Task #384: Aelyse's Gleaming Falchion).
 -------------------------------------------------------------------------------
 local R = Recollect.Purposes.Registry
 local V = R.Verdict
@@ -80,6 +84,27 @@ local function RewardWords(itemID, owner)
     .. (more > 0 and (" and %d more %s"):format(more, more == 1 and "quest" or "quests") or "")
 end
 
+-- Whether every quest the data names the item for (objective or questItem
+-- codes serving this character) is done, none repeatable or recurring, none
+-- still loading or in the log; false when it names none
+local function EveryQuestDone(itemID, owner)
+  local Relations, QuestInfo = Recollect.Facts.Relations, Recollect.Facts.QuestInfo
+  local serves, budget, seen, found = Relations.QuestApplies(itemID, owner), QuestInfo.FrameBudget(), {}, false
+  for _, kind in ipairs({ "objective", "questItem" }) do
+    for _, relation in ipairs(Relations.Of(itemID, kind)) do
+      if not seen[relation.id] and serves[relation.id] == true then
+        seen[relation.id] = true
+        local quest = QuestInfo.Get(relation.id, budget)
+        if not quest or quest.onQuest == true or quest.repeatable == true or QuestInfo.Done(quest) ~= true then return false end
+        local Recurs = Recollect.Purposes.QuestRecurs
+        if Recurs and Recurs(relation.id) then return false end
+        found = true
+      end
+    end
+  end
+  return found
+end
+
 R.Register({
   key = "questItem",
   label = "Quest item",
@@ -110,7 +135,8 @@ R.Register({
       return R.Unknown("Quest item; possibly for " .. Titles(possible) .. " (its name appears in an objective)")
     end
     if not complete then return R.Unknown("Quest item; your quest log couldn't be fully read") end
-    local rewards = RewardWords(ctx.stack.itemID, ctx.owner or { faction = ctx.playerFaction })
+    local owner = ctx.owner or { faction = ctx.playerFaction }
+    local rewards = RewardWords(ctx.stack.itemID, owner)
     local result
     if flagged then
       result = R.Unknown("Quest item" .. rewards .. "; no quest in your quest log names it")
@@ -124,6 +150,7 @@ R.Register({
         .. "; no quest in your quest log names it (it may be a token or a key)")
       if described and described.headline then result.headline = described.headline end
     end
+    if EveryQuestDone(ctx.stack.itemID, owner) then result.settled = true end
     return result
   end,
 })

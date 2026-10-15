@@ -20,6 +20,9 @@
 --                                              -- { quest = questID, account = true }
 --     reward = "the Ancestral War Bear",       -- what finishing it gives, for the tooltip
 --     rewardItem = itemID,                     -- the item that teaches the target (checked in game)
+--     any = N,                                 -- optional: any N different parts are enough, not all
+--                                              -- of them; each part then reads Useful, never Needed
+--     what = "lucky items",                    -- optional with any: what the parts are called
 --     vendor = npcID, sold = itemID,           -- exchanges only: who sells the reward, and
 --                                              -- the item they sell (checked in game)
 --     mention = "text",                        -- text every part's own tooltip shows (English

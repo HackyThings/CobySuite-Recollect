@@ -19,5 +19,8 @@ Recollect.Data.Residual = {
   [259223] = { note = "Opening the Honored Warrior's Cache doesn't take this part, so it stays behind; with the Ancestral War Bear learned, nothing else needs it.", checked = "2026-09-28" },   -- Lynx Claw
 
   -- Quest leftovers
+  [212602] = { note = "Left over from the quest The Anachronism; once that quest is turned in, the emitter serves no purpose.", checked = "2026-10-14" },   -- Titan Emitter
+  [225887] = { note = "Left over from the quests The Old Orders and The Old Guard; once both are turned in, the emitter serves no purpose.", checked = "2026-10-14" },   -- Titan Emitter
+  [225888] = { note = "Handed to you during the quest The Old Guard and left over after it; once that quest is turned in, the emitter serves no purpose.", checked = "2026-10-14" },   -- Titan Emitter
   [238500] = { note = "Left over from the quest Post-Mortem; once that quest is turned in, the report serves no purpose.", checked = "2026-09-28" },   -- Maella's Report
 }

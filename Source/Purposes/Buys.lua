@@ -503,20 +503,29 @@ local function BoughtWords(list, owner)
   return text
 end
 
--- The answer for an item with no use relation that can no longer be
--- obtained: informs only; nil for any other
+-- Uses that only inform and decide nothing (what opening a container can
+-- give, H): one beside the sources leaves the item's removal to be said
+-- (Task #449: the Bag of Discount Goods, 199108, gone, lost its note once it
+-- shipped a live H)
+local INFORM_ONLY = { holds = true }
+
+-- The answer for an item with no use relation (an informing one aside) that
+-- can no longer be obtained: informs only; nil for any other
 local function NoUse(ctx, relations)
   local SOURCE = Recollect.Facts.Relations.SOURCE
   for _, relation in ipairs(relations) do
-    if not SOURCE[relation.kind] then return nil end
+    if not SOURCE[relation.kind] and not INFORM_ONLY[relation.kind] then return nil end
   end
   local Season = Recollect.Purposes.Season
-  local patch = Season and Season.RemovedIn(ctx.stack.itemID)
-  if not patch then return nil end
+  local text = Season and Season.RemovedText(ctx.stack.itemID)
+  if not text then return nil end
   local okKnown, known = pcall(Recollect.Purposes.KnownUse.EntriesFor, ctx.stack.itemID)
   if not okKnown or (type(known) == "table" and #known > 0) then return nil end
+  -- a secret the item is used in is a use the data's routes don't list
+  local okSecret, inSecret = Recollect.Facts.SecretUse(ctx.stack.itemID)
+  if not okSecret or inSecret then return nil end
   -- the words of COMES FROM's removal line, which then shows it once (review F11)
-  return R.Info(("Can no longer be obtained (removed in patch %s)"):format(Season.PatchText(patch)))
+  return R.Info(text)
 end
 
 R.Register({
@@ -533,6 +542,14 @@ R.Register({
     -- list: its own check answers, and nothing here says every use is gone
     local okKnown, known = pcall(Recollect.Purposes.KnownUse.EntriesFor, ctx.stack.itemID)
     if not okKnown or (type(known) == "table" and #known > 0) then return nil end
+    -- so is a secret still in the game (Facts.Secrets.LiveUse; true too
+    -- when the secrets can't be read and the manifest names the item)
+    local okSecret, inSecret = Recollect.Facts.SecretUse(ctx.stack.itemID)
+    if not okSecret or inSecret then return nil end
+    -- and so is a collectible the item teaches, which its own check reads
+    -- (Toy, Mount, Pet, Transmog); one that can't be read too (Task #445,
+    -- audit R12: a whistle that teaches a mount, its quest use gone)
+    if R.CollectionItem(ctx) ~= false then return nil end
     local parts = {}
     if #gone.buys > 0 then parts[#parts + 1] = BoughtWords(gone.buys, owner) end
     for _, kind in ipairs({ "quests", "opens", "usedAt", "achievements", "other" }) do

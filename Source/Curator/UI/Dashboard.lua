@@ -35,7 +35,8 @@ Curator.DashboardWindow = Window
 local NAME = "RecollectCuratorDashboard"
 local L = { WIDTH = 1000, HEIGHT = 660, PAD = 14, TOP = 64, FOOTER = 40, HEADER = 32, ICON = 22, BODY_X = 12,
   TILE_W = 150, TILE_H = 42, BANNER_TILES = 3, SECTION_TILES = 10, GRIDS = 5, LINE_GAP = 3, SECTION_GAP = 6,
-  BANNER_ICON = 28, BAR_H = 14, BUTTON_H = 22, HEADERS = 8, FONTS = 90, BARS = 3, REFRESH = 2, REBUILD = 10 }
+  BANNER_ICON = 28, BAR_H = 14, BUTTON_H = 22, HEADERS = 8, FONTS = 90, BARS = 3, REFRESH = 2, REBUILD = 10,
+  SCROLL_ROOM = 22 }   -- SCROLL_ROOM: the room the shared table (CreateSortTable) keeps for its scrollbar
 Window.LAYOUT = L
 
 local TABS = { { key = "overview", label = "Overview" }, { key = "findings", label = "Findings" },
@@ -67,7 +68,7 @@ end
 
 -- A texture set from a path, a file ID or "atlas:<name>"
 local function SetIcon(texture, icon)
-  Curator.DashTable.SetIcon(texture, icon)
+  CobySuite_Recollect.UI.SetTableIcon(texture, icon)
 end
 
 -------------------------------------------------------------------------------
@@ -166,7 +167,7 @@ end
 local function SectionButtons(parent)
   local P = Curator.Provider
   local defs = {
-    { key = "join", text = "Join the Curator Community", width = 200, tip = "Prints the community's invite link in chat; click it there",
+    { key = "join", text = "Join Recollect Curators", width = 200, tip = "Prints the community's invite link in chat; click it there",
       onClick = function() P.PrintJoinLink() end },
     { key = "test", text = "Test the Connection", width = 150,
       tip = "Runs the connection test with the author's character (about five minutes); the report goes to chat. It works only while the author has a test session open, so ask in the community first",
@@ -518,7 +519,8 @@ local function BuildFindings(page)
   W.findingsSummary:SetJustifyH("LEFT")
   W.findingsSummary:SetWordWrap(false)
   SetColor(W.findingsSummary, U.Colors.LABEL_GRAY)
-  W.findings = Curator.DashTable.Create(page, { key = "findings", pool = 30, rowHeight = 20,
+  W.findings = CobySuite_Recollect.UI.CreateSortTable(page, { pool = 30, rowHeight = 20, empty = "",
+    persistence = { savedVariable = "RECOLLECT_CURATOR_DB", path = "windows", key = "curator_findings" },
     minStretch = Dashboard.FINDINGS_MIN_STRETCH,
     columns = Dashboard.FINDING_COLUMNS, sortKey = W.sort.key, ascending = W.sort.ascending,
     onSort = function(key, ascending)
@@ -570,7 +572,8 @@ local function BuildHistory(page)
   W.historyIntro:SetJustifyH("LEFT")
   W.historyIntro:SetWordWrap(true)
   SetColor(W.historyIntro, U.Colors.LIGHT_GRAY)
-  W.history = Curator.DashTable.Create(page, { key = "history", pool = 30, rowHeight = 20, minStretch = 200,
+  W.history = CobySuite_Recollect.UI.CreateSortTable(page, { pool = 30, rowHeight = 20, minStretch = 200, empty = "",
+    persistence = { savedVariable = "RECOLLECT_CURATOR_DB", path = "windows", key = "curator_history" },
     columns = Dashboard.HISTORY_COLUMNS, sortKey = W.historySort.key, ascending = W.historySort.ascending,
     onSort = function(key, ascending)
       W.historySort = { key = key, ascending = ascending }
@@ -663,15 +666,16 @@ function Window.Title()
   return "Recollect: Curator"
 end
 
-local function TabLabel(key)
+-- A tab's count ("Findings (3)", "History (2)"), or nil for none
+local function TabBadge(key)
   if key == "findings" then
-    local waiting = Dashboard.Waiting()
-    return waiting.total > 0 and ("Findings (%d)"):format(waiting.total) or "Findings"
+    local waiting = Dashboard.Waiting().total
+    return waiting > 0 and waiting or nil
   elseif key == "history" then
     local n = #Curator.History.Entries()
-    return n > 0 and ("History (%d)"):format(n) or "History"
+    return n > 0 and n or nil
   end
-  return "Overview"
+  return nil
 end
 
 -- Each part repaints on its own, so one that fails leaves the others
@@ -684,10 +688,7 @@ end
 function Window.Refresh(rebuild)
   if not W.window or not W.window:IsShown() then return end
   if W.window.TitleText then W.window.TitleText:SetText(Window.Title()) end
-  for i, def in ipairs(TABS) do
-    W.tabs[i]:SetText(TabLabel(def.key))
-    PanelTemplates_TabResize(W.tabs[i], 0)
-  end
+  for _, def in ipairs(TABS) do W.tabs:SetBadge(def.key, TabBadge(def.key)) end
   Try("the footer", PaintFooter)
   Try("the Overview", Window.PaintOverview)
   Try("the Findings", Window.PaintFindings, rebuild)
@@ -696,44 +697,29 @@ end
 
 function Window.SetTab(key)
   if not W.window then return end
-  local found = false
-  for i, def in ipairs(TABS) do
-    local on = def.key == key
-    W.pages[def.key]:SetShown(on)
-    if on then
-      PanelTemplates_SetTab(W.window, i)
-      found = true
-    end
-  end
-  if not found then return Window.SetTab("overview") end
+  if not W.pages[key] then return Window.SetTab("overview") end
+  for _, def in ipairs(TABS) do W.pages[def.key]:SetShown(def.key == key) end
+  W.tabs:Select(key, true, true)   -- marked quietly: this is the tab's own handler
   W.tab = key
   Saved().tab = key
   Window.Refresh(key == "findings")
 end
 
+-- The tab strip (the shared tabs; its holder is named apart from the
+-- window, each button <NAME>TabsTab<i>) and a page per tab
 local function BuildTabs(window)
-  W.tabs, W.pages = {}, {}
-  local previous
-  for i, def in ipairs(TABS) do
-    local tab = CreateFrame("Button", NAME .. "Tab" .. i, window, "PanelTopTabButtonTemplate")
-    tab:SetText(def.label)
-    tab:SetID(i)
-    tab:SetScript("OnClick", function() Window.SetTab(def.key) end)
-    PanelTemplates_TabResize(tab, 0)
-    if previous then
-      tab:SetPoint("LEFT", previous, "RIGHT", 4, 0)
-    else
-      tab:SetPoint("TOPLEFT", window, "TOPLEFT", L.PAD, -28)
-    end
-    W.tabs[i] = tab
-    previous = tab
+  local defs = {}
+  for i, def in ipairs(TABS) do defs[i] = { key = def.key, text = def.label } end
+  W.tabs = CobySuite_Recollect.UI.CreateTabs(window, { name = NAME .. "Tabs", point = { "TOPLEFT", window, "TOPLEFT", L.PAD, -28 },
+    tabs = defs, onSelect = function(key) Window.SetTab(key) end })
+  W.pages = {}
+  for _, def in ipairs(TABS) do
     local page = CreateFrame("Frame", nil, window)
     page:SetPoint("TOPLEFT", window, "TOPLEFT", L.PAD, -L.TOP)
     page:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -L.PAD, L.FOOTER + 6)
     page:Hide()
     W.pages[def.key] = page
   end
-  window.numTabs = #W.tabs
 end
 
 local function Build()
@@ -801,7 +787,5 @@ Curator.Sharing.OnChanged = (function(previous)
   end
 end)(Curator.Sharing.OnChanged)
 
-Host.OnLoaded(function() C_Timer.After(0, Build) end)
-local frame = CreateFrame("Frame")
-frame:RegisterEvent("PLAYER_REGEN_ENABLED")
-frame:SetScript("OnEvent", Build)
+-- built just after load, or when combat ends if it began in combat
+Host.OnLoaded(function() C_Timer.After(0, function() CobySuite_Recollect.Utilities.RunOutOfCombat(Build) end) end)
