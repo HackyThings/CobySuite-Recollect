@@ -149,11 +149,43 @@ function Main.IsEnabled()
   return Main.Available() and Curator.Config.Get("curator_enabled") == true
 end
 
--- Opted in and able to compare: the shipped data's files agree and are a
--- format this build reads. While they don't, the shipped data reads empty,
--- so every observation would look new: nothing is recorded then.
-function Main.MayRecord()
+-- Paused (/rec curator pause; Cobanyte, 2026-10-16): recording stops for the
+-- rest of this session. A plain flag, never saved, so a reload or a new login
+-- records again; answering the author's collections, the player's own flags
+-- and feedback and error capture go on.
+local paused = false
+
+function Main.IsPaused()
+  return paused
+end
+
+-- Pause(): false when curator mode is off (nothing to pause). Work already
+-- deferred for the recorders is dropped, not written; what answers the
+-- author (Defer's second argument) stays.
+function Main.Pause()
+  if not Main.IsEnabled() then return false end
+  paused = true
+  Main.DropRecordingJobs()
+  return true
+end
+
+-- Resume(): recording starts at once; false when it was not paused
+function Main.Resume()
+  if not paused then return false end
+  paused = false
+  return true
+end
+
+-- Opted in and the shipped data's files agree and are a format this build
+-- reads (the data reads empty while they don't, so every observation would
+-- look new): what answering the author needs
+local function Operating()
   return Main.IsEnabled() and Host.Versions().ok == true
+end
+
+-- Opted in, not paused and able to compare: nothing is recorded otherwise.
+function Main.MayRecord()
+  return not paused and Operating()
 end
 
 function Main.Epoch()
@@ -164,9 +196,10 @@ function Main.BumpEpoch()
   epoch = epoch + 1
 end
 
--- A job or a read made at epoch `noted` may still write
-function Main.StillCurrent(noted)
-  return noted == epoch and Main.MayRecord()
+-- A job or a read made at epoch `noted` may still write. `answering` is a
+-- job that answers the author, not a recording: a pause leaves it alone
+function Main.StillCurrent(noted, answering)
+  return noted == epoch and (answering and Operating() or Main.MayRecord())
 end
 
 local runner
@@ -176,7 +209,7 @@ function Main.RunJobs()
   local started = Main.seams.Clock()
   while #queue > 0 do
     local job = table.remove(queue, 1)
-    if Main.StillCurrent(job.epoch) then
+    if Main.StillCurrent(job.epoch, job.answering) then
       local ok, err = pcall(job.fn)
       if not ok then Host.Log("Curator job failed: %s", tostring(err)) end
     end
@@ -188,10 +221,19 @@ function Main.RunJobs()
 end
 runner = CobySuite_Recollect.Utilities.Coalesce(0, function() Main.RunJobs() end)
 
--- Defer(fn): runs fn in a later frame, if the epoch is unchanged then
-function Main.Defer(fn)
-  queue[#queue + 1] = { fn = fn, epoch = epoch }
+-- Defer(fn, answering): runs fn in a later frame, if the epoch is unchanged
+-- then. A recording job also waits for the pause to end (it is dropped);
+-- `answering` marks the one that serves the author's collection instead
+function Main.Defer(fn, answering)
+  queue[#queue + 1] = { fn = fn, epoch = epoch, answering = answering or nil }
   runner:Call()
+end
+
+-- Pause drops the recording jobs already queued
+function Main.DropRecordingJobs()
+  for i = #queue, 1, -1 do
+    if not queue[i].answering then table.remove(queue, i) end
+  end
 end
 
 -- Runs every queued job now (tests; the jobs' own gates still apply)

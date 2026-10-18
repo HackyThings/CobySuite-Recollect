@@ -737,6 +737,59 @@ local function SellerKey(relation, line)
 end
 UsedFor.SellerKey = SellerKey
 
+-- One way to get it per boss (Task #468; Cobanyte, 2026-10-15: "we list boss
+-- loot twice in the how to get more section"): a boss's loot in the
+-- Encounter Journal (journalDrop) and a drop from a creature the data maps to
+-- that encounter (dropsFrom, Relations.EncounterOf) say one drop twice, and
+-- the Libram of the Matriarch's two lines disagreed on difficulty. Of those
+-- that serve the owner alike, one stays: the one naming instance
+-- difficulties when only it does (Mythic only is the truer line), else the
+-- first (a drop's line, which has the boss's place). A group with no journal
+-- loot is left alone. Returns { [relation] = true } for the ones to leave out
+function UsedFor.SameBossSkips(relations, owner)
+  local skip, groups, order = {}, {}, {}
+  local R = Recollect.Facts.Relations
+  local function HasDifficulties(relation)
+    local shows = relation.shows
+    return type(shows) == "table" and type(shows.difficulties) == "table" and #shows.difficulties > 0
+  end
+  for _, relation in ipairs(relations or {}) do
+    local encounterID
+    if relation.kind == "journalDrop" then
+      encounterID = relation.id
+    elseif relation.kind == "dropsFrom" then
+      local ok, id = pcall(R.EncounterOf, relation.id)
+      encounterID = ok and id or nil
+    end
+    if encounterID then
+      local ok, applies = pcall(R.Applies, relation, owner)
+      local key = tostring(encounterID) .. "\30" .. tostring(ok and applies)
+      local group = groups[key]
+      if not group then
+        group = {}
+        groups[key], order[#order + 1] = group, key
+      end
+      group[#group + 1] = relation
+    end
+  end
+  for _, key in ipairs(order) do
+    local group, journal = groups[key], false
+    for _, relation in ipairs(group) do
+      if relation.kind == "journalDrop" then journal = true end
+    end
+    if journal and #group > 1 then
+      local kept = group[1]
+      for i = 2, #group do
+        if HasDifficulties(group[i]) and not HasDifficulties(kept) then kept = group[i] end
+      end
+      for _, relation in ipairs(group) do
+        if relation ~= kept then skip[relation] = true end
+      end
+    end
+  end
+  return skip
+end
+
 -- Adds line to list unless a seller line of the same key is there: a line
 -- with a place replaces one without
 local function AddSeller(list, byKey, key, line)
@@ -942,24 +995,35 @@ local function Entries(itemID, decorRelations, buyRelations, buyApplies, owner, 
       state = state, key = target.kind .. ":" .. target.id, sellerText = seller, group = seller and ("text:" .. seller) or nil,
       tier = EntryTier(state) }, texts)
   end
+  -- one entry per thing and seller group, so a thing two vendors sell on
+  -- different conditions (one per faction) keeps each route, the viewer's
+  -- own sorted first by its tier (Task #456, audit R26: 318 items, 71066's
+  -- Horde route at Gunra hidden behind Magatha's Alliance one); each thing
+  -- is still counted once
+  local routes, chains = {}, {}
   for i, relation in ipairs(buyRelations) do
     local thing = Recollect.Facts.Buys.Resolve(relation, owner)
-    if thing and not seen[thing.key] then
-      seen[thing.key] = true
-      total = total + 1
+    -- a trade with no vendor named but its place (#map) groups by that place
+    local group = thing and (relation.seller or (relation.vendors and #relation.vendors > 0
+      and ("@" .. table.concat(relation.vendors, ","))) or (relation.mapID and ("#" .. relation.mapID))) or nil
+    local route = thing and (thing.key .. "@@" .. tostring(group))
+    if thing and not routes[route] and (not seen[thing.key] or seen[thing.key] == "buys") then
+      routes[route] = true
+      local first = not seen[thing.key]
+      seen[thing.key] = "buys"
       local restricted = buyApplies[i] ~= true
-      -- a trade with no vendor named but its place (#map) groups by that place
-      local group = relation.seller or (relation.vendors and #relation.vendors > 0 and ("@" .. table.concat(relation.vendors, ",")))
-        or (relation.mapID and ("#" .. relation.mapID)) or nil
       local tier = EntryTier(thing.state, restricted)
       -- a plain item: what it leads to (contract rule 39), for the first few
-      local chain
-      if not thing.collectible and not restricted and followed < MAX_FOLLOW then
+      local chain = chains[thing.key]
+      if chain == nil and not thing.collectible and not restricted and followed < MAX_FOLLOW then
         followed = followed + 1
-        chain = Recollect.Facts.Chains.Summary(thing.id, owner, budget, itemID)
-        if chain and chain.best.state == "open" then tier = TIER_OPEN end
+        chain = Recollect.Facts.Chains.Summary(thing.id, owner, budget, itemID) or false
+        chains[thing.key] = chain
       end
-      if tally then
+      chain = chain or nil
+      if chain and not restricted and chain.best.state == "open" then tier = TIER_OPEN end
+      if first then total = total + 1 end
+      if tally and first then
         Count(tally, thing.what, thing.state, thing.collectible, restricted, nil, relation,
           chain ~= nil and chain.best.state == "open")
       end
@@ -1692,11 +1756,36 @@ function Lead.Color(state)
   return U.Colors.LIGHT_GRAY
 end
 
+-- The treasure a chain goes through, as a place for the Map button, or nil:
+-- its line says the treasure, its looted state and what it leads to, so no
+-- treasure line or Treasure row says it again (Task #471, the Bear Tooth)
+function Lead.Place(objectID, itemID)
+  local object = Recollect.Facts.Vendors.Object(objectID)
+  if not (object and object.mapID) then return nil end
+  return { mapID = object.mapID, x = object.x, y = object.y, what = "the treasure", role = "opens", itemID = itemID,
+    zone = Recollect.Facts.Vendors.ZoneName(object.mapID) or ("map " .. object.mapID) }
+end
+
 function Lead.Line(read, owner)
   local Chains = Recollect.Facts.Chains
-  return { text = "Leads to " .. Chains.Words(read.entry, owner, read.thing, read.quests), color = Lead.Color(read.state),
+  local line = { text = "Leads to " .. Chains.Words(read.entry, owner, read.thing, read.quests), color = Lead.Color(read.state),
     tier = Lead.TIERS[read.state], leadState = read.state, leadEnd = true,
     collectible = read.thing and read.thing.collectible or false }
+  for _, step in ipairs(read.entry.via) do
+    if step.kind == "opens" then
+      line.objectID, line.place = step.objectID, Lead.Place(step.objectID, step.of)
+      -- what else the treasure holds, never a name the line says already
+      local object = Recollect.Facts.Vendors.Object(step.objectID)
+      local rest = {}
+      for _, id in ipairs(object and object.contents or {}) do
+        local name = Recollect.Facts.Item.Name(id)   -- (read, never heard as a link: only the names shown are)
+        if not (type(name) == "string" and line.text:find(name, 1, true)) then rest[#rest + 1] = id end
+      end
+      line.detail = Lead.Holds(rest)
+      break
+    end
+  end
+  return line
 end
 
 function Lead.Treasure(step, owner, places)
@@ -1707,12 +1796,8 @@ function Lead.Treasure(step, owner, places)
   local text = ("%s opens %s"):format(ItemName(step.of), Chains.TreasureWords(step.objectID, looted))
   local takes = step.relation and (step.relation.count or 1) > 1 and step.relation.count or nil
   if takes then text = ("%s: takes %s"):format(text, Recollect.Utilities.Count(takes)) end
-  local place
-  if object.mapID then
-    place = { mapID = object.mapID, x = object.x, y = object.y, what = "the treasure", role = "opens", itemID = step.of,
-      zone = Recollect.Facts.Vendors.ZoneName(object.mapID) or ("map " .. object.mapID) }
-    places[#places + 1] = place
-  end
+  local place = Lead.Place(step.objectID, step.of)
+  if place then places[#places + 1] = place end
   local detail = Lead.Holds(object.contents)
   local state = looted == "done" and "done" or looted == "open" and "open" or "unread"
   return { text = text, color = Lead.Color(state), tier = Lead.TIERS[state], detail = detail, place = place, leadState = state }
@@ -1764,7 +1849,11 @@ function UsedFor.CombineLeads(itemID, owner, places, relations)
     local plain = read.state == "plain" or not (read.thing and read.thing.collectible)
     if not plain or (#shown == 0 and not collectible) then
       shown[#shown + 1] = read
-      lines[#lines + 1] = Build(Lead.Line, read, owner)
+      local line = Build(Lead.Line, read, owner)
+      lines[#lines + 1] = line
+      -- its treasure is said and pinned there (Task #471)
+      if line.objectID then treasures[line.objectID] = true end
+      if line.place then places[#places + 1] = line.place end
     end
   end
   for _, read in ipairs(shown) do
@@ -3008,7 +3097,8 @@ end
 -- What the routes no longer in the game were, as one closing line: every
 -- is true when no use of the item is left ("Every use Recollect knows is
 -- gone from the game: it bought 55 things and was used in 1 quest"); nil
--- when none of them is a use
+-- when none of them is a use. secrets counts the secrets no longer in the
+-- game the item is used in (Facts.Secrets.GoneUses; Task #463)
 local GONE_PHRASES = {
   buys = { "bought %d thing", "bought %d things" },
   quests = { "was used in %d quest", "was used in %d quests" },
@@ -3016,9 +3106,10 @@ local GONE_PHRASES = {
   usedAt = { "was used at %d NPC", "was used at %d NPCs" },
   achievements = { "counted toward %d achievement", "counted toward %d achievements" },
   reagent = { "was a reagent in %d recipe", "was a reagent in %d recipes" },
+  secrets = { "was used in %d secret", "was used in %d secrets" },
   other = { "had %d other use", "had %d other uses" },
 }
-local GONE_ORDER = { "buys", "quests", "opens", "usedAt", "achievements", "reagent", "other" }
+local GONE_ORDER = { "buys", "quests", "opens", "usedAt", "achievements", "reagent", "secrets", "other" }
 local GONE_GROUP = { objective = "quests", questItem = "quests", starts = "quests", opens = "opens", usedAt = "usedAt",
   criterion = "achievements", linked = "achievements", reagentOf = "reagent", buysDecor = "buys", buys = "buys" }
 
@@ -3033,9 +3124,10 @@ local function GoneGroup(relation)
   return group, nil
 end
 
-local function GoneLine(unavailable, every)
+local function GoneLine(unavailable, every, secrets)
   local SOURCE = Relations().SOURCE
   local counts, seen, any = {}, {}, false
+  if (secrets or 0) > 0 then counts.secrets, any = secrets, true end
   for _, relation in ipairs(unavailable) do
     if not SOURCE[relation.kind] then
       local group, key = GoneGroup(relation)
@@ -3055,6 +3147,14 @@ local function GoneLine(unavailable, every)
   local words = #parts > 1 and (table.concat(parts, ", ", 1, #parts - 1) .. " and " .. parts[#parts]) or parts[1]
   local lead = every and "Every use Recollect knows is gone from the game: it " or "Also no longer in the game: it "
   return { text = lead .. words, color = Colors()[Verdict().OUTDATED], note = true, gone = true, every = every or nil }
+end
+
+-- How many secrets no longer in the game the item is used in
+local function GoneSecrets(itemID)
+  local Secrets = Recollect.Facts.Secrets
+  if not Secrets then return 0 end
+  local ok, list = pcall(Secrets.GoneUses, itemID)
+  return ok and type(list) == "table" and #list or 0
 end
 
 -- How many ways to get the item are no longer in the game
@@ -3148,7 +3248,12 @@ function UsedFor.Lines(itemID, stack, owner, opts)
     local starter = Build(StarterLine, questID, budget, stateless, owner)
     if starter then lines[1] = starter else pending = pending + 1 end
   end
+  -- one line per boss (Task #468): the relations a boss's other line says
+  local sameBoss, shown = UsedFor.SameBossSkips(relations, owner), {}
   for _, relation in ipairs(relations) do
+    if not sameBoss[relation] then shown[#shown + 1] = relation end
+  end
+  for _, relation in ipairs(shown) do
     local kind = relation.kind
     local applies = R.Applies(relation, owner)
     -- a quest is what its least-serving code says (the dump's codes can lack ATT's conditions)
@@ -3236,7 +3341,7 @@ function UsedFor.Lines(itemID, stack, owner, opts)
   local entries, total = Entries(itemID, decor, buys, buyApplies, owner, max, budget, tally)
   local uses = Assemble(Merge(lines), entries, max, pending, buyPlaces, total)
   local gone = GoneLine(unavailable, not AnyUse(uses) and pending == 0
-    and not UsedFor.LiveUse(itemID, relations, owner, questApplies))
+    and not UsedFor.LiveUse(itemID, relations, owner, questApplies), GoneSecrets(itemID))
   if gone then uses[#uses + 1] = gone end
   Append(places, takingPlaces)
   Append(places, buyPlaces)
@@ -3360,6 +3465,17 @@ function UsedFor.SourceWords(itemID, owner)
       words = where and words:format(where) or words
       return words:sub(1, 1):lower() .. words:sub(2)
     end
+  end
+  -- crafted (Task #456, audit R24: a crafted part read "no way to get it is
+  -- recorded yet"), in COMES FROM's words: the profession and the recipe
+  for _, relation in ipairs(Live("craftedBy")) do
+    local recipe = R.Recipe(relation.id)
+    local profession = recipe and recipe.skillLine and recipe.skillLine > 0 and SkillName(recipe.skillLine) or nil
+    local ok, name = Try(seams.SpellName, relation.id)
+    name = ok and type(name) == "string" and name ~= "" and Named("spell", relation.id, name) or nil
+    if profession and name then return ("crafted by %s: %s"):format(profession, name) end
+    if profession then return "crafted by " .. profession end
+    if name then return "crafted with the recipe " .. name end
   end
   if #Live("delveReward") > 0 then return "comes from completing a Delve" end
   for _, relation in ipairs(Live("storePromotion")) do
@@ -3896,15 +4012,19 @@ end
 -- a secret's reward is ('The reward of [SECRET: Phoenix Wishwing]: 3 of 8
 -- steps done'), for the panel's COMES FROM and HOW TO GET MORE; done counts
 -- the tracked steps done, tracked how many the game reports (every step when
--- not given), as the Secret tab counts them (SecretProgressWords)
+-- not given), as the Secret tab counts them (SecretProgressWords). A secret
+-- no longer in the game reads so, never its progress (Task #463)
+UsedFor.SECRET_GONE_TEXT = "no longer in the game"
 function UsedFor.SecretRewardText(secret, owner, done, tracked)
   local name = Recollect.Facts.Secrets.Name(secret, owner)
   local what = name and ("The reward of %s"):format(Recollect.UI.SecretPanel.PlainLink(name)) or "The reward of a Warcraft secret"
+  if Recollect.Facts.Secrets.Gone(secret) then return ("%s: %s"):format(what, UsedFor.SECRET_GONE_TEXT) end
   return ("%s: %s"):format(what, UsedFor.SecretProgressWords(done, tracked or #secret.steps, #secret.steps))
 end
 
 -- SecretSourceLines(itemID, owner): one COMES FROM line per secret whose
--- reward the item teaches (SecretRewardText)
+-- reward the item teaches (SecretRewardText); one no longer in the game says
+-- so, in Outdated's color with the finished lines (Task #463)
 function UsedFor.SecretSourceLines(itemID, owner)
   local Secrets = Recollect.Facts.Secrets
   local lines = {}
@@ -3913,7 +4033,10 @@ function UsedFor.SecretSourceLines(itemID, owner)
   for _, entry in ipairs(Secrets.RewardOf(itemID)) do
     local secret = not seen[entry.sid] and Secrets.Get(entry.sid)
     seen[entry.sid] = true
-    if secret then
+    if secret and Secrets.Gone(secret) then
+      lines[#lines + 1] = { text = UsedFor.SecretRewardText(secret, owner), color = Colors()[Verdict().OUTDATED],
+        tier = TIER_CLOSED, gone = true, secret = entry.sid, secretName = Secrets.Name(secret, owner) }
+    elseif secret then
       local states = Secrets.Steps(secret, owner or Recollect.Verdicts.Rows.Owner())
       local done, tracked = 0, 0
       for _, step in ipairs(secret.steps) do
@@ -3926,7 +4049,36 @@ function UsedFor.SecretSourceLines(itemID, owner)
         tier = TIER_INFO, secret = entry.sid, secretName = Secrets.Name(secret, owner) }
     end
   end
+  -- a step that gives the item is how to get it too, one line per such step,
+  -- whatever later step uses it (Task #454: the Weathered Lockbox a step gives
+  -- and the next one opens read only "ingredient for step 9" before)
+  for _, entry in ipairs(Secrets.Of("item", itemID)) do
+    local secret = entry.role == "product" and Secrets.Get(entry.sid)
+    if secret and not secret.routeFlags:find("x", 1, true) then
+      local line = Build(function()
+        local rows, summary = UsedFor.SecretSteps(secret, owner, itemID)
+        for _, row in ipairs(rows) do
+          if row.label == entry.step then
+            return { text = UsedFor.SecretProductText(summary.name, row), color = U.Colors.LIGHT_GRAY, tier = TIER_INFO,
+              place = row.place, secret = entry.sid, secretName = summary.name }
+          end
+        end
+        return nil
+      end)
+      if line then lines[#lines + 1] = line end
+    end
+  end
   return lines
+end
+
+-- SecretProductText(name, row): 'Comes from step 8 of [SECRET: Fashion of the
+-- Fanatic Felcyclist] (pending)', the secret's name a link a painter colors
+-- (UI.SecretPanel.PlainLink), the step's state as the Secret tab words it
+function UsedFor.SecretProductText(name, row)
+  local of = name and Recollect.UI.SecretPanel.PlainLink(name) or "a Warcraft secret"
+  local text = ("Comes from step %s of %s"):format(row.label, of)
+  if row.stateText then text = ("%s (%s)"):format(text, (tostring(row.stateText):gsub("^%u", string.lower))) end
+  return text
 end
 
 -- What the pinned view's tables share with these lines (UI.DetailData), so a

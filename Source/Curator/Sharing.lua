@@ -538,7 +538,7 @@ function Sharing.OnRequest(msg)
     if Sharing.OnPrompt then pcall(Sharing.OnPrompt, prompt) end
     return
   end
-  Curator.Main.Defer(function() Sharing.Start(request, msg.mode, msg.sender, localOnly, opts) end)
+  Curator.Main.Defer(function() Sharing.Start(request, msg.mode, msg.sender, localOnly, opts) end, true)
 end
 
 -- The prompt's answer (D4); an expired prompt does nothing
@@ -547,7 +547,7 @@ function Sharing.AnswerPrompt(allow)
   prompt = nil
   if not asked or GetServerTime() - asked.at > Sharing.PROMPT_EXPIRES then return false end
   if allow then
-    Curator.Main.Defer(function() Sharing.Start(asked.request, asked.mode, asked.sender, asked.localOnly, asked.opts) end)
+    Curator.Main.Defer(function() Sharing.Start(asked.request, asked.mode, asked.sender, asked.localOnly, asked.opts) end, true)
   else
     Refuse(asked.request, asked.mode, "declined", asked.localOnly, asked.sender)
   end

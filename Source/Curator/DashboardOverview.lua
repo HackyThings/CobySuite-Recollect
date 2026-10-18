@@ -86,6 +86,9 @@ end
 function Dashboard.Recording()
   local main = Curator.Main
   if not main.IsEnabled() then return "off", "Curator mode is off, so nothing is recorded." end
+  if main.IsPaused() then
+    return "paused", "Paused for this session. Type /rec curator resume, or reload, to record again."
+  end
   if Host.Versions().ok ~= true then
     return "paused", "Recollect's database files failed their check, so nothing is recorded until they match (reinstall Recollect)."
   end
@@ -218,7 +221,12 @@ local function StatusSection(ctx)
     section.buttons = { "settings" }
   elseif recording == "paused" then
     section.icon, section.color = ICONS.problem, C.CAUTION_ORANGE
-    section.text = "Paused. " .. why
+    if Curator.Main.IsPaused() then
+      section.text = why
+      section.buttons = { "resume" }
+    else
+      section.text = "Paused. " .. why
+    end
   else
     section.icon = recording == "on" and ICONS.ok or ICONS.wait
     section.color = recording == "on" and C.SUCCESS_GREEN or C.STATUS_GOLD
@@ -542,7 +550,8 @@ local function DetailsSection()
         or "The database files failed their check, so nothing is recorded until they match (reinstall Recollect)."),
       not versions.ok and C.CAUTION_ORANGE or nil),
     Tile("mode", on and ICONS.ok or ICONS.problem, on and "On" or "Off", "Curator mode", Tip("Curator mode",
-      on and "Recording while you play." or "Nothing is recorded."), on and C.SUCCESS_GREEN or nil, not on),
+      on and (Curator.Main.IsPaused() and "Recording is paused for this session: /rec curator resume." or "Recording while you play.")
+        or "Nothing is recorded."), on and C.SUCCESS_GREEN or nil, not on),
   }
   return { key = "details", title = "Connection details", icon = ICONS.details, summary = "What /rec curator diag reports",
     closed = true, tiles = tiles, lines = lines }

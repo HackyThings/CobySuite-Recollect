@@ -238,6 +238,23 @@ end
 -- later ID the game calls Classic, with no added patch, names no expansion
 Item.CLASSIC_LAST_ID = 20000
 
+-- The game also files older items under the newest expansion: a holiday's
+-- treats, Trading Post and shop cosmetics, vendor tools and reagents (Mining
+-- Pick 2901 and Skinning Knife 7005 read 11 on the 12.1.5 dump; 1,907 items
+-- numbered below The War Within's first ID; Task #457, the Manager's call:
+-- the window never names a wrong expansion). Restamped(game, itemID) is true
+-- when the game names the newest expansion (the one FIRST_ITEM_ID has no
+-- entry for yet) for an ID below the previous expansion's first ID. Such an
+-- item takes the added patch the data holds (the build ships AllTheThings'
+-- earlier one for it), else names no expansion, and its age is never read
+-- from the ID (a Trading Post or shop item is a recent re-release)
+function Item.Restamped(game, itemID)
+  if not IsFiniteNumber(game) or not IsPositiveID(itemID) then return false end
+  if game < 1 or Item.FIRST_ITEM_ID[game] then return false end
+  local first = Item.FIRST_ITEM_ID[game - 1]
+  return first ~= nil and itemID < first
+end
+
 -- Expansion(facts, itemID): expansionID, source, patch
 --   the added patch's expansion, "added", the patch   when it is later than
 --                                                       the game's, or the
@@ -256,6 +273,11 @@ function Item.Expansion(facts, itemID)
   local added = patch and Item.PatchExpansion(patch)
   if added and (game == nil or added > game) then return added, "added", patch end
   if game == 0 and not added and (not IsPositiveID(itemID) or itemID >= Item.CLASSIC_LAST_ID) then return nil end
+  if Item.Restamped(game, itemID) then
+    -- the newest expansion's stamp on an older item: the held patch's expansion, else none (Task #457)
+    if added and added < game then return added, "added", patch end
+    return nil
+  end
   if game ~= nil then return game, "game", nil end
   return nil
 end

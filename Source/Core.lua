@@ -164,8 +164,8 @@ CobySuite_Recollect.Slash.Register({
     tests = function() return Recollect.Tests end,
     extra = {
       {
-        name = "curator", usage = "curator [status|join|cancel|diag|ping|transport [Name-Realm]]",
-        help = "Open the curator dashboard (also status, join, cancel, diag, ping)",
+        name = "curator", usage = "curator [status|pause|resume|join|cancel|diag|ping|transport [Name-Realm]]",
+        help = "Open the curator dashboard (also status, pause, resume, join, cancel, diag, ping)",
         run = function(rest)
           local provider = curatorProvider
           if provider and provider.Slash then

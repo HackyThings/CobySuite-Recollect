@@ -161,6 +161,26 @@ local function FoodForFun(ctx)
   if ctx.facts.spellFailed then return false, "its Use line can't be loaded" end
   return false
 end
+-- A potion whose English Use line is for alchemy experiments ("continue
+-- experimenting with alchemical ingredients": Liquid Courage, 194337; "focus
+-- on experimentation ... alchemical greatness") serves a profession's
+-- experimenting, which no newer expansion's potion replaces (Task #467: it read
+-- Replaced as an older potion; the 12.1.5 dump holds these two). Whether a
+-- potion is one, and, while its Use line loads or can't load, why that can't
+-- be told yet (contract rule 14: never Outdated before the line decides it)
+local AID = { "An alchemy experimenting aid", "A current-expansion alchemy experimenting aid" }
+local function ExperimentAid(ctx)
+  if ctx.facts.subclassID ~= (Sub.Potion or 1) or not R.EnglishClient() then return false end
+  local tip = ctx.Tooltip()
+  if tip and type(tip.useText) == "string" then
+    local plain = Recollect.Facts.Tooltip.StripColors(tip.useText):lower()
+    return plain:find("experiment", 1, true) ~= nil and plain:find("alchem", 1, true) ~= nil
+  end
+  if ctx.facts.spellLoading then return false, "its Use line is still loading" end
+  if ctx.facts.spellFailed then return false, "its Use line can't be loaded" end
+  return false
+end
+
 -- Enum.TooltipDataLineType.UsageRequirement (43 in 12.1): "Requires Midnight Herbalism (1)"
 local USAGE_REQUIREMENT = (Enum and Enum.TooltipDataLineType and Enum.TooltipDataLineType.UsageRequirement) or 43
 
@@ -185,12 +205,17 @@ R.Register({
       return R.Unknown("Consumable; its expansion can't be read")
     end
     local words, pending = Kind(ctx)
-    local fun = false
+    local fun, aid = false, false
     if words and age ~= "current" then
       local why
       fun, why = FoodForFun(ctx)
       pending = pending or why
+      aid, why = ExperimentAid(ctx)
+      pending = pending or why
+    elseif words then
+      aid = ExperimentAid(ctx)
     end
+    if aid then words = AID end
     local UseEffect = Recollect.Purposes.UseEffect
     if pending and age ~= "current" then
       -- whether it is a kind each expansion replaces can't be told before the
@@ -203,7 +228,7 @@ R.Register({
     -- optional use no newer one replaces (rule 51): pet-battle food that heals
     -- battle pets, or a novelty (Task #442, audit R11: Little Buddy Biscuits
     -- read Outdated)
-    local replaced = words and not fun
+    local replaced = words and not fun and not aid
     if replaced and age ~= "current" then
       local optional = UseEffect.Optional(ctx, age)
       if optional == "petBattle" or optional == "novelty" then replaced = false end

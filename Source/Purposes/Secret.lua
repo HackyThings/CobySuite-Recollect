@@ -195,6 +195,13 @@ local function OneUse(secret, itemID, owner, use, states)
     end
     if done == nil then return R.Unknown(used .. "; whether the secret is done can't be read yet", nil, "loading") end
   elseif rewardState == "unread" then
+    -- an item's look this character can't collect (Task #465) is no read still to come
+    for _, thing in ipairs(things or {}) do
+      if thing.why == "unavailable" then
+        return R.Unknown(("Used in step %s of a secret whose reward is an appearance this character can't collect"):format(
+          step.label), nil, "character")
+      end
+    end
     return R.Unknown(("Used in step %s of a secret; whether you have its reward can't be read yet"):format(step.label),
       nil, "loading")
   elseif rewardState == "have" then

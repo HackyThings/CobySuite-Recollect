@@ -10,6 +10,9 @@
 --     "partOf"): every part, with how many of each
 --   * a step of a secret that takes the item (Facts.Secrets): every item the
 --     step takes, with how many of each; only a secret still in the game
+-- Each requirement once (Task #464): a known use or a secret's step whose
+-- parts a combine (or an earlier record) already lists is left out, and so
+-- is one whose only part is one copy of the item itself.
 -- For(itemID, owner, relations) returns { { title, kind, reward, done,
 -- parts } } (a combine's record: { kind = "combine", product, parts }):
 --   parts  { { itemID, need, bags, bank, warband, have, missing, uncertain,
@@ -122,6 +125,40 @@ local function SortParts(parts)
   return parts
 end
 
+-- What a record's parts are, as one string ("271424x3"), its parts in ID order
+local function Signature(record)
+  local keys = {}
+  for i, part in ipairs(record.parts) do keys[i] = ("%sx%s"):format(tostring(part.itemID), tostring(part.need)) end
+  table.sort(keys)
+  return table.concat(keys, ",")
+end
+
+-- One requirement is shown once (Task #464: the Diver's Key Fragment's
+-- secret step takes 3 of it, which is its combine into the Diver's Key, and
+-- read "Use" and "Combine" alike). A combine is kept whole; a known use or a
+-- secret's step whose parts a kept record already lists is left out, and so
+-- is one whose only part is one copy of the item itself (the Diver's Key's
+-- step "open the chest with it" takes the key: using it takes itself)
+local function Distinct(itemID, records)
+  local kept, seen = {}, {}
+  for _, record in ipairs(records) do
+    if record.kind == "combine" then seen[Signature(record)] = true end
+  end
+  for _, record in ipairs(records) do
+    if record.kind == "combine" then
+      kept[#kept + 1] = record
+    else
+      local signature = Signature(record)
+      local onlyItself = #record.parts == 1 and record.parts[1].itemID == itemID and record.parts[1].need == 1
+      if not seen[signature] and not onlyItself then
+        seen[signature] = true
+        kept[#kept + 1] = record
+      end
+    end
+  end
+  return kept
+end
+
 -- For(itemID, owner): the eligible records that use itemID
 -- relations: the item's relations when the caller has them already parsed
 -- (UI.DetailData parses a big item a slice at a time); else Relations.For
@@ -162,7 +199,7 @@ function Requirements.For(itemID, owner, relations)
       records[#records + 1] = { kind = "combine", product = relation.id, parts = SortParts(parts) }
     end
   end
-  return records
+  return Distinct(itemID, records)
 end
 
 -------------------------------------------------------------------------------

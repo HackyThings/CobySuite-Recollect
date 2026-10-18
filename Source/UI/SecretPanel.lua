@@ -163,30 +163,33 @@ end
 -------------------------------------------------------------------------------
 -- Secrets(itemID): the secrets the item belongs to, in the data's order,
 -- each { sid, role ("use", or "teaches" for the item that teaches its
--- reward), rewardState ("have", "missing", "unread" or nil when it has none), name }; one no longer in the game is left out
+-- reward), rewardState ("have", "missing", "unread" or nil when it has none), name, gone }; one no longer in the game is
+-- kept, marked gone and listed after the others (Task #463, the Manager's decision 2026-10-15: shown, never a live use)
 function Panel.Secrets(itemID)
   local S = Recollect.Facts.Secrets
-  local list, bySid = {}, {}
+  local list, gone, bySid = {}, {}, {}
   if not S or S.Status() ~= "ok" or not Recollect.Utilities.IsPositiveID(itemID) then return list end
   for _, entry in ipairs(S.Of("item", itemID)) do
     local use = S.USE_ROLES[entry.role]
     if use or entry.role == "teaches" then
       local secret = S.Get(entry.sid)
-      if secret and not secret.routeFlags:find("x", 1, true) then
+      if secret then
         local kept = bySid[entry.sid]
         if not kept then
           local things, all = S.Rewards(secret)
           local first = things[1]
           kept = { sid = entry.sid, role = use and "use" or "teaches", rewardState = all,
-            name = S.Name(secret) or (first and Recollect.Facts.Buys.Name(first)) or nil }
+            name = S.Name(secret) or (first and Recollect.Facts.Buys.Name(first)) or nil, gone = S.Gone(secret) or nil }
           bySid[entry.sid] = kept
-          list[#list + 1] = kept
+          local into = kept.gone and gone or list
+          into[#into + 1] = kept
         elseif use then
           kept.role = "use"
         end
       end
     end
   end
+  for _, kept in ipairs(gone) do list[#list + 1] = kept end
   return list
 end
 
@@ -635,6 +638,7 @@ function Panel.SecretsMenu(f, anchor)
   local entries = {}
   for i, entry in ipairs(model.secrets) do
     local state = entry.rewardState == "have" and "collected" or entry.rewardState == "missing" and "not collected" or nil
+    if entry.gone then state = "no longer in the game" end
     local role = entry.role == "teaches" and "its reward" or "uses this item"
     local sid = entry.sid
     entries[#entries + 1] = { label = ("%s (%s%s)"):format(entry.name or ("Secret " .. i), role, state and ("; " .. state) or ""),

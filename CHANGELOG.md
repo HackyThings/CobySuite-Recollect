@@ -4,6 +4,32 @@ All notable changes to Recollect are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.0.5] - 2026-10-18
+
+### Added
+
+- **Pause curator recording:** `/rec curator pause` stops curator mode from recording for the rest of the session, and `/rec curator resume`, a reload or your next login starts it again. Answering the author's collections, your own flags and feedback go on while it is paused.
+- **Six more of Legion's hidden artifact appearances, 104 secrets in all,** and every hidden appearance secret now completes when the game says the look is unlocked. A secret that is no longer in the game shows on its Secret tab and on the No longer available tab.
+- **76 more of the game's secrets, 98 in all:** The Hivemind, the Mote of Nasz'uro, the S.E.L.F.I.E. Camera's hidden filters, the Radiant Singer, the Secrets of Azeroth clues, 20 Midnight secrets, Memory of Scholomance and its chain, Zul'Gurub's relics, Shadowlands and Battle for Azeroth secrets, and Legion's hidden artifact appearances. Every item a step gives says which step of which secret it comes from.
+
+### Changed
+
+- **Item details: the first section is now called Summary and says each thing once.** A key's treasure, where it is and what it leads to are one line with its map pin, the parts an item's use takes no longer list the item itself, and the opening sentence no longer repeats what the lines below say. The Checks section is gone: hover the Still needed? answer to see every check and what it found.
+- **Item details: what opening a container can give has its own What's inside tab** instead of sitting under Crafting, with each item's kind and, for gear, whether you've collected its look (a toy, mount or pet shows whether you have it).
+- **Secrets whose prize is a weapon's look** (Lobstmourne, Sorrowbane and the Nightwillow Cudgel) count as done once you've collected that weapon's own appearance, and the item details' 'every use is gone' line counts a secret that's no longer in the game.
+- **More items say where they come from:** ensemble pieces name their ensemble, PvP vendors list their gear again, trial and boost gear says it is starting gear, treasures under rares name the treasure, cauldrons name their potions, and Darkmoon cards name their packs. Quest rewards keep their class and race, and old holiday items and vendor goods no longer claim to be from the current expansion.
+- **More from curators' findings:** prices at the Haranir Metalshaper, a housing neighborhood's drink vendor and fishing supplier, a second Silvermoon cooking supplier and a Silvermoon reagent seller, who more of the Labyrinth's and Silvermoon's quests are turned in to, the two choices of The Unbinding of Kith'ix, the Mark of Honor from Something Different, more creatures that drop the Warded Key, the Ritual Gem, the Fresh Beast Heart and the Labyrinth's Stolen Artifact, which herbs and inks Inscription's milling takes, what an Artisan's Consortium Payout can give, curios from Delve chests, what the Labyrinth's treasures hold, Icecrown Citadel's trash drops, and a Harandar rare's drop.
+
+### Fixed
+
+- **Midnight quest items and keys the game lists under an older expansion** (the Warded Key, Handful of Sand and 23 more) now say they are from Midnight, with the patch each arrived in.
+- **Raid and dungeon loot says which difficulties it drops on** ("on Mythic difficulty"), and items that come out of another item no longer also claim to drop from the boss.
+- **A boss's loot is listed once** in How to get more, with the difficulty it drops on (the Libram of the Matriarch named Kith'ix twice, once without saying Mythic only).
+- **Black Empire gear tokens** and the other drops of Battle for Azeroth's Assaults say which zones drop them, and Liquid Courage and Formulated Courage are no longer called replaced: they help with alchemy experiments.
+- **Hallow's End candy** (Duskwood Caramel, Drustvar Choc-O-Drops) reads as a live crafting reagent of the holiday decor recipes, and Liquid Courage's details window says what it is for.
+- **The item details window names each thing once:** a treasure holding two copies of one item names it once, a requirement read twice shows once, and WHAT IT'S FOR's sentence counts each purchase, quest and achievement once and no longer says no use is known beside a container's contents, a secret or the item's own Use line.
+- **A potion or other item a recipe uses is no longer called Replaced;** a crafted part says which profession and recipe make it, and an upgrade sold by one vendor per faction lists both vendors.
+
 ## [1.0.4] - 2026-10-15
 
 ### Added
@@ -165,7 +191,8 @@ The first release of Recollect: what every item in your bags, bank and warband b
 
 - **Settings, a guide and a changelog.** `/rec settings` (also a right-click on the minimap button or Options > AddOns), `/rec guide`, which opens by itself on your first login, and `/rec changelog`.
 
-[Unreleased]: https://github.com/HackyThings/CobySuite-Recollect/compare/v1.0.4...HEAD
+[Unreleased]: https://github.com/HackyThings/CobySuite-Recollect/compare/v1.0.5...HEAD
+[1.0.5]: https://github.com/HackyThings/CobySuite-Recollect/releases/tag/v1.0.5
 [1.0.4]: https://github.com/HackyThings/CobySuite-Recollect/releases/tag/v1.0.4
 [1.0.3]: https://github.com/HackyThings/CobySuite-Recollect/releases/tag/v1.0.3
 [1.0.2]: https://github.com/HackyThings/CobySuite-Recollect/releases/tag/v1.0.2

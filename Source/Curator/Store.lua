@@ -420,7 +420,7 @@ end
 -- above): kept on a new record, and on a repeat when it has more parts than
 -- the record's.
 function Store.Record(kind, fact, value, shipped, ctxIndex, extra, info)
-  if Store.Quiet(fact, value) or Store.Reported(fact, value) then return nil end
+  if Curator.Main.IsPaused() or Store.Quiet(fact, value) or Store.Reported(fact, value) then return nil end
   local db = Store.DB()
   value = tostring(value or "")
   local build = GameBuild()
@@ -547,7 +547,7 @@ end
 -- facts at those positions (of total) were seen matching; nil when no stamp
 -- is wanted (Wanted)
 function Store.Confirm(source, positions, total, ctxIndex)
-  if not Store.Wanted(source, positions, total) then return nil end
+  if Curator.Main.IsPaused() or not Store.Wanted(source, positions, total) then return nil end
   local db = Store.DB()
   local build = GameBuild()
   local key = source .. "@" .. tostring(build)

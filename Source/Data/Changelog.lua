@@ -14,6 +14,28 @@
 -------------------------------------------------------------------------------
 Recollect.Data.Changelog = {
   {
+    version = "1.0.5",
+    title = "104 secrets, and a clearer details window",
+    date = "2026-10-18",
+    new = {
+      "Secrets: 82 more, 104 in all, from The Hivemind to Zul'Gurub's relics",
+      "What's inside: a tab for what a container can give, with what you have",
+      "{/rec curator pause}: stop curator recording for this session",
+    },
+    changed = {
+      "Summary: the details window's first section says each thing once",
+      "More items say where they come from, from curators' findings too",
+      "Weapon-look secrets count as done once you have the look",
+    },
+    fixed = {
+      "Raid and dungeon loot says which difficulties it drops on",
+      "A boss's loot is listed once",
+      "Midnight items the game files under an older expansion read Midnight",
+      "Potions and candy a recipe uses are no longer called Replaced",
+      "Several smaller wording fixes in the details window",
+    },
+  },
+  {
     version = "1.0.4",
     title = "Secrets, and where things come from",
     date = "2026-10-15",

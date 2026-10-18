@@ -110,7 +110,8 @@ function Provider.Status()
     or member == false and "this character is not in the Recollect Curators community yet"
     or "the community list can't be read right now"
   local versions = Host.Versions()
-  return ("Curator mode is %s; %s. Database %s."):format(main.IsEnabled() and "on" or "off", memberText,
+  return ("Curator mode is %s%s; %s. Database %s."):format(main.IsEnabled() and "on" or "off",
+    main.IsEnabled() and main.IsPaused() and " (recording paused for this session: /rec curator resume)" or "", memberText,
     tostring(versions.data))
 end
 
@@ -127,7 +128,7 @@ function Provider.GuideBody()
       bullet .. "It records game IDs and positions with some details about your character; never names, chat, gold, currencies or how many of anything you have",
       bullet .. "Flag an item (Curator Flag) or use /rec feedback; Recollect's errors go along too, and only the author reads them",
       bullet .. "The author collects findings through the \"Recollect Curators\" community (/rec curator join); its members can see your character's name and zone",
-      bullet .. "Turning it off stops recording and offers to delete your findings",
+      bullet .. "Turning it off stops recording and offers to delete your findings; /rec curator pause stops it for this session only",
     }, "\n"),
     "The settings page has the full details.",
   }
@@ -236,8 +237,9 @@ function Provider.Diagnose()
   local versions = Host.Versions()
   local out = { ("Recollect curator check: addon %s, database %s%s"):format(tostring(versions.addon), tostring(versions.data),
     versions.ok and "" or " (the data files failed their check)") }
-  out[#out + 1] = ("Curator mode: %s; answering as %s; curator ID %s"):format(main.IsEnabled() and "on" or "off",
-    S and S.State() or "?", tostring(main.CuratorID()))
+  out[#out + 1] = ("Curator mode: %s%s; answering as %s; curator ID %s"):format(main.IsEnabled() and "on" or "off",
+    main.IsEnabled() and main.IsPaused() and " (recording paused for this session)" or "", S and S.State() or "?",
+    tostring(main.CuratorID()))
   local community = T.Community()
   out[#out + 1] = community and ("Community: found (club %s); curator messages go by whisper; to the author: %s"):format(
     tostring(community.clubId), M.IsCollector(T.Self()) and "none needed (this is one of the author's characters)"
@@ -274,10 +276,39 @@ function Provider.Diagnose()
   return out
 end
 
+-- Pause(): /rec curator pause. Recording stops for this session only (a plain
+-- flag, never saved); collections the author asks for, flags, feedback and
+-- error capture go on
+function Provider.Pause()
+  local main = Curator.Main
+  if not main.IsEnabled() then
+    Host.Print("Curator mode is off, so nothing is being recorded and there is nothing to pause.")
+  elseif main.IsPaused() then
+    Host.Print("Curator recording is already paused for this session. /rec curator resume, a reload or your next login starts it again.")
+  else
+    main.Pause()
+    Host.Print("Curator recording paused for this session. /rec curator resume, a reload or your next login starts it again. Collections the author asks for still go on.")
+  end
+end
+
+-- Resume(): /rec curator resume
+function Provider.Resume()
+  local main = Curator.Main
+  if not main.IsEnabled() then
+    Host.Print("Curator mode is off, so nothing is being recorded.")
+  elseif main.Resume() then
+    Host.Print("Curator recording resumed.")
+  else
+    Host.Print("Curator recording is already on.")
+  end
+end
+
 -- /rec curator: the curator dashboard (a toggle; its Overview shows a
 -- running collection and a request waiting for an answer), or the status
 -- line when the window can't open (in combat before it was built); status
--- prints that line, and join, ping or transport, pong, diag, cancel and
+-- prints that line, pause stops recording for the rest of the session and
+-- resume starts it again (never saved: a reload or a new login records), and
+-- join, ping or transport, pong, diag, cancel and
 -- console (development) each run their own tool. channel only says there is
 -- no curator channel now (messages go by whisper); it stays because older
 -- builds told curators to type it.
@@ -310,6 +341,10 @@ function Provider.Slash(rest)
       Host.Log("Curator diag: %s", line)
     end
     Host.Print("The same lines are in the debug log: /rec debug, then Copy All.")
+  elseif word == "pause" then
+    Provider.Pause()
+  elseif word == "resume" then
+    Provider.Resume()
   elseif word == "cancel" then
     if not (Sharing and Sharing.Cancel()) then Host.Print("No curator collection is running.") end
   elseif word == "console" and Curator.Console and Curator.Console.Open then

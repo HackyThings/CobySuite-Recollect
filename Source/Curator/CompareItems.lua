@@ -281,6 +281,29 @@ local function Pickpocketed(itemID, source, zones, owner)
   return Verdict(tally)
 end
 
+-- Whether a container's item is what a held copy of a removed container gave:
+-- the item ships the route only gone (Y<container>|x) while the container
+-- still says it holds the item (a live H<item>). The data build writes that
+-- pair only for a container its X table keeps (Task #447: a removed container's
+-- Y is flagged gone and its own H stays live; a route AllTheThings marks gone
+-- flags both), and a copy still in the bags opens and gives it, so the sighting
+-- says nothing about the route now (Task #467: Scale of the Earth-Warder from a
+-- Timerunner's Parting Pack opened after Legion Remix ended)
+local function HeldCopy(itemID, container)
+  local stated = false
+  for _, code in ipairs(Host.CodesOf(itemID, "Y")) do
+    if code.id == container then
+      if not code.gone then return false end
+      stated = true
+    end
+  end
+  if not stated then return false end
+  for _, code in ipairs(Host.CodesOf(container, "H")) do
+    if code.id == itemID and not code.gone then return true end
+  end
+  return false
+end
+
 local function Known(itemID, def, source, aliases, encounters, owner, zones)
   if def.gathered and Compare.Gathered(itemID, Compare[def.gathered]) then return true end
   if def.pickpocket then return Pickpocketed(itemID, source, zones, owner) end
@@ -326,6 +349,8 @@ function Compare.Loot(window, ctx)
       elseif source.kind == "drop" and not skinned
         and (Compare.WorldDrop(itemID, owner) or Compare.ZoneDrop(itemID, window.zones, owner)) then
         -- a world or zone drop: neither a finding nor a confirmation of a drop code
+      elseif source.kind == "container" and HeldCopy(itemID, source.id) then
+        -- a held copy of a removed container: the data ships what it gave, gone
       else
         Record("addition", def.prefix .. ":" .. source.id .. ":i:" .. itemID, "1", outside, ctx, source.extra)
       end
@@ -400,6 +425,33 @@ end
 -- "unjudged", never confirmed. Returns "confirmed", "addition", "conflict",
 -- "notseen" or "unjudged"; mayAdd false (Recipe.MayAdd: a dummy or salvage
 -- recipe) records nothing for an unshipped recipe and returns "skipped".
+
+-- Whether a shipped recipe's product is made by it only on routes no longer
+-- available: a y<recipe> code on the product, every one gone
+local function Dead(spell, product)
+  if not product or product <= 0 then return false end
+  local any = false
+  for _, code in ipairs(Host.CodesOf(product, "y")) do
+    if code.id == spell then
+      if not code.gone then return false end
+      any = true
+    end
+  end
+  return any
+end
+Compare.RecipeDead = Dead
+
+-- { [recipe] = { [item] = true } }: a salvage recipe's own required-slot items,
+-- from the schematic Compare.Recipe just read, until Compare.Salvage takes them
+local ownSlots = {}
+
+-- A shipped recipe whose product the data ships made by it only gone (Dead: no
+-- one can make it now) records nothing for its reagents: the window lists
+-- recipes nobody can learn (GetAllRecipeIDs), and the data ships such a
+-- recipe's reagents gone (the build's R7; Task #467: 96 reagents of 25 Classic
+-- Leatherworking and Blacksmithing recipes removed in 4.0.3 read as
+-- additions). A salvage recipe's own required slots (a plain reagent it takes
+-- beside what it salvages) are kept for Compare.Salvage.
 function Compare.Recipe(spell, schematic, ctx, mayAdd, shippedSet)
   local observed = ("%dx%d"):format(schematic.product or 0, schematic.quantity or 0)
   local shipped = Host.Recipe(spell)
@@ -425,15 +477,23 @@ function Compare.Recipe(spell, schematic, ctx, mayAdd, shippedSet)
     Record("conflict", "R:" .. spell, observed, ("%dx%d"):format(shipped.product or 0, shipped.quantity or 0), ctx)
     result = "conflict"
   end
+  local dead = Dead(spell, shipped.product)
   for _, reagent in ipairs(schematic.reagents) do
     for _, itemID in ipairs(reagent.itemIDs) do
-      local answer = Reagent(spell, itemID, reagent.count, ctx)
+      local answer = dead and "ok" or Reagent(spell, itemID, reagent.count, ctx)
       if answer == "conflict" or (answer == "addition" and result == "confirmed") then result = answer end
     end
   end
   local salvage
   if type(shippedSet) == "table" then salvage = shippedSet.salvage end
-  if salvage == true then return result end
+  if salvage == true then
+    local own = {}
+    for _, reagent in ipairs(schematic.reagents) do
+      for _, itemID in ipairs(reagent.itemIDs) do own[itemID] = true end
+    end
+    ownSlots[spell] = own
+    return result
+  end
   if salvage == nil or type(shippedSet.reagents) ~= "table" then
     return result == "confirmed" and "unjudged" or result
   end
@@ -474,8 +534,15 @@ end
 -- with no live code, a conflict when the shipped quantity differs, in the
 -- stamp "sv:<recipe>" when it matches; a live shipped input the list doesn't
 -- hold is not seen ("window"). Returns "confirmed" when every input matched
--- and none is missing (Task #423)
-function Compare.Salvage(skillLine, recipe, items, quantity, set, ctx)
+-- and none is missing (Task #423). own (optional; { [item] = true }): the
+-- recipe's own required-slot items, a plain reagent it takes beside what it
+-- salvages; by default the ones Compare.Recipe kept from the schematic it read
+-- for this recipe. They ship as reagent codes too and are no salvage input, so
+-- they are never not seen here (Task #467: Protein Slurp's 5 Fine Egg Powder,
+-- Everything-on-a-Stick's Coagulated Yolk)
+function Compare.Salvage(skillLine, recipe, items, quantity, set, ctx, own)
+  own = own or ownSlots[recipe] or {}
+  ownSlots[recipe] = nil
   local result, matched, listed = "confirmed", {}, {}
   local prefix = "sv:" .. skillLine .. ":" .. recipe .. ":i:"
   for _, itemID in ipairs(items) do
@@ -495,7 +562,7 @@ function Compare.Salvage(skillLine, recipe, items, quantity, set, ctx)
   local hints = Host.Hints().unseen
   for _, entry in ipairs(type(set) == "table" and set or {}) do
     local fact = prefix .. tostring(entry.item)
-    if not entry.gone and not listed[entry.item] and not hints[fact] then
+    if not entry.gone and not listed[entry.item] and not own[entry.item] and not hints[fact] then
       Record("notseen", fact, "window", nil, ctx)
       listed[entry.item] = true
       if result == "confirmed" then result = "notseen" end

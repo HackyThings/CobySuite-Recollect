@@ -122,6 +122,8 @@ Data.TABS = {
   { key = "buys", label = "Buys" },
   { key = "quests", label = "Quests and achievements" },
   { key = "crafting", label = "Crafting" },
+  -- what opening it can give (H; Task #469: a container's contents are not crafting)
+  { key = "contents", label = "What's inside" },
   { key = "sources", label = "Comes from" },
   { key = "takes", label = "What it takes" },
   -- every step of a secret the item is used in or whose reward it teaches (Facts.Secrets)
@@ -435,8 +437,10 @@ MAKERS.storePromotion = function(relation)
   return { tab = "sources", what = "store", kindLabel = words.kindLabel, id = relation.id, name = words.name }
 end
 
+-- What opening it can give, on the What's inside tab (Task #469); its Kind,
+-- "Item" until the content is read, is set by RESOLVE.holds
 MAKERS.holds = function(relation)
-  return { tab = "crafting", what = "item", kindLabel = "Opening it gives", id = relation.id, itemID = relation.id }
+  return { tab = "contents", what = "item", kindLabel = "Item", id = relation.id, itemID = relation.id }
 end
 
 -- Data format 14 (Task #394): what using the item gives (its Makes column the
@@ -562,6 +566,8 @@ end
 local function AddRelation(job, relation)
   local maker = MAKERS[relation.kind]
   if not maker then return end
+  -- one row per boss (Task #468): a boss's journal loot and its drop are one way to get it
+  if job.sameBoss and job.sameBoss[relation] then return end
   local applies
   if Parts().QUEST_KIND[relation.kind] then
     applies = job.questApplies[relation.id]
@@ -863,6 +869,7 @@ function Data.Build(itemID, stack, owner, onProgress)
       phase = 2
     end
     if not job.questApplies then job.questApplies = Relations().QuestAppliesOf(relations, owner) end
+    if not job.sameBoss then job.sameBoss = Recollect.UI.UsedFor.SameBossSkips(relations, owner) end
     local offset = job.total - #relations
     while i < #relations do
       i = i + 1
@@ -1310,8 +1317,38 @@ end
 RESOLVE.makes = HeldRow
 RESOLVE.madeFrom = HeldRow
 RESOLVE.openedFrom = HeldRow
-RESOLVE.holds = HeldRow
 RESOLVE.givenBy = HeldRow
+
+-- A container's content (Task #469: the Bulging Elven Field Pouch's are
+-- looks): gear says whether its look is collected, read through
+-- Facts.Buys.Product with the item's own tooltip agreeing (rule 5), as a
+-- gear purchase's look is, and only on the logged-in character's copy; a
+-- toy, mount, pet, decor or ensemble its collection state; anything else how
+-- many you have. The Kind column names which ("Gear", "Toy", "Item").
+RESOLVE.holds = function(row, owner)
+  local thing, why = Recollect.Facts.Buys.Product(row.itemID, owner)
+  -- not cached: asked for within Facts.Item's budget, whose answer brings a
+  -- refresh that reads it again; until then how many you have
+  if why == "loading" then Recollect.Facts.Item.Name(row.itemID) end
+  local what = thing and thing.what
+  row.kindLabel = (what == "appearance" and "Gear") or (what and Parts().WHAT_LABEL[what]) or "Item"
+  if not thing then return HeldRow(row, owner) end
+  if what == "unknown" or (thing.state == "unread" and thing.failed) then
+    return Set(row, nil, "Can't be read", U.Colors.LABEL_GRAY, "none")
+  end
+  if what == "appearance" then
+    if not owner.isViewer then return Set(row, nil, nil, U.Colors.LABEL_GRAY, "none") end
+    local colors = Colors()
+    if thing.state == "have" then
+      return Set(row, "have", thing.otherItem and "Look collected (other item)" or "Look collected", colors[V().DONE], "have")
+    end
+    if thing.state == "missing" then return Set(row, "missing", "Look not collected", colors[V().USEFUL], "missing") end
+    if thing.state == "unavailable" then return Set(row, nil, "Can't collect", U.Colors.LABEL_GRAY, "other") end
+    return Set(row, nil, "Can't be read yet", U.Colors.LABEL_GRAY, "none")
+  end
+  local state = thing.state
+  Set(row, state, StateWords(what, state), CollectibleColor(state), FILTER_OF[state] or "none")
+end
 RESOLVE.lure = HeldRow
 
 -- An event's row reads as its quest's, achievement's or currency's own row
@@ -1537,8 +1574,22 @@ RESOLVE.secretReward = function(row, owner)
   end
 end
 
+-- A secret no longer in the game, as the No longer available tab's row
+-- (Task #463): what the item was to it ('Used in [SECRET: X]', 'The reward
+-- of [SECRET: X]'), its name the link painters color
+local function GoneSecretRow(secret, sid, itemID, role, order, owner)
+  local name = Recollect.Facts.Secrets.Name(secret, owner)
+  local link = name and Recollect.UI.SecretPanel.PlainLink(name) or "a Warcraft secret"
+  return { tab = "gone", kind = "secretGone", what = "secretStep", kindLabel = "Secret", sid = sid, of = itemID,
+    gone = true, order = order, secretName = name,
+    name = role == "teaches" and ("The reward of %s"):format(link) or ("Used in %s"):format(link) }
+end
+
 -- AddSecretRows(job, push): a row for every step of each secret the item is
--- used in or whose reward it teaches, and a Comes from row for the reward
+-- used in or whose reward it teaches, and a Comes from row for the reward;
+-- a secret no longer in the game keeps its steps (the Secret tab shows it,
+-- marked so) and gives one row on the No longer available tab in place of
+-- the reward's (Task #463, the Manager's decision 2026-10-15)
 function Data.AddSecretRows(job, push)
   local Secrets = Recollect.Facts.Secrets
   if not Secrets or Secrets.Status() ~= "ok" then return end
@@ -1552,8 +1603,14 @@ function Data.AddSecretRows(job, push)
   end
   for n, sid in ipairs(order) do
     local secret = Secrets.Get(sid)
-    if secret and not secret.routeFlags:find("x", 1, true) then
-      if roles[sid] == "teaches" then
+    local gone = secret and Secrets.Gone(secret)
+    if gone then
+      local row = GoneSecretRow(secret, sid, itemID, roles[sid], n * 1000, owner)
+      Data.Resolve(row, owner, job.budget)
+      push(job, row)
+    end
+    if secret then
+      if roles[sid] == "teaches" and not gone then
         local row = { tab = "sources", kind = "secretReward", what = "secretStep", kindLabel = "Secret", sid = sid, of = itemID,
           order = n * 1000 }
         Data.Resolve(row, owner, job.budget)

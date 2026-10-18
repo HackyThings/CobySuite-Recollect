@@ -39,25 +39,28 @@ end
 -- or that it can give several things): ", which holds Amani War Axe",
 -- ", which can hold Axe, Spear or Bow", ", which can hold any of 12 items";
 -- "" for a spot with no known contents. Names are read live; one not loaded
--- yet is counted instead of named.
-local HOLDS_NAMED = 3
+-- yet is counted instead of named. Each name once (Task #464: the Sunken
+-- Diver's Chest holds two items of one name, and read "can hold Ancient Amani
+-- Mask or Ancient Amani Mask"); only a short list's names are read.
+local HOLDS_NAMED, HOLDS_READ = 3, 12
 local function Holds(object)
   local n = #object.contents
   if n == 0 then return "" end
+  if n > HOLDS_READ then return (", which can hold any of %d items"):format(n) end
   local Name = Recollect.Facts.Item.Name
-  if n == 1 then
-    local name = Name(object.contents[1])
-    return name and (", which holds " .. name) or ", which holds 1 item"
-  end
-  if n <= HOLDS_NAMED then
-    local names = {}
-    for i, itemID in ipairs(object.contents) do
-      names[i] = Name(itemID)
-      if not names[i] then return (", which can hold any of %d items"):format(n) end
+  local names, seen = {}, {}
+  for _, itemID in ipairs(object.contents) do
+    local name = Name(itemID)
+    if not name then return n == 1 and ", which holds 1 item" or (", which can hold any of %d items"):format(n) end
+    if not seen[name] then
+      seen[name] = true
+      names[#names + 1] = name
     end
-    return (", which can hold %s or %s"):format(table.concat(names, ", ", 1, n - 1), names[n])
   end
-  return (", which can hold any of %d items"):format(n)
+  local k = #names
+  if k == 1 then return ", which holds " .. names[1] end
+  if k <= HOLDS_NAMED then return (", which can hold %s or %s"):format(table.concat(names, ", ", 1, k - 1), names[k]) end
+  return (", which can hold any of %d items"):format(k)
 end
 
 -- Whether every route is an event route (AllTheThings' holiday or event

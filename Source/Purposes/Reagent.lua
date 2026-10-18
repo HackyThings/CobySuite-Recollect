@@ -248,6 +248,30 @@ local function MadeWords(made)
   return #parts > 0 and ("; " .. table.concat(parts, "; ")) or ""
 end
 
+-- How many live recipes the data names for a reagent the game stamps with the
+-- newest expansion though its ID is older (Facts.Item.Restamped) make a
+-- thing numbered in that expansion's range (a product's ID at or past the
+-- first ID of the expansion before it); 0 for any other item
+local function CurrentRecipes(ctx)
+  local Item, Relations = Recollect.Facts.Item, Recollect.Facts.Relations
+  local game, itemID = ctx.facts and ctx.facts.expansionID, ctx.stack.itemID
+  if not Item.Restamped(game, itemID) then return 0 end
+  local first = Item.FIRST_ITEM_ID[game - 1]
+  local ok, list = Recollect.Utilities.Try(Relations.For, itemID)
+  if not ok or type(list) ~= "table" then return 0 end
+  local count = 0
+  for _, relation in ipairs(list) do
+    if relation.kind == "reagentOf" and not (relation.flags and relation.flags.unavailable) then
+      local okR, recipe = Recollect.Utilities.Try(Relations.Recipe, relation.id)
+      local product = okR and type(recipe) == "table" and recipe.product
+      if Recollect.Utilities.IsPositiveID(product) and product >= first then
+        count = count + 1
+      end
+    end
+  end
+  return count
+end
+
 -- The verdict for a reagent, from this character's recipe index and the
 -- recipes the shipped data names (data, Recipes.DataUses, or nil)
 local function Judge(ctx, index, data)
@@ -259,6 +283,17 @@ local function Judge(ctx, index, data)
     return R.Result(V.USEFUL, reason)
   end
   local age, expansion, source, patch = R.Age(ctx)
+  -- An older reagent the game stamps with this expansion (Facts.Item.Restamped:
+  -- Fine Thread, the dyes) is current when a live recipe the data names makes
+  -- a thing of this expansion's range: that recipe's own evidence, never the
+  -- stamp (Task #457, the Manager's call)
+  if age ~= "current" then
+    local recipes = CurrentRecipes(ctx)
+    if recipes > 0 then
+      return R.Result(V.USEFUL, recipes == 1 and "A crafting reagent a current-expansion recipe uses"
+        or ("A crafting reagent %d current-expansion recipes use"):format(recipes))
+    end
+  end
   -- A failed read: never softened by a season result (review F12)
   if not age then return Owed(R.Unknown("Crafting reagent; its expansion can't be read")) end
   if age == "current" then return R.Result(V.USEFUL, "A current-expansion crafting reagent") end
@@ -323,6 +358,12 @@ local function Judge(ctx, index, data)
       what, table.concat(index.names, ", ")))
   end
   if ctx.facts.classID ~= R.CLASS_TRADEGOODS then
+    -- not a trade good, but a recipe of the data uses it (a potion, Task #456):
+    -- one this character doesn't know may still need it
+    if data then
+      return R.Unknown(("%s; none of your recipes (%s) use it, but a recipe you don't know may still need it"):format(
+        what, table.concat(index.names, ", ")))
+    end
     return R.Unknown(("%s; none of your recipes (%s) use it; it may belong to another crafting system (such as Protoform Synthesis), which isn't checked"):format(
       what, table.concat(index.names, ", ")))
   end
@@ -346,13 +387,17 @@ R.Register({
   label = "Reagent",
   order = 70,
   Evaluate = function(ctx)
-    if not ctx.facts.isCraftingReagent and ctx.facts.classID ~= R.CLASS_TRADEGOODS then return nil end
+    local okData, data = pcall(Recollect.Facts.Recipes.DataUses, ctx.stack.itemID)
+    data = okData and type(data) == "table" and data or nil
+    -- A reagent by its flag or class, or any item a live recipe of the data
+    -- uses (rules 3 and 16: a potion a recipe takes is a reagent too, so its
+    -- recipe use keeps another check's Outdated back; Task #456, audit R23:
+    -- Potion of Withering Vitality, 430 consumables)
+    if not ctx.facts.isCraftingReagent and ctx.facts.classID ~= R.CLASS_TRADEGOODS and not data then return nil end
     -- One shared answer per frame (Facts.Recipes keeps it), so every reagent
     -- row of a redraw reads the same merged index; never change it here
     local okIndex, index = pcall(Recollect.Facts.Recipes.ForCharacter)
     index = okIndex and type(index) == "table" and index or nil
-    local okData, data = pcall(Recollect.Facts.Recipes.DataUses, ctx.stack.itemID)
-    data = okData and type(data) == "table" and data or nil
     local result = Judge(ctx, index, data)
     -- Every answer with the data's recipes leads with their whole count; the
     -- one for recipes the index can't read keeps its own words

@@ -10,7 +10,9 @@
 -- ",". References are typed as the data's codes are: i<item>[x<count>][?]
 -- (? after a tool whose consumption is unknown), n npc, o object, q quest,
 -- f hidden flag, a achievement, m mount spell, t toy item, p pet species,
--- e ensemble set, d decor item, r recipe spell, s spell, k<faction>.<standing>,
+-- e ensemble set, d decor item, r recipe spell, v artifact appearance (an
+-- artifactAppearanceID; Task #463), w an item's own appearance (an item ID;
+-- Task #465), s spell, k<faction>.<standing>,
 -- P<skill line>, c currency and z zone (a map ID; both only where a step
 -- names what its words mention, mn), and #<label> a step of the same secret.
 -- A record that breaks the grammar reads as unreadable, never half-read; an
@@ -63,7 +65,13 @@
 --              steps with no flag)
 -- Every read goes through Purposes.client and Utilities.Try behind
 -- Facts.Ready's gates; a failed, secret or wrongly typed answer is unread.
--- Rewards read through Facts.Buys' typed readers (Rewards(secret, owner)).
+-- Rewards read through Facts.Buys' typed readers (Rewards(secret, owner)),
+-- but an artifact appearance (v), which this file reads itself: unlocked
+-- from C_ArtifactUI.GetAppearanceInfoByID (the logged-in character's answer;
+-- another character's copy can't be asked), never missing on a read that
+-- fails or returns nothing (Task #463); and an item's own appearance (w),
+-- read through Facts.Buys.Product with the item's tooltip agreeing (rule 5):
+-- done only when that item's own source is collected (Task #465).
 -------------------------------------------------------------------------------
 local Secrets = {}
 Recollect.Facts.Secrets = Secrets
@@ -84,10 +92,11 @@ Secrets.ACTIONS = {
 }
 
 -- Reward letters, read through Facts.Buys (its typed readers)
-local REWARD_LETTERS = { m = true, t = true, p = true, e = true, d = true, r = true, a = true }
+local REWARD_LETTERS = { m = true, t = true, p = true, e = true, d = true, r = true, a = true, v = true, w = true }
 -- The words for a reward's kind, as the reasons name it
 Secrets.KIND_WORDS = { mount = "a mount", toy = "a toy", pet = "a pet", ensemble = "an ensemble", decor = "a decor item",
-  recipe = "a recipe", achievement = "an achievement", heirloom = "an heirloom", illusion = "a weapon illusion" }
+  recipe = "a recipe", achievement = "an achievement", heirloom = "an heirloom", illusion = "a weapon illusion",
+  appearance = "an artifact appearance", look = "an item appearance" }
 
 local seams = {
   Data = function() return Recollect.Data and Recollect.Data.Secrets end,
@@ -98,13 +107,19 @@ local seams = {
   BaseOk = function() return Recollect.Facts.DataVersion.Ok() end,
   BaseVersion = function() return Recollect.Facts.DataVersion.Get().dataVersion end,
   SpellName = function(spellID) return C_Spell.GetSpellName(spellID) end,
+  -- setID, appearanceID, name, displayIndex, unlocked, ... (may return nothing)
+  ArtifactAppearance = function(appearanceID) return C_ArtifactUI.GetAppearanceInfoByID(appearanceID) end,
 }
 
 -- The parsed records and the index, for one data table
 local cache = { data = nil, records = {}, index = nil, manifest = nil, manifestSource = nil }
+-- The artifact appearances read (v rewards), kept while Facts.Buys keeps its
+-- own answers (AppearanceThing)
+local appearances = { stamp = nil, byID = {} }
 
 local function Reset()
   cache.data, cache.records, cache.index, cache.manifest, cache.manifestSource = nil, {}, nil, nil, nil
+  appearances.stamp, appearances.byID = nil, {}
 end
 
 -- The data table now, dropping what was parsed from another one
@@ -192,7 +207,8 @@ local function Ref(text)
     return { kind = "standing", letter = "k", id = tonumber(faction), standing = tonumber(standing) }
   end
   local KINDS = { n = "npc", o = "object", q = "quest", f = "flag", a = "achievement", m = "mount", t = "toy", p = "pet",
-    e = "ensemble", d = "decor", r = "recipe", s = "spell", P = "profession", c = "currency", z = "zone" }
+    e = "ensemble", d = "decor", r = "recipe", s = "spell", P = "profession", c = "currency", z = "zone",
+    v = "appearance", w = "look" }
   local kind = KINDS[letter]
   local id = tonumber(body:match("^%d+$") or "")
   if not kind or not IsPositiveID(id) then return nil end
@@ -226,7 +242,8 @@ local ITEMS = { item = true }
 local PLACES = { npc = true }
 local NEEDS = { step = true, quest = true, flag = true, achievement = true, standing = true, profession = true }
 local HINTS = { quest = true, flag = true, achievement = true, npc = true, profession = true, standing = true }
-local REWARDS = { mount = true, toy = true, pet = true, ensemble = true, decor = true, recipe = true, achievement = true }
+local REWARDS = { mount = true, toy = true, pet = true, ensemble = true, decor = true, recipe = true, achievement = true,
+  appearance = true, look = true }
 local STEP_FREQ = { once = true, w = true, d = true, unknown = true }
 -- What a step's words may mention (mn): anything that has a name or a place,
 -- never a hidden flag (it has neither)
@@ -620,6 +637,28 @@ function Secrets.LiveUse(itemID)
   return false
 end
 
+-- Gone(secret): whether the secret is no longer in the game (route flag x)
+function Secrets.Gone(secret)
+  return type(secret) == "table" and secret.flags ~= nil and secret.flags.unavailable == true
+end
+
+-- GoneUses(itemID): the secrets no longer in the game that the item is used
+-- in, each once, in the data's order. Never a live use (LiveUse), but a
+-- removed one: rule 42's removed check and USED FOR's closing line count it,
+-- and the Secret tab and the No longer available tab show it (Task #463, the
+-- Manager's decision 2026-10-15)
+function Secrets.GoneUses(itemID)
+  local list, seen = {}, {}
+  for _, entry in ipairs(Secrets.Uses(itemID)) do
+    if not seen[entry.sid] then
+      seen[entry.sid] = true
+      local secret = Secrets.Get(entry.sid)
+      if secret and Secrets.Gone(secret) then list[#list + 1] = secret end
+    end
+  end
+  return list
+end
+
 -- CoversTarget(kind, id): whether a secret gives this reward ("mount" by
 -- mount spell, "pet" by species, ...), so another check need not count it
 function Secrets.CoversTarget(letter, id)
@@ -674,6 +713,75 @@ function Secrets.FlagDone(questID, scope, owner)
   return nil, "unreadable"
 end
 
+-- An artifact appearance (v), as Facts.Buys gives a thing: unlocked "have",
+-- locked "missing", else "unread" (a failed read, no answer, another
+-- character's copy). Kept while Facts.Buys keeps its own answers (its Stamp)
+local function AppearanceThing(id, owner)
+  local thing = { key = "appearance:" .. id, what = "appearance", id = id, collectible = true }
+  if owner and owner.isViewer == false then
+    thing.state, thing.why = "unread", "character"
+    return thing
+  end
+  local stamp = Recollect.Facts.Buys.Stamp()
+  if appearances.stamp ~= stamp then appearances.stamp, appearances.byID = stamp, {} end
+  local kept = appearances.byID[id]
+  if kept then return kept end
+  local ok, _, appearanceID, name, _, unlocked = Try(seams.ArtifactAppearance, id)
+  if ok and appearanceID == id and type(unlocked) == "boolean" then
+    thing.state = unlocked and "have" or "missing"
+  else
+    thing.state, thing.failed = "unread", true
+  end
+  if ok and type(name) == "string" and name ~= "" then thing.name = name end
+  appearances.byID[id] = thing
+  return thing
+end
+
+-- An item's own appearance (w, Task #465), as Facts.Buys.Product reads gear's
+-- look (the item's tooltip agreeing, rule 5): "have" only when this item's
+-- own source is collected; the look collected from another item is still
+-- "missing" (otherItem), since the reward is this item's source; one this
+-- character can't collect is "unread" (why "unavailable"), as is one still
+-- loading, a read that fails, and another character's copy (the tooltip is
+-- the logged-in character's). The name is read on every call, which also
+-- asks the client for the item (Product loads nothing)
+local function LookThing(id, owner)
+  local thing = { key = "look:" .. id, what = "look", id = id, itemID = id, collectible = true, state = "unread" }
+  local name = Recollect.Facts.Item.Name(id)
+  if type(name) == "string" and name ~= "" then thing.name = name end
+  if owner and owner.isViewer == false then
+    thing.why = "character"
+    return thing
+  end
+  local look, why = Recollect.Facts.Buys.Product(id, owner)
+  if type(look) ~= "table" then
+    thing.why = why == "loading" and "loading" or "none"
+    return thing
+  end
+  if look.what ~= "appearance" then
+    thing.why, thing.failed = "none", look.failed
+    return thing
+  end
+  if look.state == "have" then
+    thing.state, thing.otherItem = look.otherItem and "missing" or "have", look.otherItem
+  elseif look.state == "missing" then
+    thing.state = "missing"
+  elseif look.state == "unavailable" then
+    thing.why = "unavailable"
+  else
+    thing.failed = look.failed
+  end
+  return thing
+end
+
+-- One reward (or naming) relation, read: an artifact appearance and an
+-- item's look here, every other letter through Facts.Buys
+local function Resolve(relation, owner)
+  if relation.thing == "v" then return AppearanceThing(relation.id, owner) end
+  if relation.thing == "w" then return LookThing(relation.id, owner) end
+  return Recollect.Facts.Buys.Resolve(relation, owner)
+end
+
 -- Rewards(secret, owner): each reward as Facts.Buys reads it ({ what, id,
 -- state, name, ... }), and the whole: "have" (every one), "missing" (any),
 -- or "unread"
@@ -681,7 +789,7 @@ function Secrets.Rewards(secret, owner)
   owner = owner or Recollect.Verdicts.Rows.Owner()
   local things, all = {}, "have"
   for i, relation in ipairs(secret.rewardRelations) do
-    local thing = Recollect.Facts.Buys.Resolve(relation, owner)
+    local thing = Resolve(relation, owner)
     things[i] = thing
     local state = thing and thing.state
     if state == "missing" then
@@ -694,10 +802,23 @@ function Secrets.Rewards(secret, owner)
   return things, all
 end
 
--- One step's own state before implications
+-- Whether a quest step's quest comes back (the data's frequency, or the
+-- step's own weekly or daily): its completion then proves no one turn-in of
+-- several (Task #454: the nine offerings of one repeatable quest, sid 122)
+local function QuestRecurs(step)
+  if step.freq == "w" or step.freq == "d" then return true end
+  local Relations = Recollect.Facts.Relations
+  local ok, freq = pcall(Relations.Frequency, step.quest)
+  return ok and freq ~= nil
+end
+
+-- One step's own state before implications: its hidden flag, else its quest
+-- (a quest that comes back and makes something reads what it made instead),
+-- else what it makes held
 local function OwnState(step, owner)
   local viewer = not owner or owner.isViewer ~= false
   local flag = step.flag or (step.action == "quest" and step.quest) or nil
+  if flag and not step.flag and step.makes and QuestRecurs(step) then flag = nil end
   if flag then
     local done, why = Secrets.FlagDone(flag, step.flag and step.scope or "u", owner)
     if done == nil then return why == "character" and "character" or "unread", why end
@@ -795,9 +916,18 @@ function Secrets.Done(secret, owner)
     return nil
   end
   if done == "steps" then
+    -- every final step (one no other step needs: design 2.3), so a step the
+    -- game can't report or the other faction's quest before a final never
+    -- holds completion back (Task #454: sid 6's five filters)
+    local needed = {}
+    for _, step in ipairs(secret.steps) do
+      for _, ref in ipairs(step.needs) do
+        if ref.kind == "step" then needed[ref.label] = true end
+      end
+    end
     local states = Secrets.Steps(secret, owner)
     for _, step in ipairs(secret.steps) do
-      if not step.up then
+      if not step.up and not needed[step.label] then
         local state = states[step.label].state
         if state ~= "done" then
           if state == "unread" or state == "character" or state == "untracked" then return nil end
@@ -884,7 +1014,7 @@ function Secrets.Name(secret, owner)
   if not ref then return nil end
   if REWARD_LETTERS[ref.letter] then
     secret.nameRelation = secret.nameRelation or { thing = ref.letter, id = ref.id }
-    local thing = Recollect.Facts.Buys.Resolve(secret.nameRelation, owner or Recollect.Verdicts.Rows.Owner())
+    local thing = Resolve(secret.nameRelation, owner or Recollect.Verdicts.Rows.Owner())
     return thing and Recollect.Facts.Buys.Name(thing) or nil
   end
   if ref.kind == "item" then return Recollect.Facts.Item.Name(ref.id) end

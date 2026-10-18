@@ -709,11 +709,13 @@ local Gone = {
     usedAt = { "was used at %d NPC", "was used at %d NPCs" },
     achievements = { "counted toward %d achievement", "counted toward %d achievements" },
     reagent = { "was a reagent in %d recipe", "was a reagent in %d recipes" },
+    secrets = { "was used in %d secret", "was used in %d secrets" },
     other = { "had %d other use", "had %d other uses" },
   },
-  ORDER = { "buys", "quests", "opens", "usedAt", "achievements", "reagent", "other" },
+  ORDER = { "buys", "quests", "opens", "usedAt", "achievements", "reagent", "secrets", "other" },
   GROUP = { objective = "quests", questItem = "quests", starts = "quests", opens = "opens", usedAt = "usedAt",
-    criterion = "achievements", linked = "achievements", reagentOf = "reagent", buysDecor = "buys", buys = "buys" },
+    criterion = "achievements", linked = "achievements", reagentOf = "reagent", buysDecor = "buys", buys = "buys",
+    secretGone = "secrets" },
   SHOWN = 3,   -- removed uses named under the summary
 }
 
@@ -727,14 +729,37 @@ function Gone.Group(relation)
   return group, nil
 end
 
+-- Whether a secret's No longer available row (DetailData's, Task #463) is a
+-- use of the item (Facts.Secrets.GoneUses names its secret), not the
+-- secret whose reward the item is
+function Gone.SecretUse(row)
+  local ok, list = pcall(Recollect.Facts.Secrets.GoneUses, row.of)
+  for _, secret in ipairs(ok and type(list) == "table" and list or {}) do
+    if secret.sid == row.sid then return true end
+  end
+  return false
+end
+
 -- The removed uses' words ("bought 55 things and was used in 1 quest") and
--- the rows they came from, or nil; and how many ways to get it are gone
+-- the rows they came from, or nil; and how many ways to get it are gone. A
+-- secret no longer in the game counts as the panel's closing line counts
+-- it, once per secret (Task #465)
 function Gone.Read(rows)
   local SOURCE = Recollect.Facts.Relations.SOURCE or {}
   local counts, seen, uses, sources = {}, {}, {}, 0
   for _, row in ipairs(rows or {}) do
     local relation = row.relation
-    if relation and SOURCE[relation.kind] then
+    if row.kind == "secretGone" then
+      if Gone.SecretUse(row) then
+        uses[#uses + 1] = row
+        if not seen["s:" .. tostring(row.sid)] then
+          seen["s:" .. tostring(row.sid)] = true
+          counts.secrets = (counts.secrets or 0) + 1
+        end
+      else
+        sources = sources + 1
+      end
+    elseif relation and SOURCE[relation.kind] then
       sources = sources + 1
     elseif relation then
       uses[#uses + 1] = row
@@ -812,72 +837,56 @@ function FOR.Counted(row) return row.kind ~= "reagentOf" and row.kind ~= "index"
 function FOR.RowLine(row) return RowLine(row, true) end
 
 -- Each group's word in the short summary ("Leads to 1 collectible; crafting 1; uses 1")
-FOR.SHORT = { buys = "buys", quests = "quests and places", crafting = "crafting", takes = "uses" }
+FOR.SHORT = { buys = "buys", quests = "quests and places", contents = "contents", crafting = "crafting", takes = "uses" }
 
 FOR.GROUPS = {
   { key = "buys", tab = "buys", label = "Buys" },
-  { key = "quests", tab = "quests", label = "Quests and places", keep = function(row) return not FOR.IsAchievement(row) end },
+  -- (a treasure a Leads to line already says and pins, j.covered, is said there: Task #471)
+  { key = "quests", tab = "quests", label = "Quests and places", keep = function(row, j)
+    return not FOR.IsAchievement(row) and not (row.what == "object" and j.covered and j.covered[row.objectID]) end },
+  -- what opening it can give (Task #469: its own group, never counted as crafting)
+  { key = "contents", tab = "contents", label = "What's inside" },
   { key = "crafting", tab = "crafting", label = "Crafting with it" },
-  { key = "takes", tab = "takes", label = "What using it takes", keep = function(row) return not FOR.IsCraft(row) end },
+  -- never the item itself: it is the item this window is about (Task #471)
+  { key = "takes", tab = "takes", label = "What using it takes",
+    keep = function(row, j) return not FOR.IsCraft(row) and row.itemID ~= j.itemID end },
 }
 
 -- A group's rows, as its filter keeps them
 function FOR.Rows(j, group)
   local rows = {}
   for _, row in ipairs(j.tabs[group.tab] or {}) do
-    if not group.keep or group.keep(row) then rows[#rows + 1] = row end
+    if not group.keep or group.keep(row, j) then rows[#rows + 1] = row end
   end
   return rows
 end
 
 -- One group: its title with its counts, its rows named, the rest folded
+-- (the title counts each thing once, FOR.Tally, as the sentence and the
+-- tiles do; the container counts the rows it lists, as the tab does)
 function FOR.Group(lines, rows, key, tab, label)
-  local n, missing = 0, 0
+  local listed = 0
   for _, row in ipairs(rows) do
-    if FOR.Counted(row) then
-      n = n + 1
-      if row.filterState == "missing" then missing = missing + 1 end
-    end
+    if FOR.Counted(row) then listed = listed + 1 end
   end
-  if n == 0 then return nil end
+  if listed == 0 then return nil end
+  -- (what crafting it takes, "get:craft", counts every part as a use's do)
+  local n, missing = FOR.Tally(rows, key:match("^for:(.+)$") or "takes", FOR.Counted)
   local title = Group(("%s: %d%s"):format(label, n, missing > 0 and ("; %d still to get or do"):format(missing) or ""))
   title.groupTitle = true
   lines[#lines + 1] = title
   local ordered = Fold.Ordered(rows, FOR.Counted, Fold.Need(key, MAX_SUMMARY))
   local named, nextIndex = Fold.Take(ordered, 1, MAX_SUMMARY, FOR.RowLine)
   for _, line in ipairs(named) do lines[#lines + 1] = line end
-  Fold.Container(lines, key, ordered, nextIndex, tab, FOR.RowLine, n)
+  Fold.Container(lines, key, ordered, nextIndex, tab, FOR.RowLine, listed)
   return ("%s: %d%s"):format(label, n, missing > 0 and (" (%d still to get or do)"):format(missing) or ""), n
 end
 
--- The uses a new player asks about first, spelled out when there are few
--- (Cobanyte, 2026-09-28: "say what treasure it opens and what item we get
--- out of it"): each treasure or spot it opens, where, what it holds and
--- whether you've looted it; each NPC it is used at, and where; and what a
--- use takes together with it. Returns the sentences and which kinds they
--- covered (treasures and NPCs), so UseWords doesn't count those again.
-FOR.SPELLED = 2
-
--- The items a treasure holds as links, when Opens.Holds names them (up to 3,
--- all of their names loaded), so a player can click what a key opens
--- (a curator's note on Vile Essence: "it talks about what you can loot, but
--- doesn't give me a link to it")
-function FOR.HeldLinks(object, into)
-  into = into or {}
-  local contents = type(object) == "table" and object.contents or {}
-  if #contents == 0 or #contents > 3 then return into end
-  local names = {}
-  for i, itemID in ipairs(contents) do
-    names[i] = Recollect.Facts.Item.Name(itemID)
-    if not names[i] then return into end
-  end
-  for i, itemID in ipairs(contents) do HeardLinks({ { kind = "item", id = itemID, text = names[i] } }, into) end
-  return into
-end
-
--- "Combining it leads to Ancient Amani Mask, a toy you don't have." for the
--- first end UI.UsedFor.CombineLeads names (none for a plain end), with the
--- names it used ({ text, links }), or nil
+-- Each fact once (Task #471; Cobanyte, 2026-10-15, on the Bear Tooth: the
+-- treasure three times, the mount three times, the parts twice): the
+-- explanation says what the item is and counts its uses; a treasure, an NPC,
+-- the parts a use takes and where combining leads are lines below, each with
+-- its state, link and pin, so no sentence spells them out again
 -- Whether the item's curated description (Data/Descriptions.lua) already
 -- names a thing: its name inside the text, whole (Task #439: "the chest holds
 -- the Ancient Amani Mask, a toy" and then "Combining it leads to Ancient Amani
@@ -890,118 +899,97 @@ function FOR.Described(described, name)
   return not before:find("%w") and not after:find("%w")
 end
 
-function FOR.LeadSentence(j, described)
-  if not Recollect.UI.UsedFor.CombinesIn(j.relations) then return nil end
-  local Chains = Recollect.Facts.Chains
-  local okS, summary = pcall(Chains.Summary, j.itemID, j.owner or Recollect.Verdicts.Rows.Owner(),
-    Recollect.Facts.QuestInfo.FrameBudget(), nil, function(entry) return entry.via[1] ~= nil and entry.via[1].kind == "makes" end)
-  if not okS or type(summary) ~= "table" then return nil end
-  local read = summary.first.open or summary.first.done or summary.first.unread
-  if not read or not read.thing then return nil end
-  -- the description names the end already: the Leads to line below carries its state
-  if FOR.Described(described, Recollect.Facts.Buys.Name(read.thing)) then return nil end
-  local text, heard = Data().Heard(Chains.ThingWords, read.thing)
-  return { text = ("Combining it leads to %s."):format(text), links = heard }
-end
-
-function FOR.Specific(j, described)
-  local sentences, handled, links = {}, { described = described }, {}
-  local objects, npcs = {}, {}
-  for _, row in ipairs(j.tabs.quests or {}) do
-    if not row.restricted then
-      if row.what == "object" then objects[#objects + 1] = row
-      elseif row.kind == "usedAt" then npcs[#npcs + 1] = row end
-    end
-  end
-  local function State(row)
-    return type(row.stateText) == "string" and row.stateText ~= "" and (" (%s)"):format(Lowered(row.stateText)) or ""
-  end
-  if #objects > 0 and #objects <= FOR.SPELLED then
-    handled.object = true
-    local Opens = Recollect.Purposes.Opens
-    for _, row in ipairs(objects) do
-      local object = Recollect.Facts.Vendors.Object(row.objectID)
-      local holds = object and Opens and Opens.Holds(object) or ""
-      sentences[#sentences + 1] = ("It opens %s%s%s."):format(Lowered(Data().DisplayName(row)), holds, State(row))
-      FOR.HeldLinks(object, links)
-    end
-  end
-  if #npcs > 0 and #npcs <= FOR.SPELLED then
-    handled.npc = true
-    for _, row in ipairs(npcs) do
-      local place = Data().Place(row)
-      local name = Data().DisplayName(row)
-      sentences[#sentences + 1] = (place and place.zone and not name:find(place.zone, 1, true))
-        and ("It is used at %s in %s."):format(name, place.zone) or ("It is used at %s."):format(name)
-    end
-  end
-  -- where combining it leads, the end named as a link (Task #438: the
-  -- explanation named "a mask toy", never the Ancient Amani Mask)
-  local okLead, lead = pcall(FOR.LeadSentence, j, described)
-  if okLead and lead then
-    sentences[#sentences + 1] = lead.text
-    HeardLinks(lead.links, links)
-  end
-  -- what a use takes, one sentence per use (its record: a known use, a
-  -- combine), never parts of two uses joined; "you have them all" only when
-  -- every part was counted as held
-  local records, order = {}, {}
-  for _, row in ipairs(j.tabs.takes or {}) do
-    if not FOR.IsCraft(row) and row.record then
-      if not records[row.record] then
-        records[row.record] = {}
-        order[#order + 1] = row.record
-      end
-      local list = records[row.record]
-      list[#list + 1] = row
-    end
-  end
-  if #order > 0 and #order <= FOR.SPELLED then
-    for _, record in ipairs(order) do
-      local parts = records[record]
-      if #parts > 1 then
-        local names, missing, have = {}, 0, 0
-        for i, row in ipairs(parts) do
-          names[i] = Data().DisplayName(row)
-          if row.filterState == "missing" then missing = missing + 1
-          elseif row.filterState == "have" then have = have + 1 end
-        end
-        local unread = #parts - missing - have
-        local state
-        if have == #parts then state = " (you have them all)"
-        elseif missing > 0 then state = (" (%d still to get)"):format(missing)
-        else state = (" (%d can't be counted)"):format(unread) end
-        local list = table.concat(names, ", ", 1, #names - 1) .. " and " .. names[#names]
-        local verb = record.kind == "combine" and "Combining it takes" or "Using it takes"
-        sentences[#sentences + 1] = ("%s %d items together: %s%s."):format(verb, #parts, list, state)
-      end
-    end
-  end
-  return sentences, handled, links
-end
 
 -- "is used in 3 quests, counts toward 1 achievement and buys 12 things": the
--- item's uses counted in words, for the explanation (without the kinds
--- FOR.Specific spelled out); nil when it has none
-FOR.MADE_VERBS = { makes = "makes", partOf = "combines into", recipeFor = "teaches how to make", teaches = "teaches",
-  gives = "gives, when used," }
+-- item's uses counted in words, for the explanation; nil when it has none.
+-- It counts and never names: each thing is named once, on its own line below
+-- with its state (Task #471). A Warcraft secret is its own line, so the
+-- sentence leaves it out (the third answer still says the item has a use)
+FOR.MADE_ONE = { makes = "makes an item", partOf = "combines into another item", recipeFor = "teaches how to make an item",
+  teaches = "teaches a recipe", gives = "gives an item when used" }
+
+-- Each thing counted once (Task #464, the second audit): a thing bought at
+-- two sellers is a row per seller group (Task #456), and a quest several
+-- codes name (used in, starts, a faction's copy) is a row per code. The key
+-- a row is counted by, or nil for a row with no ID (each counted)
+function FOR.CountKey(group, row)
+  local id = row.id or row.questID or row.achievementID or row.itemID or row.npcID or row.objectID
+  if id == nil then return nil end
+  return ("%s:%s:%s"):format(group, tostring(row.what), tostring(id))
+end
+-- Tally(rows, group, keep): how many things the kept rows stand for, each
+-- once, how many are still to get or do (any of its rows is) and how many
+-- are had (one is, none still to get); the group's titles and tiles count
+-- this way, so every count on the window agrees with the sentence (Task
+-- #464: a thing at two sellers read "buys 1 thing" beside "Buys: 2"). What
+-- a use takes counts every part of every use.
+function FOR.Tally(rows, group, keep)
+  local things, order = {}, {}
+  for _, row in ipairs(rows) do
+    if not keep or keep(row) then
+      local by = (group == "crafting" and row.kind) or (row.kind == "linked" and "linked") or group
+      local key = group ~= "takes" and FOR.CountKey(by, row) or nil
+      local thing = key and things[key]
+      if not thing then
+        thing = {}
+        if key then things[key] = thing end
+        order[#order + 1] = thing
+      end
+      if row.filterState == "missing" then thing.missing = true end
+      if row.filterState == "have" then thing.have = true end
+    end
+  end
+  local missing, have = 0, 0
+  for _, thing in ipairs(order) do
+    if thing.missing then missing = missing + 1 elseif thing.have then have = have + 1 end
+  end
+  return #order, missing, have
+end
+
+-- seen[key] marks a row's thing counted; true when this row is its first
+function FOR.First(seen, group, row)
+  local key = FOR.CountKey(group, row)
+  if key == nil then return true end
+  if seen[key] then return false end
+  seen[key] = true
+  return true
+end
+
+-- The treasures a Leads to line says and pins (ForLines sets j.covered as
+-- it builds them; read here once when it hasn't run)
+function FOR.Covered(j)
+  if j.covered then return j.covered end
+  local covered = {}
+  local ok, leads = pcall(FOR.LeadLines, j)
+  for _, line in ipairs(ok and leads or {}) do
+    if line.objectID then covered[line.objectID] = true end
+  end
+  return covered
+end
+
 function FOR.UseWords(j, handled)
   handled = handled or {}
   local counts = { quest = 0, place = 0, achievement = 0, linked = 0, buys = 0, reagent = 0, makes = 0, endeavor = 0,
-    currency = 0, pieces = 0 }
+    currency = 0, pieces = 0, holds = 0, secret = 0, treasure = 0 }
   local made   -- the one row it makes, teaches or combines into, when it is only one
-  for _, row in ipairs(j.tabs.buys or {}) do if FOR.Counted(row) then counts.buys = counts.buys + 1 end end
+  local seen, covered = {}, FOR.Covered(j)
+  for _, row in ipairs(j.tabs.buys or {}) do
+    if FOR.Counted(row) and FOR.First(seen, "buys", row) then counts.buys = counts.buys + 1 end
+  end
   for _, row in ipairs(j.tabs.quests or {}) do
-    if row.kind == "linked" then counts.linked = counts.linked + 1
+    if not FOR.First(seen, row.kind == "linked" and "linked" or "quests", row) then   -- counted already
+    elseif row.kind == "linked" then counts.linked = counts.linked + 1
     elseif row.what == "achievement" then counts.achievement = counts.achievement + 1
     elseif row.what == "quest" then counts.quest = counts.quest + 1
     elseif row.what == "endeavor" then counts.endeavor = counts.endeavor + 1
     elseif row.what == "currency" then counts.currency = counts.currency + 1
-    elseif (row.what == "object" and handled.object) or (row.kind == "usedAt" and handled.npc) then   -- spelled out
+    elseif row.what == "object" and covered[row.objectID] then   -- its Leads to line says it (Task #471)
+    elseif row.what == "object" and row.kindLabel == "Treasure" then counts.treasure = counts.treasure + 1
     else counts.place = counts.place + 1 end
   end
   for _, row in ipairs(j.tabs.crafting or {}) do
-    if row.kind == "reagentOf" then counts.reagent = counts.reagent + 1
+    if not FOR.First(seen, row.kind, row) then   -- counted already
+    elseif row.kind == "reagentOf" then counts.reagent = counts.reagent + 1
     elseif row.kind == "makes" or row.kind == "partOf" or row.kind == "recipeFor" or row.kind == "teaches" or row.kind == "gives" then
       counts.makes = counts.makes + 1
       made = row
@@ -1009,37 +997,58 @@ function FOR.UseWords(j, handled)
       counts.pieces = counts.pieces + 1
     end
   end
+  -- what opening it can give (data format 10's H; Task #464: a container
+  -- read "Recollect knows no use for it yet" beside its four contents), on
+  -- the What's inside tab since Task #469
+  for _, row in ipairs(j.tabs.contents or {}) do
+    if FOR.First(seen, "contents", row) then counts.holds = counts.holds + 1 end
+  end
+  -- the Warcraft secrets it is used in (Task #464: a secret's own line sat
+  -- under "Recollect knows no use for it yet")
+  -- (one no longer in the game is the closing line's, Gone.Read: Task #465)
+  local Secrets = Recollect.Facts.Secrets
+  for _, row in ipairs(j.tabs.secret or {}) do
+    if row.own and row.sid and not seen["secret:" .. tostring(row.sid)] then
+      seen["secret:" .. tostring(row.sid)] = true
+      if not (Secrets and Secrets.Gone(Secrets.Get(row.sid))) then counts.secret = counts.secret + 1 end
+    end
+  end
   local function N(n, one, many) return ("%d %s"):format(n, n == 1 and one or many) end
   local parts = {}
   if counts.quest > 0 then parts[#parts + 1] = "is used in " .. N(counts.quest, "quest", "quests") end
   if counts.achievement > 0 then parts[#parts + 1] = "counts toward " .. N(counts.achievement, "achievement", "achievements") end
   if counts.linked > 0 then parts[#parts + 1] = "is linked to " .. N(counts.linked, "achievement", "achievements") end
+  if counts.treasure > 0 then parts[#parts + 1] = counts.treasure == 1 and "opens a treasure" or ("opens %d treasures"):format(counts.treasure) end
   if counts.place > 0 then parts[#parts + 1] = "is used at " .. N(counts.place, "place", "places") end
   if counts.endeavor > 0 then parts[#parts + 1] = "is named by " .. N(counts.endeavor, "neighborhood endeavor task", "neighborhood endeavor tasks") end
   if counts.buys > 0 then parts[#parts + 1] = "buys " .. N(counts.buys, "thing", "things") .. FOR.BuyKinds(j) end
   if counts.reagent > 0 then parts[#parts + 1] = "is a reagent in " .. N(counts.reagent, "recipe", "recipes") end
   local links = {}
   if counts.makes > 0 then
-    -- exactly one: say which, as a link ("combines into Amani Warrior's Spear"),
-    -- not "makes or teaches 1 thing" (a curator's note on the Toughened Amani Leather Wrap)
-    local verb = counts.makes == 1 and FOR.MADE_VERBS[made.kind]
-    local name = verb and Data().DisplayName(made)
-    if type(name) == "string" and name ~= "" and FOR.Described(handled.described, name) then
-      -- the description says what it makes already (Task #439)
-    elseif type(name) == "string" and name ~= "" then
-      parts[#parts + 1] = verb .. " " .. name
-      RowLink(made, name, links)
-    else
-      parts[#parts + 1] = "makes or teaches " .. N(counts.makes, "thing", "things")
+    -- exactly one: what kind of making, its name on its line below (a
+    -- curator's note on the Toughened Amani Leather Wrap asked for its link,
+    -- which that line carries); a description that names it already says it
+    local name = counts.makes == 1 and Data().DisplayName(made)
+    if not (type(name) == "string" and name ~= "" and FOR.Described(handled.described, name)) then
+      parts[#parts + 1] = counts.makes == 1 and FOR.MADE_ONE[made.kind] or ("makes or teaches " .. N(counts.makes, "thing", "things"))
     end
+  end
+  if counts.holds > 0 then
+    parts[#parts + 1] = counts.holds == 1 and "can give an item when opened"
+      or ("can give %s when opened"):format(N(counts.holds, "item", "items"))
   end
   if counts.currency > 0 then parts[#parts + 1] = "is worth a currency" end
   -- a class token's pieces (data format 16): one of them, by class
   if counts.pieces > 1 then parts[#parts + 1] = ("gives one of %d items, chosen by class"):format(counts.pieces) end
   if counts.pieces == 1 then parts[#parts + 1] = "gives an item when used" end
-  if #parts == 0 then return nil end
-  if #parts == 1 then return parts[1], links end
-  return table.concat(parts, ", ", 1, #parts - 1) .. " and " .. parts[#parts], links
+  -- (a use's parts and a treasure its Leads to line says are uses too, said on their own lines)
+  local any = #parts > 0 or counts.secret > 0 or counts.makes > 0 or next(covered) ~= nil
+  for _, row in ipairs(j.tabs.takes or {}) do
+    if not FOR.IsCraft(row) then any = true end
+  end
+  if #parts == 0 then return nil, links, any end
+  if #parts == 1 then return parts[1], links, any end
+  return table.concat(parts, ", ", 1, #parts - 1) .. " and " .. parts[#parts], links, any
 end
 
 -- What its purchases are, by kind in BUY_ORDER: " (2 pets, 1 toy, 4 decor
@@ -1052,22 +1061,16 @@ FOR.BUY_WORDS = { decor = { "decor", "decor" }, toy = { "toy", "toys" }, mount =
 FOR.BUY_ORDER = { "mount", "pet", "toy", "decor", "ensemble", "heirloom", "illusion", "recipe", "achievement" }
 function FOR.BuyKinds(j)
   local counts, other = {}, 0
+  local rows, seen = {}, {}   -- each thing once, however many sellers (Task #464)
   for _, row in ipairs(j.tabs.buys or {}) do
-    if FOR.Counted(row) then
-      if FOR.BUY_WORDS[row.what] then counts[row.what] = (counts[row.what] or 0) + 1 else other = other + 1 end
-    end
+    if FOR.Counted(row) and FOR.First(seen, "buys", row) then rows[#rows + 1] = row end
+  end
+  for _, row in ipairs(rows) do
+    if FOR.BUY_WORDS[row.what] then counts[row.what] = (counts[row.what] or 0) + 1 else other = other + 1 end
   end
   local parts = {}
-  if next(counts) == nil then
-    -- only plain items: a few are named ("Illegal Cosmic Emitter, ...")
-    if other == 0 or other > 3 then return "" end
-    local names = {}
-    for _, row in ipairs(j.tabs.buys or {}) do
-      if FOR.Counted(row) then names[#names + 1] = Data().DisplayName(row) end
-    end
-    if #names == 1 then return " (" .. names[1] .. ")" end
-    return " (" .. table.concat(names, ", ", 1, #names - 1) .. " and " .. names[#names] .. ")"
-  end
+  -- only plain items: nothing to add, each is named on its line below (Task #471)
+  if next(counts) == nil then return "" end
   for _, what in ipairs(FOR.BUY_ORDER) do
     local n = counts[what]
     if n then parts[#parts + 1] = ("%d %s"):format(n, n == 1 and FOR.BUY_WORDS[what][1] or FOR.BUY_WORDS[what][2]) end
@@ -1089,6 +1092,15 @@ function FOR.IsToken(j)
     if row.what == "quest" and (row.kind == "objective" or row.kind == "questItem" or row.kind == "starts") then return false end
   end
   return true
+end
+
+-- Whether the model's USED FOR has an older system's line (Purposes.Legacy:
+-- a Runecarving memory), which WHAT IT'S FOR shows under the explanation
+function FOR.LegacyUse(model)
+  for _, line in ipairs(type(model) == "table" and type(model.usedFor) == "table" and model.usedFor or {}) do
+    if type(line) == "table" and line.legacy then return true end
+  end
+  return false
 end
 
 -- The professions whose recipes craft it ("Jewelcrafting"), or nil
@@ -1151,20 +1163,22 @@ function FOR.Explain(model, j, itemID)
   local crafted = FOR.CraftedBy(j)
   if crafted then sentences[#sentences + 1] = ("Crafted with %s."):format(crafted) end
   if j then
-    local specific, handled, specificLinks = FOR.Specific(j, described)
-    local uses, useLinks = FOR.UseWords(j, handled)
-    for _, link in ipairs(specificLinks or {}) do explainLinks[#explainLinks + 1] = link end
+    local uses, useLinks, anyUse = FOR.UseWords(j, { described = described })
     for _, link in ipairs(useLinks or {}) do explainLinks[#explainLinks + 1] = link end
-    for _, sentence in ipairs(specific) do sentences[#sentences + 1] = sentence end
     if uses then
-      sentences[#sentences + 1] = ("%s %s."):format(#specific > 0 and "It also" or "It", uses)
-    elseif #specific == 0 and not collects and j.finished and #(j.tabs.gone or {}) == 0 then
+      sentences[#sentences + 1] = ("It %s."):format(uses)
+    elseif not anyUse and not collects and j.finished and #(j.tabs.gone or {}) == 0 and not FOR.LegacyUse(model) then
       -- (when every use is gone, the section's closing line says what they
-      -- were; a guide note says what the data can't)
+      -- were; a guide note says what the data can't; an older system's line
+      -- below says what it was, Task #464)
       local okN, notes = pcall(Recollect.Facts.Notes.For, itemID)
+      local tip = Recollect.Utilities.IsPositiveID(itemID) and ItemTip(model, itemID) or nil
       if okN and type(notes) == "table" and #notes > 0 then
         sentences[#sentences + 1] = notes[1].confirmed and "What it's for comes from a guide note below."
           or "What it's for comes from a guide note below, not confirmed in game yet."
+      elseif tip and type(tip.useText) == "string" and tip.useText ~= "" then
+        -- its own Use line is quoted below: never "no use" beside it (Task #464)
+        sentences[#sentences + 1] = "Recollect knows nothing about its use beyond its own Use line below."
       else
         sentences[#sentences + 1] = "Recollect knows no use for it yet."
       end
@@ -1212,6 +1226,10 @@ FOR.TILES = {
   { key = "quests", label = "Quests, places", icon = "Interface\\Icons\\INV_Misc_Note_01", title = "Quests and places",
     words = { "not done yet", "none done yet", "%d not done", "all done" }, open = "Not done yet", done = "Done",
     note = "Quests that use it and places or NPCs it's used at." },
+  { key = "contents", label = "What's inside", icon = "Interface\\Icons\\INV_Misc_Bag_10_Blue", title = "What's inside",
+    words = { "not collected yet", "none collected yet", "%d not collected yet", "all collected or held" },
+    open = "Not collected yet", done = "Collected or held",
+    note = "What opening it can give. A look, toy, mount or pet counts as collected once you have it; any other item once you hold one." },
   { key = "achievements", label = "Achievements", icon = "Interface\\Icons\\Achievement_General", title = "Achievements",
     words = { "not done yet", "none done yet", "%d not done", "all done" }, open = "Not done yet", done = "Done or earned",
     note = "Achievements it counts toward; done means earned, or this item's part of it done." },
@@ -1234,21 +1252,15 @@ function FOR.TileWords(def, n, open, have)
 end
 function FOR.Tiles(j)
   local counts = {}
-  local function Count(key, row)
-    local c = counts[key] or { n = 0, open = 0, have = 0 }
-    counts[key] = c
-    c.n = c.n + 1
-    if row.filterState == "missing" then c.open = c.open + 1 end
-    if row.filterState == "have" then c.have = c.have + 1 end
+  local function Count(key, rows, keep)
+    local n, open, have = FOR.Tally(rows, key, keep)
+    counts[key] = { n = n, open = open, have = have }
   end
   for _, group in ipairs(FOR.GROUPS) do
-    for _, row in ipairs(FOR.Rows(j, group)) do
-      if group.key ~= "crafting" or FOR.Counted(row) or row.kind == "reagentOf" then Count(group.key, row) end
-    end
+    Count(group.key, FOR.Rows(j, group), group.key == "crafting"
+      and function(row) return FOR.Counted(row) or row.kind == "reagentOf" end or nil)
   end
-  for _, row in ipairs(j.tabs.quests or {}) do
-    if FOR.IsAchievement(row) then Count("achievements", row) end
-  end
+  Count("achievements", j.tabs.quests or {}, FOR.IsAchievement)
   local tiles = {}
   for _, def in ipairs(FOR.TILES) do
     local c = counts[def.key]
@@ -1275,8 +1287,6 @@ local function ForLines(j)
   local lines, live = {}, 0
   lines.tallies = {}   -- each group's count, for the section's summary
   lines.short = {}     -- the same counts only, for a summary that would be cut (Task #439)
-  local tiles = FOR.Tiles(j)
-  if tiles then lines.tiles = { text = "", tiles = tiles, lead = true } end   -- painted with the section's lead
   -- a line per Warcraft secret it is used in, before the groups (a line
   -- after a group's title sits under it); the steps are the Secret tab's (Task #407)
   local okSecrets, secretUses = pcall(FOR.SecretUses, j)
@@ -1298,20 +1308,25 @@ local function ForLines(j)
     leads = {}
   end
   local ends, collectibles = 0, 0
+  j.covered = {}
   for _, line in ipairs(leads) do
     lines[#lines + 1] = line
+    if line.objectID then j.covered[line.objectID] = true end
     if line.leadEnd then
       ends = ends + 1
       if line.collectible then collectibles = collectibles + 1 end
     end
   end
   if leads[1] then lines.tallies[#lines.tallies + 1] = leads[1].text end
+  -- (after the leads: a treasure one says is no Treasure row, j.covered)
+  local tiles = FOR.Tiles(j)
+  if tiles then lines.tiles = { text = "", tiles = tiles, lead = true } end   -- painted with the section's lead
   if ends > 0 then
     local word = collectibles == ends and (ends == 1 and "collectible" or "collectibles") or (ends == 1 and "thing" or "things")
     lines.short[#lines.short + 1] = ("leads to %d %s"):format(ends, word)
     lines.chained = true
   end
-  for _, key in ipairs({ "buys", "quests", "crafting", "takes" }) do
+  for _, key in ipairs({ "buys", "quests", "contents", "crafting", "takes" }) do
     for _, row in ipairs(j.tabs[key] or {}) do
       -- what crafting the item takes is how to make it, not a use of it (the
       -- panel's USED FOR has no line for it either)
@@ -2084,12 +2099,14 @@ function Detail.Content(model, j)
   -- with the game's own filing of it under it only when it names an added
   -- patch), then an older system's line (it needs no rows), then the groups
   -- of uses (section.lead: painted before its lines, kept apart from the uses)
+  -- (the use lines first: a treasure their Leads to line says is not counted
+  -- again in the explanation, Task #471)
+  local forLines = j and Safely(ForLines, j) or nil
   local lead = Safely(FOR.Explain, model, j, itemID)
   local explained = lead[1] and lead[1].explain and lead[1].text or nil
   local uses = Safely(LegacyLines, model)
   local tallies = {}
   if j then
-    local forLines = Safely(ForLines, j)
     for _, line in ipairs(forLines) do uses[#uses + 1] = line end
     tallies = forLines.tallies or {}
     -- counts only once a chain or three kinds join, so the line isn't cut (Task #439)
@@ -2117,7 +2134,7 @@ function Detail.Content(model, j)
     end
   end
   if #uses > 0 or #lead > 0 then
-    sections[#sections + 1] = { title = "WHAT IT'S FOR", lines = uses, lead = lead,
+    sections[#sections + 1] = { title = "SUMMARY", lines = uses, lead = lead,
       summary = (#tallies > 0 and table.concat(tallies, "; ")) or explained or (uses[1] and uses[1].text) }
   end
   local achievements = Safely(AchievementLines, j)
@@ -2142,9 +2159,20 @@ function Detail.Content(model, j)
     end
   end
   for _, line in ipairs(reasons) do line.links = reasonLinks end
+  local title, where = TitleAndWhere(model)
+  return { title = title, where = where, icon = model.icon, sections = sections }
+end
+
+-- CheckLines(model, links): every check and its result, one line each, for
+-- the answer band's hover ("Why this answer"; Task #471: the Overview's CHECKS
+-- section said again what SUMMARY and the band say, so it is gone, and
+-- nothing is lost for troubleshooting). A check whose reason the band or the
+-- verdict's whole reason holds points at it ("Useful (the reason above)")
+Detail.WHY_TITLE = "Why this answer"
+function Detail.CheckLines(model, reasonLinks)
   local result = model.result
+  local checks, colors = {}, Recollect.UI.VerdictColors
   if result and result.purposes and #result.purposes > 0 then
-    local checks, labels, colors = {}, {}, Recollect.UI.VerdictColors
     local okKeep, keep = pcall(Detail.Keep, model)
     local banded = okKeep and type(keep) == "table" and type(keep.why) == "string" and keep.why or nil
     local wholeReason = tostring(Detail.WholeReason(model, true) or "")
@@ -2158,7 +2186,7 @@ function Detail.Content(model, j)
       -- the check's own label doesn't say it twice ("Buys: Buys ...")
       local label, reason = tostring(purpose.label), tostring(purpose.reason)
       -- the band's why is short (Task #262): a reason the verdict's whole
-      -- reason holds is the one WHAT IT'S FOR spells out, said above too
+      -- reason holds is the one SUMMARY spells out, said above too
       if banded and purpose.reason and (banded:find(reason, 1, true) or wholeReason:find(reason, 1, true)) then
         -- the word the band gives an optional use (Just for fun, Your call), not
         -- the check's Can't tell (Task #339)
@@ -2174,13 +2202,9 @@ function Detail.Content(model, j)
       checks[#checks + 1] = { text = ("%s: %s"):format(label, reason), secret = purpose.key == "secret" or nil,
         color = colors[purpose.verdict] or U.Colors.LABEL_GRAY, links = reasonLinks,
         done = done, icon = done and "done" or nil }
-      labels[#labels + 1] = tostring(purpose.label)
     end
-    sections[#sections + 1] = { title = "CHECKS", lines = checks,
-      summary = ("%d %s: %s"):format(#checks, #checks == 1 and "check" or "checks", table.concat(labels, ", ")) }
   end
-  local title, where = TitleAndWhere(model)
-  return { title = title, where = where, icon = model.icon, sections = sections }
+  return checks
 end
 
 -------------------------------------------------------------------------------
@@ -2487,12 +2511,12 @@ local Sections = {
   -- compact (Cobanyte, 2026-09-26: "compact it just a little bit vertically")
   HEADER = 32, ICON = 24, PAD = 8, GAP = 9, TOP_GAP = 6, BODY_PAD = 6, BODY_X = 12, HEADERS = 8,
   META = {
-    ["WHAT IT'S FOR"] = { key = "for", heading = "What it's for", icon = ICONS .. "INV_Misc_Book_09" },
+    -- (renamed from WHAT IT'S FOR, Task #471; its saved key stays "for")
+    SUMMARY = { key = "for", heading = "Summary", icon = ICONS .. "INV_Misc_Book_09" },
     ACHIEVEMENTS = { key = "achievements", heading = "Achievements", icon = ICONS .. "Achievement_General" },
     ["HOW TO GET MORE"] = { key = "get", heading = "How to get more", icon = ICONS .. "INV_Misc_Map_01" },
     ["GUIDE NOTES"] = { key = "notes", heading = "Guide notes", icon = ICONS .. "INV_Misc_Note_02" },
     ["WHAT YOU HAVE"] = { key = "have", heading = "What you have", icon = ICONS .. "INV_Misc_Bag_08" },
-    CHECKS = { key = "checks", heading = "Checks", icon = ICONS .. "INV_Misc_Spyglass_02" },
   },
   headers = {}, used = 0,
   session = {},   -- used only while RECOLLECT_WINDOW_STATE isn't a table
@@ -2931,6 +2955,8 @@ local COLUMNS = {
   crafting = { NAME, KIND, { key = "profession", label = "Profession", width = 120, color = Gray,
       text = function(row) return Data().Profession(row) or "" end, sort = function(row) return Lower(Data().Profession(row)) end },
     Count("count", "Uses", 60, function(row) return row.count end), PRODUCT, Last(STATUS) },
+  -- what opening it can give: each content's kind and its look or collection state (Task #469)
+  contents = { NAME, KIND, Last(STATUS) },
   sources = { NAME, KIND, WHERE(), MAP, Last(STATUS) },
   -- what each part is for, and other characters' copies, listed and never counted (PI-07)
   takes = { NAME, { key = "for", label = "For", width = 150, color = Gray, text = function(row) return Data().For(row) or "" end,
@@ -2983,6 +3009,7 @@ local KIND_WORDS = {
   Mission = "Follower missions that give it",   -- data format 20 (Task #403)
   ["Ensemble look"] = "Ensembles that give its look",   -- data format 21 (Task #405)
   Secret = "Secrets whose reward it is",
+  Gear = "Gear (its look)",   -- What's inside (Task #469)
 }
 local KIND_DEFS = {
   buys = { "Toy", "Mount", "Pet", "Decor", "Ensemble", "Heirloom", "Recipe", "Illusion", "Item" },
@@ -2990,6 +3017,7 @@ local KIND_DEFS = {
     "Currency", "Endeavor" },
   crafting = { "Combines into", "Makes", "Reagent", "Teaches", "Teaches how to make", "Your recipes", "Alt's scan",
     "Using it gives", "Customizes", "Reputation", "Lure for", "Gives one of" },
+  contents = { "Gear", "Toy", "Mount", "Pet", "Decor", "Ensemble", "Illusion", "Heirloom", "Recipe", "Item" },
   sources = { "Drops from", "Boss loot", "Zone drop", "World drop", "Sold by", "Crafted by", "Found at", "Reward",
     "Achievement", "Renown", "Choice reward", "Trading Post", "Made from", "Recipe item", "Black Market", "From using",
     "Housing Catalog", "Appearances", "During quest", "Bought with", "Zone activity", "Archaeology", "New character",
@@ -2998,7 +3026,7 @@ local KIND_DEFS = {
 }
 
 local filters, searches = {}, {}   -- [tab] = { ["s:missing"] = true }, [tab] = "lowered text"
-for _, tab in ipairs({ "buys", "quests", "crafting", "sources", "takes", "gone" }) do filters[tab] = {} end
+for _, tab in ipairs({ "buys", "quests", "contents", "crafting", "sources", "takes", "gone" }) do filters[tab] = {} end
 
 -- Does a row pass its tab's filters and search? Within a group any checked
 -- value passes; across groups every group must
@@ -4499,6 +4527,18 @@ function Detail.FillBandTip(tip)
   if type(k.detail) == "string" and k.detail ~= "" and k.detail ~= k.why then
     tip:AddLine(k.detail, light[1], light[2], light[3], true)
   end
+  -- every check and its result, one line each (Task #471: the Overview's
+  -- CHECKS section is gone; this is where they are read now)
+  local okChecks, checks = pcall(Detail.CheckLines, shown or {})
+  if okChecks and type(checks) == "table" and #checks > 0 then
+    local gold = U.Colors.STATUS_GOLD
+    tip:AddLine(" ")
+    tip:AddLine(Detail.WHY_TITLE, gold[1], gold[2], gold[3])
+    for _, line in ipairs(checks) do
+      local c = line.color or light
+      tip:AddLine(line.text, c[1], c[2], c[3], true)
+    end
+  end
   local blue = U.Colors.INFO_BLUE
   tip:AddLine("Recollect only suggests; it's always your call.", blue[1], blue[2], blue[3], true)
   return true
@@ -5064,6 +5104,23 @@ Detail._test = {
     restore()
     if not ok then error(lines, 0) end
     return lines
+  end,
+  -- Overview(itemID, owner): the whole Overview (Detail.Content) built the
+  -- same way, for the offline renderers (Task #471: each fact said once)
+  Overview = function(itemID, owner)
+    local DetailData = Recollect.UI.DetailData
+    local restore = DetailData._test.Isolate()
+    local ok, content = pcall(function()
+      local model = Recollect.UI.Tooltip.ReferenceModel({ id = itemID }, "detail")
+      model.source = model.source or {}
+      model.source.owner = model.source.owner or owner
+      local job = DetailData.Build(itemID, nil, owner or Recollect.Verdicts.Rows.Owner())
+      DetailData._test.RunAll()
+      return Detail.Content(model, job)
+    end)
+    restore()
+    if not ok then error(content, 0) end
+    return content
   end,
   seams = seams,
   Click = OnClick,

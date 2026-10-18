@@ -197,7 +197,8 @@ Guide.SECTIONS = {
     summary = "Pin it from the panel, or click a row in the list",
     body = {
       Bullets({
-        "Overview: what it is, what it's for, how to get more, what you have",
+        "Overview: a summary of what it is and what it's for, how to get more, what you have",
+        "Hover the Still needed? answer for why: every check Recollect ran and what it found",
         "Tabs: what it buys, quests, crafting, where it comes from, and more",
         "An item used in one of the game's secrets gets a Secret tab: the steps on the left, the chosen step's page "
           .. "on the right, and your own checkmarks for steps the game can't track",
@@ -262,6 +263,7 @@ Guide.SECTIONS = {
     try = {
       { "/rec settings", "Turn it on or off (Curator)" },
       { "/rec curator", "The curator dashboard: what's waiting, what was sent" },
+      { "/rec curator pause", "Stop recording for this session; /rec curator resume or a reload starts it again" },
     },
   },
 }

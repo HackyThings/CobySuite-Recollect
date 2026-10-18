@@ -217,6 +217,8 @@ local function ThingLink(thing, words)
   if type(thing) ~= "table" then return nil end
   local name = words or Recollect.Facts.Buys.Name(thing)
   if thing.what == "mount" and tostring(thing.key):find("^mountspell:") then return RowLink("spell", thing.id, name) end
+  -- an item's own look (w, Task #465) links as its item
+  if thing.what == "look" then return name and RowLink("item", thing.id, name) or nil end
   return RowLink(thing.what, thing.id, name)
 end
 
@@ -715,25 +717,43 @@ end
 -- The header
 -------------------------------------------------------------------------------
 local KIND_WORDS = { mount = "mount", toy = "toy", pet = "pet", ensemble = "ensemble", decor = "decor item",
-  recipe = "recipe", achievement = "achievement", heirloom = "heirloom", illusion = "weapon illusion" }
+  recipe = "recipe", achievement = "achievement", heirloom = "heirloom", illusion = "weapon illusion",
+  appearance = "artifact appearance", look = "item appearance" }
+
+-- A reward's state in words, its color and its mark: collected (an
+-- achievement earned), not collected, or why it can't be read; an item's
+-- look (Task #465) says when it was collected from another item or this
+-- character can't collect it
+local function RewardState(thing)
+  local V, colors = Verdict(), Colors()
+  local have = thing.what == "achievement" and "earned" or "collected"
+  if thing.state == "have" then return have, colors[V.DONE], "done" end
+  if thing.state == "missing" then
+    if thing.otherItem then return "collected from another item, not this one", colors[V.NEEDED], "pending" end
+    return "not " .. have, colors[V.NEEDED], "pending"
+  end
+  if thing.why == "unavailable" then return "this character can't collect it", U.Colors.LABEL_GRAY, "na" end
+  return "can't be read yet", U.Colors.LABEL_GRAY, "wait"
+end
+
+-- A reward's words when it has no link (an artifact appearance has no row to
+-- open: Task #463): its name as read, else "a pet", "an artifact appearance"
+local function RewardName(thing, kind)
+  local name = Recollect.Facts.Buys.Name(thing)
+  if name then return name end
+  return (kind:find("^[aeiou]") and "an " or "a ") .. kind
+end
 
 -- The rewards line: each reward a link, its kind and its state ("not
 -- collected", "collected"; an achievement "earned"), its mark before it
 local function RewardsLine(things)
-  local V, colors = Verdict(), Colors()
   local segs = { { text = #things > 1 and "Rewards: " or "Reward: " } }
   for i, thing in ipairs(things) do
     if i > 1 then segs[#segs + 1] = { text = "; " } end
     local link = ThingLink(thing)
     local kind = KIND_WORDS[thing.what] or "reward"
-    local have = thing.what == "achievement" and "earned" or "collected"
-    local mark, state, color = "wait", "can't be read yet", U.Colors.LABEL_GRAY
-    if thing.state == "have" then
-      mark, state, color = "done", have, colors[V.DONE]
-    elseif thing.state == "missing" then
-      mark, state, color = "pending", "not " .. have, colors[V.NEEDED]
-    end
-    segs[#segs + 1] = { icon = mark, text = link and link.text or ("a " .. kind), links = link and { link } or nil }
+    local state, color, mark = RewardState(thing)
+    segs[#segs + 1] = { icon = mark, text = link and link.text or RewardName(thing, kind), links = link and { link } or nil }
     segs[#segs + 1] = { text = (" (%s, "):format(kind) }
     segs[#segs + 1] = { text = state, color = color }
     segs[#segs + 1] = { text = ")" }
@@ -793,19 +813,12 @@ end
 
 -- The rewards as the Summary page's rows: { thing, link, kind, state words, color, mark }
 local function RewardRows(things)
-  local V, colors = Verdict(), Colors()
   local out = {}
   for _, thing in ipairs(things or {}) do
     local link = ThingLink(thing)
     local kind = KIND_WORDS[thing.what] or "reward"
-    local have = thing.what == "achievement" and "earned" or "collected"
-    local row = { thing = thing, link = link, name = link and link.text or ("a " .. kind), kind = kind,
-      state = "can't be read yet", color = U.Colors.LABEL_GRAY, mark = "wait" }
-    if thing.state == "have" then
-      row.state, row.color, row.mark = have, colors[V.DONE], "done"
-    elseif thing.state == "missing" then
-      row.state, row.color, row.mark = "not " .. have, colors[V.NEEDED], "pending"
-    end
+    local row = { thing = thing, link = link, name = link and link.text or RewardName(thing, kind), kind = kind }
+    row.state, row.color, row.mark = RewardState(thing)
     out[#out + 1] = row
   end
   return out
@@ -912,6 +925,10 @@ end
 -------------------------------------------------------------------------------
 -- The model
 -------------------------------------------------------------------------------
+-- A secret no longer in the game (route flag x): its progress line and its note
+Model.GONE_PROGRESS = "No longer in the game"
+Model.GONE_NOTE = "This secret is no longer in the game: its steps are shown as they were"
+
 -- Build(itemID, owner, pick, list, read): the model for pick, one of list
 -- (UI.SecretPanel.Secrets); read is DetailData.SecretStepsOf's answer for
 -- pick's secret (nil: its steps can't be read). Model.unplaced lists the
@@ -940,7 +957,12 @@ function Model.Build(itemID, owner, pick, list, read)
   local applies = Secrets().Applies(secret, owner)
   local ctx = { secret = secret, owner = owner, viewer = viewer, ownerKey = model.ownerKey, sid = pick.sid,
     budget = Recollect.Facts.QuestInfo.FrameBudget(), rowsByLabel = {}, unplaced = model.unplaced }
-  if applies ~= true then
+  if applies == "unavailable" then
+    -- no longer in the game (Task #463): shown, read as history, nothing to do
+    model.gone = true
+    ctx.notFor = Model.GONE_NOTE
+    model.notes[#model.notes + 1] = Model.GONE_NOTE
+  elseif applies ~= true then
     local words = Recollect.Purposes.Registry.KindWords((Recollect.Purposes.Registry.Restrictions({ secret }, owner)))
     ctx.notFor = applies == nil and "Whether this secret is for this character isn't recorded yet"
       or ("This secret is for another %s"):format(words or "character")
@@ -1000,7 +1022,12 @@ function Model.Build(itemID, owner, pick, list, read)
   model.markedCount = marked
   Progress(model, summary, secret)
   ShortProgress(model, summary)
-  Suggestion(model, summary, ctx)
+  if model.gone then
+    model.progress, model.progressShort = Model.GONE_PROGRESS, Model.GONE_PROGRESS
+    model.progressColor, model.bar = Colors()[Verdict().OUTDATED], nil
+  else
+    Suggestion(model, summary, ctx)
+  end
   if #model.rows > Model.SMALL and itemID then MineLines(model, model.rows, itemID) end
   model.stages = Stages(model, secret, model.rows)
   model.small = #model.rows <= Model.SMALL

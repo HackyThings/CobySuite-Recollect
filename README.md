@@ -4,116 +4,111 @@
   <img src="https://raw.githubusercontent.com/HackyThings/CobySuite-Recollect/main/.publish-meta/icon/recollect-224.jpg" width="160" alt="Recollect">
 </p>
 
-Recollect shows what each item in your bags, bank and warband bank is for, and whether you still need it.
+**Your bags are full of things you're afraid to throw away. Recollect tells you what each one is for, and whether you still need it.**
 
-## How to use it
+Hover any item in your bags, bank or warband bank and hold **Alt**. Recollect shows what the item is used for, where it comes from, and a plain answer: keep it, use it, sell it, or it's done. Every answer comes with its reason, so you never have to take its word blindly.
 
-- Hover an item in your bags or bank and hold **Alt**: the audit panel beside the tooltip shows the verdict, what the item is used for, and why.
-- **Alt+D** while the panel shows opens the item's full details.
-- **Alt+W** while the panel names a vendor, treasure or NPC sets a waypoint to it.
-- `/rec` or the minimap button opens the **Recollect Audit**, every stack you hold with its verdict. Right-click the button for settings.
-- `/rec guide` opens the feature guide (it opens by itself on your first login).
+It's an in-game item encyclopedia too. For nearly any item in the game, Recollect can tell you what it buys, what quests and achievements need it, what it combines into, what it opens, who sells it, what drops it, and much more, without leaving the game.
 
-## Verdicts
+## What's new in 1.0.5
 
-- **Needed**: something unfinished still uses it.
-- **Use now**: learn it, open it, or start its quest.
-- **Useful**: it still has a use for you, such as something it buys that you don't have.
-- **Can't tell**: Recollect can't confirm yet, and says why (and what to do, where it can).
-- **Junk**: a gray item with a vendor price, the game's own junk label.
-- **Outdated**: it has been replaced (older gear, an older expansion's potions, flasks, food, weapon oils and sharpening stones, an old-season reagent and the like).
-- **Lower level**: gear below what you wear, not shown to be from an earlier season.
-- **Purpose done**: every use Recollect checks is finished.
+- **104 secrets now, up from 22.** The Hivemind, the Mote of Nasz'uro, the S.E.L.F.I.E. Camera's hidden filters, the Secrets of Azeroth clues, 20 Midnight secrets, Zul'Gurub's relics, Legion's hidden artifact appearances and many more, each explained step by step.
+- **A clearer item details window.** It opens on a Summary that says each thing once, and anything you open, such as a cache or a chest, gets its own What's inside tab showing what it can give and whether you have it.
+- **Raid and dungeon loot names its difficulty,** and each boss is listed once.
+- **Pause curator recording** with `/rec curator pause` for the rest of your session.
+- **More items say where they come from,** including Midnight quest items the game files under an older expansion, plus many fixes from what curators found in game.
 
-Recollect never decides for you. Its suggestions, such as "most likely safe to sell or delete, but that's your call", always come with their reason.
+## Getting started
 
-## The audit panel
+- Hover an item in your bags or bank and hold **Alt** to see its audit panel beside the tooltip.
+- Press **Alt+D** while the panel shows to open the item's full details.
+- Press **Alt+W** while the panel names a vendor, treasure or NPC to set a waypoint to it.
+- Type `/rec`, or click the minimap button, to open the **Recollect Audit**: every stack you hold, with its answer.
+- Type `/rec guide` for a quick tour. It also opens by itself the first time you log in.
 
-A short summary beside the tooltip: the verdict and why, the uses that matter most, where the item comes from, and a Tip when one applies. For an item you don't hold (a chat link, loot, a vendor's goods), it shows how many you have instead.
+## The answers
+
+| Answer | What it means |
+|---|---|
+| **Keep it** | Something unfinished still needs it, it still has a use for you, or you can use it right now (learn it, open it, start its quest). |
+| **Sell it** | A gray item the game itself marks as junk. |
+| **Replaced** | Something newer does its job: older potions, food, gear from past seasons and the like. |
+| **Lower level** | Gear below what you're wearing. |
+| **Probably done** | Every use Recollect knows about is finished. |
+| **Likely safe to delete** | Every use Recollect checked is done, with the reasons listed. Still your call. |
+| **Just for fun / Your call** | An optional item, like a novelty or a pet treat. It's up to you. |
+| **Can't tell yet** | Recollect can't be sure, and tells you why and what would settle it. |
+
+Recollect never decides for you. When it thinks something is most likely safe to sell or delete, it says so with its reasons, and leaves the call to you.
 
 ## The item details window
 
-Everything Recollect knows about one item, so you don't need a website. Open it with Alt+D, or click a row in the Recollect Audit. A setting can make the key a click instead (Alt-click, for example), which works on any item, even in combat.
+Everything Recollect knows about one item, in one place. Open it with **Alt+D**, or click a row in the Recollect Audit.
 
-- **Still needed?** Recollect's suggestion (Keep it, Sell it, Likely safe to delete, Probably done, Just for fun, Your call, Replaced, Lower level or Can't tell yet) with a short reason; hover for the rest.
-- **What it's for:** what the item is, its Use line, and a tile for each kind of use with how many there are and how many are still open.
-- **Achievements:** what it counts toward, with progress bars.
-- **How to get more:** each way to get it (sold by, drops from, rewards) with the whole price and what buying requires first. With no source recorded yet, it says so, and whether another player could trade you one.
-- **Guide notes:** short notes in Recollect's own words for items nothing in the game explains. They never change the suggestion.
-- **What you have:** your counts by place and on your other characters; hover a tile for exactly where.
-- **Checks:** every check Recollect ran and what it found.
+- **What it's for:** what the item is and every use it has, each with where you stand.
+- **How to get more:** every way to get it, with the full price and anything you need first.
+- **Achievements** it counts toward, with progress bars.
+- **What you have** on this character and your others.
+- **Tabs** with sortable, searchable tables: what it buys, quests and achievements, crafting, where it comes from, what using it takes, and what's no longer available.
+- **The Secret tab** for any item that's part of one of the game's secrets.
 
-A green check marks what's done, earned, collected or known, a red cross what's still to get or do, and a gray cross what this character can't use.
-
-Tabs along the bottom list everything in sortable, searchable tables (Buys, Quests and achievements, Crafting, Comes from, What it takes and No longer available, each shown only when the item has rows). Names work as they do in chat (hover, Shift-click, Ctrl-click), Alt-click opens that item here, and right-click gives a menu: link it, preview it, set a waypoint, or copy its name or Wowhead link. An achievement row's icon opens the game's achievement window at it.
-
-An item that belongs to one of the game's secrets also gets a **Secret** tab, and What it's for names the secret as a link that opens it. The tab walks you through the secret: a step list on the left (stages that fold, a mark on every step, a search, All, To do and This item filters, and a Suggested next step), and one page for the chosen step on the right with what you need and own, what to do, and its places with a Set waypoint button. Previous and Next walk the steps, and for steps the game can't track you can tick your own checkmark; those marks are only your checklist and never count as the game's progress.
+Every name is a real link: hover it, Shift-click it into chat, or Alt-click to open that item in the details window. Right-click any row to link it, preview it, set a waypoint or copy its name.
 
 ## The Recollect Audit
 
-`/rec` lists every stack you hold with its verdict and reason, counted by verdict at the top. Search it, or filter by verdict, place, use or why Recollect can't tell. Tabs choose whose items you see: My Items (this character and the warband bank), All Characters, or one of your others as they were at their last login. Click a row for its details.
+`/rec` lists every stack you hold with its answer and reason, counted at the top. Search it, filter it by answer, place or use, and switch between this character, all your characters, or any one alt as of their last login.
 
 ## Waypoints
 
-Waypoints go to TomTom when it's installed, else to the game's map pin; a setting can always use the game's pin. A TomTom arrow names the NPC and why you're going, such as "sells ..." or "drops ...". The waypoint key isn't bound in combat.
+Waypoints go to TomTom when it's installed, otherwise to the game's own map pin. You can always choose the game's pin in the settings.
 
 ## Settings
 
-`/rec settings`, a right-click on the minimap button, or Options > AddOns.
+Open them with `/rec settings`, a right-click on the minimap button, or Options > AddOns. You can choose which key shows the audit panel (Alt, Shift, Ctrl or always), which bags and banks the audit includes, your details and waypoint keys, and whether you'd like to hear when a newer version is out.
 
-- **Audit panel:** whether Recollect shows on item tooltips, and when the audit panel shows (Alt, Shift, Ctrl or always), with an example, and whether to be told when a newer version of Recollect is out.
-- **Recollect Audit:** whether the list includes your bank, warband bank and other characters, and the minimap button.
-- **Keys and waypoints:** the item details key, the waypoint key, and where waypoints go (TomTom first, or the game's map pin).
-- **Curator:** curator mode (below).
+## Curator mode (optional)
 
-## Curator mode
+Want to help make Recollect better? Curator mode quietly notes where the game disagrees with Recollect's data while you play, and sends those notes to the author to check before anything changes. It's off by default and available in the Americas and Oceania region only.
 
-Optional and off by default, and available only in the Americas and Oceania region. It helps the author find missing or wrong item data while you play.
-
-- Turn it on under `/rec settings` > **Curator**, which lists exactly what is recorded. It records game IDs and positions, a few details about your character (such as class, level, faction and zone), items Recollect knows nothing about (your bags and banks included) and Recollect's own errors; never names, chat, gold, currencies or how many of anything you have. While it is on, the author's online checks also report your zone and the kind of instance you're in.
-- Join **Recollect Curators** with `/rec curator join`; the author collects findings through that community.
-- **Curator Flag** (or **Request info**) in item details and `/rec feedback` send your own notes.
-- `/rec curator` shows what waits to be sent and the collection history. Turn on **Ask me before each collection** to approve each one.
-- Turning curator mode off stops recording and offers to delete saved findings.
+- It records game IDs and places, and a few details about your character such as class, level and zone. It never records names, chat, gold, or how many of anything you have.
+- Turn it on in `/rec settings` under **Curator**, which lists exactly what's recorded.
+- Join the **Recollect Curators** community with `/rec curator join`.
+- Use **Curator Flag** in the item details, or `/rec feedback`, to send your own notes.
+- Turning it off stops recording and offers to delete what was saved.
 
 ## Commands
 
 ```
-/rec              Open or close the Recollect Audit (also /recollect, /rec show)
-/rec settings     Open or close the settings window (also /rec config, /rec options)
-/rec guide        Open or close the feature guide (also /rec tutorial)
-/rec changelog    Open or close the changelog: what changed in each version (also /rec whatsnew, /rec news, /rec change)
-/rec addons       Every addon by Cobanyte, with CurseForge links and pictures (also /rec other, /rec more)
-/rec debug        Open or close the debug log window
-/rec reset windows  Put every window back to its default place and size
-/rec curator      Open the curator dashboard (also status, join, cancel, diag, ping)
-/rec feedback     Write feedback for Recollect's author, sent with your next curator collection (also /rec bug)
-/rec version      Print the addon version
-/rec help         Show this help
+/rec                Open or close the Recollect Audit
+/rec settings       Open the settings
+/rec guide          Open the feature guide
+/rec changelog      See what changed in each version
+/rec addons         Every addon by Cobanyte, with CurseForge links
+/rec reset windows  Put every window back in its default place
+/rec curator        Open the curator dashboard
+/rec feedback       Send feedback to the author
+/rec debug          Open the debug log
+/rec help           Show every command
 ```
 
-The Addon Compartment also opens the Recollect Audit; right-click it for settings.
+## Found a bug?
 
-`/rec curator status` prints one status line, `join` prints the invite link to the Recollect Curators community, `cancel` stops a running collection, `diag` prints connection details for a bug report and `ping` tests the connection to the author.
+Type `/rec debug`, press **Copy Last 250**, and send the text along with a line about what you were doing.
 
-## Issues / feedback
-
-Found a bug? Run `/rec debug`, press **Copy Last 250** and send the text with a line about what you were doing. The log holds the addon version, your WoW build and your settings.
-
-- **Email:** hackythings@gmail.com
-- **BugSack errors:** whisper them to **Figment-Illidan** in game.
-- **CurseForge:** comment on the [project page](https://www.curseforge.com/projects/1714804) for questions and feedback.
+- **CurseForge:** comment on the project page.
 - **GitHub:** [open an issue](https://github.com/HackyThings/CobySuite-Recollect/issues) for bugs you can reproduce.
-
-## License
-
-Copyright (C) 2026 Cobanyte. Released under the GNU General Public License, version 2 (see LICENSE).
+- **In game:** whisper **Figment-Illidan** with BugSack errors.
+- **Email:** hackythings@gmail.com
 
 ## Where the data comes from
 
-Recollect reads your collections, quests, achievements, bags and bank live from the game. What links an item to its uses ships as IDs only (names are read live in your language), from:
+Recollect reads your collections, quests, achievements, bags and bank live from the game. Its database of what links each item to its uses ships as IDs only, and every name is read live in your own language. That database is built from:
 
 - the game's own answers, gathered with Recollect's development tools;
-- [AllTheThings](https://github.com/ATTWoWAddon/AllTheThings) (MIT license, Copyright (c) 2026 AllTheThings WoW Addon), from which Recollect builds its own curated list of vendor costs, positions, quest items and item sources; its license notice is in `Source/Data/Relations.lua` and `Source/Data/Vendors.lua`;
+- [AllTheThings](https://github.com/ATTWoWAddon/AllTheThings) (MIT license, Copyright (c) 2026 AllTheThings WoW Addon), from which Recollect builds its own curated list of item sources, vendor prices, places and quest items;
 - what curators found in game, once the author has checked it;
-- short notes the author wrote in Recollect's own words for items nothing in the game explains. None of them changes a verdict.
+- short notes written in Recollect's own words for items nothing in the game explains.
+
+## License
+
+Copyright (C) 2026 Cobanyte. Released under the GNU General Public License, version 2.

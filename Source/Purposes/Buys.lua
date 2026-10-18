@@ -420,7 +420,8 @@ end
 
 -- Every use relation of the item, when each one is no longer in the game:
 -- { buys = { relation }, quests, opens, usedAt, achievements, other } counts;
--- nil when there is none or any use is still in the game. A use that isn't
+-- nil when there is none, and nil and true when any use is still in the
+-- game. A use that isn't
 -- a quest is checked first, so an item with a live purchase (Mark of
 -- Honor's thousands) stops at its first relation, before the quests are read
 local function RemovedUses(relations, owner)
@@ -431,7 +432,7 @@ local function RemovedUses(relations, owner)
       if QUEST_USES[relation.kind] then
         anyQuest = true
       elseif not (relation.flags ~= nil and relation.flags.unavailable == true) then
-        return nil
+        return nil, true
       end
     end
   end
@@ -446,7 +447,7 @@ local function RemovedUses(relations, owner)
       else
         removed = relation.flags ~= nil and relation.flags.unavailable == true
       end
-      if not removed then return nil end
+      if not removed then return nil, true end
       gone.total = gone.total + 1
       -- grouped as the panel's closing line groups them (UI.UsedFor's
       -- GoneGroup): a cost that counted toward an achievement (thing "a")
@@ -503,6 +504,25 @@ local function BoughtWords(list, owner)
   return text
 end
 
+-- The secrets no longer in the game that the item is used in (Facts.Secrets
+-- GoneUses), or none when they can't be read
+local function GoneSecrets(itemID)
+  local Secrets = Recollect.Facts.Secrets
+  if not Secrets then return {} end
+  local ok, list = pcall(Secrets.GoneUses, itemID)
+  return ok and type(list) == "table" and list or {}
+end
+
+-- 'it was used in [SECRET: Phoenix Wishwing]' (the secret's link, as the
+-- secret check's reasons hold it), or "it was used in 2 secrets"
+local function SecretWords(secrets, owner)
+  if #secrets > 1 then return ("it was used in %d secrets"):format(#secrets) end
+  local okName, name = pcall(Recollect.Facts.Secrets.Name, secrets[1], owner)
+  local Panel = Recollect.UI and Recollect.UI.SecretPanel
+  if not okName or not name or not (Panel and Panel.PlainLink) then return "it was used in 1 secret" end
+  return ("it was used in %s"):format(Panel.PlainLink(name))
+end
+
 -- Uses that only inform and decide nothing (what opening a container can
 -- give, H): one beside the sources leaves the item's removal to be said
 -- (Task #449: the Bag of Discount Goods, 199108, gone, lost its note once it
@@ -536,8 +556,12 @@ R.Register({
   Evaluate = function(ctx)
     local owner = ctx.owner or { faction = ctx.playerFaction, isViewer = not ctx.otherCharacter, name = ctx.otherCharacter }
     local relations = Recollect.Facts.Relations.For(ctx.stack.itemID)
-    local gone = RemovedUses(relations, owner)
-    if not gone then return NoUse(ctx, relations) end
+    local gone, live = RemovedUses(relations, owner)
+    -- a secret no longer in the game is a removed use too (Task #463, the
+    -- Manager's decision 2026-10-15: never a live one)
+    local secrets = not live and GoneSecrets(ctx.stack.itemID) or {}
+    if not gone and #secrets == 0 then return NoUse(ctx, relations) end
+    gone = gone or { buys = {}, quests = 0, opens = 0, usedAt = 0, achievements = 0, other = 0, total = 0 }
     -- a confirmed known use (Data.Uses) is a use the data's routes don't
     -- list: its own check answers, and nothing here says every use is gone
     local okKnown, known = pcall(Recollect.Purposes.KnownUse.EntriesFor, ctx.stack.itemID)
@@ -555,6 +579,7 @@ R.Register({
     for _, kind in ipairs({ "quests", "opens", "usedAt", "achievements", "other" }) do
       if gone[kind] > 0 then parts[#parts + 1] = Counted(kind, gone[kind]) end
     end
+    if #secrets > 0 then parts[#parts + 1] = SecretWords(secrets, owner) end
     local Season = Recollect.Purposes.Season
     local removedIn = Season and Season.RemovedWords(ctx.stack.itemID) or ""
     return R.Result(V.OUTDATED, "Every use Recollect knows is gone from the game: " .. table.concat(parts, "; ") .. removedIn,
